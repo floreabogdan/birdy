@@ -257,6 +257,8 @@ CREATE TABLE IF NOT EXISTS alert_destinations (
 	smtp_to       TEXT NOT NULL DEFAULT '',
 	-- none | starttls | tls
 	smtp_security TEXT NOT NULL DEFAULT 'starttls',
+	-- comma-separated event kinds this destination wants; empty means all.
+	events        TEXT NOT NULL DEFAULT '',
 	created_at    TEXT NOT NULL,
 	updated_at    TEXT NOT NULL
 );

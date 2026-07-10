@@ -101,6 +101,17 @@
 							</div>
 						</div>
 
+						<div class="field" style="margin-top:12px">
+							<label>Send on</label>
+							<div class="checks">
+								{{$dest := .Dest}}
+								{{range .EventKinds}}
+								<label class="check"><input type="checkbox" name="events" value="{{.Kind}}" {{if $dest.HasEvent .Kind}}checked{{end}}> {{.Label}}</label>
+								{{end}}
+							</div>
+							<div class="hint">Tick none to receive <strong>every</strong> event. Tick some to receive only those.</div>
+						</div>
+
 						<div class="hint" style="margin-top:8px">The message layout is fixed and tuned for each platform &mdash; nothing to design.</div>
 					</div>
 				</div>

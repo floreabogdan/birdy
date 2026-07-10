@@ -47,6 +47,52 @@ type Destination struct {
 	SMTPFrom     string
 	SMTPTo       string
 	SMTPSecurity string
+
+	// Events is a comma-separated list of event kinds this destination wants.
+	// Empty means every kind — the common case.
+	Events string
+}
+
+// AlertEventKind is one selectable event a destination can filter on, with the
+// label shown in the UI.
+type AlertEventKind struct {
+	Kind, Label string
+}
+
+// AlertEventKinds are the kinds a destination may subscribe to.
+func AlertEventKinds() []AlertEventKind {
+	return []AlertEventKind{
+		{EventSessionDown, "Session down"},
+		{EventSessionUp, "Session recovery"},
+		{EventFlap, "Flap"},
+		{EventLimitHit, "Import limit"},
+		{EventConfigApply, "Config applied"},
+		{EventConfigRevert, "Config reverted"},
+	}
+}
+
+// Wants reports whether this destination should receive an event of this kind.
+func (d Destination) Wants(kind string) bool {
+	if strings.TrimSpace(d.Events) == "" {
+		return true
+	}
+	for _, k := range strings.Split(d.Events, ",") {
+		if strings.TrimSpace(k) == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// HasEvent reports whether a kind is in this destination's filter, for
+// pre-checking the boxes on the edit form.
+func (d Destination) HasEvent(kind string) bool {
+	for _, k := range strings.Split(d.Events, ",") {
+		if strings.TrimSpace(k) == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func (d Destination) IsWebhookKind() bool { return webhookTypes[d.Type] }
@@ -150,12 +196,12 @@ func looksLikeEmail(s string) bool {
 }
 
 const destCols = `id, name, type, enabled, url, smtp_host, smtp_port, smtp_username,
-	smtp_password, smtp_from, smtp_to, smtp_security`
+	smtp_password, smtp_from, smtp_to, smtp_security, events`
 
 func scanDestination(sc scanner) (Destination, error) {
 	var d Destination
 	err := sc.Scan(&d.ID, &d.Name, &d.Type, &d.Enabled, &d.URL, &d.SMTPHost, &d.SMTPPort,
-		&d.SMTPUsername, &d.SMTPPassword, &d.SMTPFrom, &d.SMTPTo, &d.SMTPSecurity)
+		&d.SMTPUsername, &d.SMTPPassword, &d.SMTPFrom, &d.SMTPTo, &d.SMTPSecurity, &d.Events)
 	return d, err
 }
 
@@ -204,10 +250,10 @@ func (s *Store) CreateAlertDestination(d Destination) (int64, error) {
 	ts := now()
 	res, err := s.db.Exec(`
 		INSERT INTO alert_destinations (name, type, enabled, url, smtp_host, smtp_port,
-			smtp_username, smtp_password, smtp_from, smtp_to, smtp_security, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			smtp_username, smtp_password, smtp_from, smtp_to, smtp_security, events, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		d.Name, d.Type, d.Enabled, d.URL, d.SMTPHost, d.SMTPPort,
-		d.SMTPUsername, d.SMTPPassword, d.SMTPFrom, d.SMTPTo, d.SMTPSecurity, ts, ts)
+		d.SMTPUsername, d.SMTPPassword, d.SMTPFrom, d.SMTPTo, d.SMTPSecurity, d.Events, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create alert destination: %w", err)
 	}
@@ -218,10 +264,10 @@ func (s *Store) UpdateAlertDestination(d Destination) error {
 	res, err := s.db.Exec(`
 		UPDATE alert_destinations SET name = ?, type = ?, enabled = ?, url = ?, smtp_host = ?,
 			smtp_port = ?, smtp_username = ?, smtp_password = ?, smtp_from = ?, smtp_to = ?,
-			smtp_security = ?, updated_at = ?
+			smtp_security = ?, events = ?, updated_at = ?
 		WHERE id = ?`,
 		d.Name, d.Type, d.Enabled, d.URL, d.SMTPHost, d.SMTPPort, d.SMTPUsername, d.SMTPPassword,
-		d.SMTPFrom, d.SMTPTo, d.SMTPSecurity, now(), d.ID)
+		d.SMTPFrom, d.SMTPTo, d.SMTPSecurity, d.Events, now(), d.ID)
 	if err != nil {
 		return fmt.Errorf("store: update alert destination: %w", err)
 	}

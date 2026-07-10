@@ -47,7 +47,8 @@ anything.
 - Route browser per session — imports, exports, and what was rejected on export
 - On-demand looking glass (`show route for …`)
 - Timeline of session transitions, flaps, and prefix-limit hits
-- Alerts to any number of destinations — Slack, Discord, email (SMTP), or a generic JSON webhook — when a session drops, recovers, flaps, or hits its limit
+- Alerts to any number of destinations — Slack, Discord, email (SMTP), or a generic JSON webhook — when a session drops, recovers, flaps, hits its limit, or a config is applied/reverted; per-destination event filtering and repeat-suppression
+- A Prometheus `/metrics` endpoint (opt-in, `--metrics`) exposing session up/down and route counts
 - Live BIRD-code preview on every editor: the generated config updates as you type, before you save
 
 **Model**

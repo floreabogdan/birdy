@@ -34,6 +34,8 @@ func cmdServer(args []string) error {
 	snapshotInterval := fs.Duration("snapshot-interval", 24*time.Hour, "how often to take a nightly database snapshot")
 	snapshotRetain := fs.Int("snapshot-retain", defaultSnapshotKeep, "number of nightly snapshots to keep")
 	connectTimeout := fs.Duration("connect-timeout", 30*time.Second, "how long to retry connecting to BIRD at startup")
+	alertCooldown := fs.Duration("alert-cooldown", 5*time.Minute, "suppress a repeat alert for the same session within this window (0 disables)")
+	metrics := fs.Bool("metrics", false, "expose an unauthenticated Prometheus /metrics endpoint (put it behind your own network controls)")
 	fs.Parse(args)
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -68,8 +70,9 @@ func cmdServer(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	dispatcher := notify.NewDispatcher(st, log, *alertCooldown)
 	p := poller.New(client, st, *pollInterval, log)
-	p.SetNotifier(notify.NewDispatcher(st, log))
+	p.SetNotifier(dispatcher)
 	go p.Run(ctx)
 
 	snapMgr := snapshot.NewManager(*dbPath, *snapshotDir, *snapshotRetain)
@@ -78,7 +81,7 @@ func cmdServer(args []string) error {
 	srv := web.New(web.Config{
 		Store: st, Client: client, Poller: p, Snapshot: snapMgr, Log: log, ReadOnly: *readOnly,
 		BirdConfPath: *birdConf, BirdBackupDir: *birdBackupDir, BirdBinary: *birdBinary,
-		ApplyTimeout: *applyTimeout,
+		ApplyTimeout: *applyTimeout, Notifier: dispatcher, Metrics: *metrics,
 	})
 
 	httpServer := &http.Server{Addr: effListen, Handler: srv}

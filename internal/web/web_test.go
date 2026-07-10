@@ -109,7 +109,18 @@ type testEnv struct {
 	confPath string
 }
 
-func newTestEnv(t *testing.T, readOnly bool) *testEnv {
+// fakeNotifier records the events the web layer emits, so a test can assert an
+// apply or rollback was forwarded to alert destinations.
+type fakeNotifier struct{ kinds []string }
+
+func (f *fakeNotifier) Notify(kind, protocol, message string) { f.kinds = append(f.kinds, kind) }
+
+// newTestEnvMetrics builds an env with the Prometheus endpoint enabled.
+func newTestEnvMetrics(t *testing.T) *testEnv {
+	return newTestEnv(t, false, func(c *Config) { c.Metrics = true })
+}
+
+func newTestEnv(t *testing.T, readOnly bool, opts ...func(*Config)) *testEnv {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "birdy.db"))
@@ -134,12 +145,16 @@ func newTestEnv(t *testing.T, readOnly bool) *testEnv {
 	snapMgr := snapshot.NewManager(filepath.Join(dir, "birdy.db"), filepath.Join(dir, "snapshots"), 3)
 
 	confPath := filepath.Join(dir, "bird.conf")
-	srv := New(Config{
+	cfg := Config{
 		Store: st, Client: fc, Poller: p, Snapshot: snapMgr, Log: log, ReadOnly: readOnly,
 		BirdConfPath: confPath, BirdBackupDir: filepath.Join(dir, "bird-backups"),
 		BirdBinary:   "definitely-not-a-real-bird-binary", // makes bird -p Skip rather than run
 		ApplyTimeout: 60,
-	})
+	}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	srv := New(cfg)
 
 	hash, err := HashPassword("correct horse battery staple")
 	if err != nil {

@@ -370,3 +370,28 @@ func TestPendingPanelShowsLiveSessions(t *testing.T) {
 		t.Error("a pending apply should show live session states so the operator can judge it")
 	}
 }
+
+// Apply, confirm and auto-revert reach alert destinations, not just the timeline.
+func TestApplyEventsAreNotified(t *testing.T) {
+	fn := &fakeNotifier{}
+	env := newTestEnv(t, false, func(c *Config) { c.Notifier = fn })
+	if err := env.store.SaveSettings(store.Settings{
+		RouterID: "192.0.2.1", LocalASN: sql.NullInt64{Int64: 65551, Valid: true},
+		BirdSocketPath: "/run/bird/bird.ctl", ListenAddr: "127.0.0.1:8080",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	env.do(t, "POST", "/apply", nil)
+	env.do(t, "POST", "/apply/confirm", nil)
+
+	var apply int
+	for _, k := range fn.kinds {
+		if k == store.EventConfigApply {
+			apply++
+		}
+	}
+	if apply < 2 { // one for the timeout-apply, one for the confirm
+		t.Fatalf("apply and confirm should both notify, got kinds %v", fn.kinds)
+	}
+}

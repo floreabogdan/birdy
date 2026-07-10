@@ -11,24 +11,61 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
+// throttled are the storm-prone session kinds a cooldown applies to. Config
+// events (apply/revert) are operator-initiated and infrequent, so they always
+// go through.
+var throttled = map[string]bool{
+	store.EventSessionDown: true, store.EventSessionUp: true,
+	store.EventFlap: true, store.EventLimitHit: true,
+}
+
 // Dispatcher fans one event out to every enabled destination. Safe for
 // concurrent use.
 type Dispatcher struct {
-	store  *store.Store
-	log    *slog.Logger
-	client *http.Client
+	store    *store.Store
+	log      *slog.Logger
+	client   *http.Client
+	cooldown time.Duration
+
+	mu   sync.Mutex
+	last map[string]time.Time // (kind|protocol) -> last delivery, for throttling
 }
 
-func NewDispatcher(st *store.Store, log *slog.Logger) *Dispatcher {
+// NewDispatcher builds a dispatcher. cooldown suppresses a repeat of the same
+// session event for a protocol within the window; 0 disables throttling.
+func NewDispatcher(st *store.Store, log *slog.Logger, cooldown time.Duration) *Dispatcher {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Dispatcher{store: st, log: log, client: &http.Client{Timeout: 10 * time.Second}}
+	return &Dispatcher{
+		store: st, log: log, cooldown: cooldown,
+		client: &http.Client{Timeout: 10 * time.Second},
+		last:   map[string]time.Time{},
+	}
+}
+
+// throttle reports whether an event should be suppressed as a repeat, and
+// records this delivery when it is not. Only the storm-prone session kinds are
+// subject to it.
+func (d *Dispatcher) throttle(kind, protocol string) bool {
+	if d.cooldown <= 0 || !throttled[kind] {
+		return false
+	}
+	key := kind + "|" + protocol
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	now := time.Now()
+	if last, ok := d.last[key]; ok && now.Sub(last) < d.cooldown {
+		return true
+	}
+	d.last[key] = now
+	return false
 }
 
 // alert is one thing worth telling the operator, in platform-neutral form.
@@ -121,22 +158,33 @@ func (a alert) plainLine() string {
 // Notify delivers an event to every enabled destination, in the background so
 // the poller is never blocked. A delivery failure is logged, not retried.
 func (d *Dispatcher) Notify(kind, protocol, message string) {
-	go func() {
-		dests, err := d.store.EnabledAlertDestinations()
-		if err != nil {
-			d.log.Warn("could not load alert destinations", "error", err)
-			return
+	go d.deliverAllSync(kind, protocol, message)
+}
+
+// deliverAllSync applies the throttle and per-destination filter, then delivers
+// to each remaining destination. Synchronous so it is deterministic under test;
+// Notify runs it in the background.
+func (d *Dispatcher) deliverAllSync(kind, protocol, message string) {
+	if d.throttle(kind, protocol) {
+		return
+	}
+	dests, err := d.store.EnabledAlertDestinations()
+	if err != nil {
+		d.log.Warn("could not load alert destinations", "error", err)
+		return
+	}
+	if len(dests) == 0 {
+		return
+	}
+	a := d.build(kind, protocol, message)
+	for _, dest := range dests {
+		if !dest.Wants(kind) {
+			continue // this destination filtered this kind out
 		}
-		if len(dests) == 0 {
-			return
+		if err := d.deliver(dest, a); err != nil {
+			d.log.Warn("alert delivery failed", "destination", dest.Name, "type", dest.Type, "error", err)
 		}
-		a := d.build(kind, protocol, message)
-		for _, dest := range dests {
-			if err := d.deliver(dest, a); err != nil {
-				d.log.Warn("alert delivery failed", "destination", dest.Name, "type", dest.Type, "error", err)
-			}
-		}
-	}()
+	}
 }
 
 // SendTest delivers a synthetic alert to one destination, inline, so the UI can

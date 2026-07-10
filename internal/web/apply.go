@@ -146,6 +146,18 @@ func (s *Server) writeGuard(w http.ResponseWriter) bool {
 	return true
 }
 
+// emitEvent records an event and forwards it to the alert destinations, so an
+// apply, a confirm, and especially an auto-revert reach whoever is on call —
+// not just the timeline. Mirrors the poller's own emit.
+func (s *Server) emitEvent(kind, protocol, message string) {
+	if err := s.store.InsertEvent(kind, protocol, message); err != nil {
+		s.log.Warn("failed to record event", "error", err)
+	}
+	if s.notifier != nil {
+		s.notifier.Notify(kind, protocol, message)
+	}
+}
+
 // reconcilePending catches up with an auto-revert BIRD performed on its own. If a
 // pending apply's deadline has passed, BIRD has already reverted to the previous
 // config; birdy just records it. bird.conf on disk is already the previous
@@ -163,8 +175,8 @@ func (s *Server) reconcilePending() error {
 		"Auto-reverted: the apply was not confirmed within the safety timeout."); err != nil {
 		return err
 	}
-	return s.store.InsertEvent(store.EventConfigRevert, "",
-		"Config apply auto-reverted (not confirmed in time)")
+	s.emitEvent(store.EventConfigRevert, "", "Config apply auto-reverted (not confirmed in time)")
+	return nil
 }
 
 // canStartApply gathers the gates every apply shares: not read-only, no stale
@@ -309,7 +321,7 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 		s.serverError(w, "record config version", err)
 		return
 	}
-	_ = s.store.InsertEvent(store.EventConfigApply, "",
+	s.emitEvent(store.EventConfigApply, "",
 		fmt.Sprintf("Config applied with a %ds safety timeout (version %d)", s.applyTimeout, id))
 
 	s.redirectChanges(w, r, fmt.Sprintf("Applied. Confirm within %ds to keep it, or it reverts on its own.", s.applyTimeout))
@@ -359,7 +371,7 @@ func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "resolve version", err)
 		return
 	}
-	_ = s.store.InsertEvent(store.EventConfigApply, "", fmt.Sprintf("Config apply confirmed (version %d)", pending.ID))
+	s.emitEvent(store.EventConfigApply, "", fmt.Sprintf("Config apply confirmed (version %d)", pending.ID))
 	s.redirectChanges(w, r, "Confirmed. birdy now owns this config.")
 }
 
@@ -393,7 +405,7 @@ func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "resolve version", err)
 		return
 	}
-	_ = s.store.InsertEvent(store.EventConfigRevert, "", fmt.Sprintf("Config apply rolled back (version %d)", pending.ID))
+	s.emitEvent(store.EventConfigRevert, "", fmt.Sprintf("Config apply rolled back (version %d)", pending.ID))
 	s.redirectChanges(w, r, msg)
 }
 

@@ -18,11 +18,12 @@ type alertsView struct {
 }
 
 type alertFormView struct {
-	Active   string
-	ReadOnly bool
-	IsNew    bool
-	Dest     store.Destination
-	Errs     map[string]string
+	Active     string
+	ReadOnly   bool
+	IsNew      bool
+	Dest       store.Destination
+	Errs       map[string]string
+	EventKinds []store.AlertEventKind
 	// HasPassword reports whether a stored SMTP password exists, so the edit
 	// form can show "unchanged" without ever rendering the secret.
 	HasPassword bool
@@ -123,7 +124,7 @@ func (s *Server) handleAlertTest(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	if terr := notify.NewDispatcher(s.store, s.log).SendTest(d); terr != nil {
+	if terr := notify.NewDispatcher(s.store, s.log, 0).SendTest(d); terr != nil {
 		http.Redirect(w, r, "/alerts?err="+flash("Test to "+d.Name+" failed: "+terr.Error()), http.StatusSeeOther)
 		return
 	}
@@ -144,6 +145,7 @@ func alertFromForm(r *http.Request) store.Destination {
 		SMTPFrom:     strings.TrimSpace(r.FormValue("smtpFrom")),
 		SMTPTo:       r.FormValue("smtpTo"),
 		SMTPSecurity: r.FormValue("smtpSecurity"),
+		Events:       strings.Join(r.Form["events"], ","),
 	}
 }
 
@@ -166,5 +168,6 @@ func (s *Server) alertFromPath(w http.ResponseWriter, r *http.Request) (store.De
 }
 
 func (s *Server) renderAlertForm(w http.ResponseWriter, v alertFormView) {
+	v.EventKinds = store.AlertEventKinds()
 	render(w, s.log, "alert_form.html", v)
 }

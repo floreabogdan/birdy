@@ -40,7 +40,7 @@ func TestWebhookPayload(t *testing.T) {
 	if _, err := st.CreateAlertDestination(store.Destination{Name: "w", Type: store.AlertWebhook, Enabled: true, URL: srv.URL}); err != nil {
 		t.Fatal(err)
 	}
-	d := NewDispatcher(st, nil)
+	d := NewDispatcher(st, nil, 0)
 	if err := d.SendTest(mustGet(t, st, "w")); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestSlackAndDiscordShape(t *testing.T) {
 		if _, err := st.CreateAlertDestination(store.Destination{Name: "d", Type: tc.typ, Enabled: true, URL: srv.URL}); err != nil {
 			t.Fatal(err)
 		}
-		if err := NewDispatcher(st, nil).SendTest(mustGet(t, st, "d")); err != nil {
+		if err := NewDispatcher(st, nil, 0).SendTest(mustGet(t, st, "d")); err != nil {
 			t.Fatal(err)
 		}
 		if _, ok := got[tc.wantKey]; !ok {
@@ -89,7 +89,7 @@ func TestNotifyFansOutToEnabledOnly(t *testing.T) {
 	st.CreateAlertDestination(store.Destination{Name: "on", Type: store.AlertWebhook, Enabled: true, URL: on.URL})
 	st.CreateAlertDestination(store.Destination{Name: "off", Type: store.AlertWebhook, Enabled: false, URL: off.URL})
 
-	NewDispatcher(st, nil).Notify(store.EventSessionDown, "edge_v4", "went down")
+	NewDispatcher(st, nil, 0).Notify(store.EventSessionDown, "edge_v4", "went down")
 
 	select {
 	case got := <-hits:
@@ -134,4 +134,49 @@ func mustGet(t *testing.T, st *store.Store, name string) store.Destination {
 	}
 	t.Fatalf("destination %q not found", name)
 	return store.Destination{}
+}
+
+func TestThrottleSuppressesRepeatSessionEvents(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++; w.WriteHeader(200) }))
+	defer srv.Close()
+	st := openStore(t)
+	st.CreateAlertDestination(store.Destination{Name: "w", Type: store.AlertWebhook, Enabled: true, URL: srv.URL})
+
+	d := NewDispatcher(st, nil, time.Minute)
+	d.deliverAllSync(store.EventFlap, "edge_v4", "flapped")
+	d.deliverAllSync(store.EventFlap, "edge_v4", "flapped again") // within cooldown -> suppressed
+	if hits != 1 {
+		t.Fatalf("repeat flap should be throttled: hits=%d", hits)
+	}
+	// A different session is independent.
+	d.deliverAllSync(store.EventFlap, "edge_v6", "flapped")
+	if hits != 2 {
+		t.Fatalf("a different session should still alert: hits=%d", hits)
+	}
+	// Config events are never throttled.
+	d.deliverAllSync(store.EventConfigRevert, "", "reverted")
+	d.deliverAllSync(store.EventConfigRevert, "", "reverted again")
+	if hits != 4 {
+		t.Fatalf("config events must not be throttled: hits=%d", hits)
+	}
+}
+
+func TestPerDestinationEventFilter(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = "hit"; w.WriteHeader(200) }))
+	defer srv.Close()
+	st := openStore(t)
+	// This destination only wants session-down.
+	st.CreateAlertDestination(store.Destination{Name: "w", Type: store.AlertWebhook, Enabled: true, URL: srv.URL, Events: store.EventSessionDown})
+
+	d := NewDispatcher(st, nil, 0)
+	d.deliverAllSync(store.EventFlap, "edge_v4", "flap")
+	if got == "hit" {
+		t.Error("a filtered-out kind should not be delivered")
+	}
+	d.deliverAllSync(store.EventSessionDown, "edge_v4", "down")
+	if got != "hit" {
+		t.Error("a wanted kind should be delivered")
+	}
 }

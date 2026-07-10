@@ -53,7 +53,18 @@ type Server struct {
 	birdBinary    string
 	applyTimeout  int
 
+	// notifier delivers apply/rollback events to alert destinations. nil in
+	// tests. metrics gates the unauthenticated Prometheus endpoint.
+	notifier alertNotifier
+	metrics  bool
+
 	mux *http.ServeMux
+}
+
+// alertNotifier is the slice of the dispatcher the web layer needs: fire an
+// event out to the configured destinations.
+type alertNotifier interface {
+	Notify(kind, protocol, message string)
 }
 
 type Config struct {
@@ -67,6 +78,8 @@ type Config struct {
 	BirdBackupDir string
 	BirdBinary    string
 	ApplyTimeout  int
+	Notifier      alertNotifier
+	Metrics       bool
 }
 
 func New(cfg Config) *Server {
@@ -101,6 +114,8 @@ func New(cfg Config) *Server {
 		birdBackupDir: birdBackupDir,
 		birdBinary:    birdBinary,
 		applyTimeout:  applyTimeout,
+		notifier:      cfg.Notifier,
+		metrics:       cfg.Metrics,
 		mux:           http.NewServeMux(),
 	}
 	s.routes()
@@ -116,6 +131,11 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /login", s.handleLoginForm)
 	s.mux.HandleFunc("POST /login", s.handleLoginSubmit)
 	s.mux.Handle("GET /static/", http.StripPrefix("/static/", staticHandler()))
+
+	// Prometheus scrape target, unauthenticated and only when explicitly enabled.
+	if s.metrics {
+		s.mux.HandleFunc("GET /metrics", s.handleMetrics)
+	}
 
 	// Authenticated pages
 	s.mux.Handle("GET /{$}", s.requireAuth(s.handleDashboard))
