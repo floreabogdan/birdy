@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"database/sql"
 	"net/http"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/floreabogdan/birdy/internal/birdc"
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
@@ -429,4 +431,31 @@ func TestConcurrentAppliesSerialize(t *testing.T) {
 	if timeouts != 1 {
 		t.Fatalf("configure timeout ran %d times, want 1: %v", timeouts, env.fc.calls)
 	}
+}
+
+// The pending panel flags a session that was established at apply but dropped.
+func TestPendingPanelFlagsRegression(t *testing.T) {
+	env := applyReady(t) // edge_v4 is Established in the fake client
+	env.do(t, "POST", "/apply", nil)
+
+	// The baseline captured edge_v4 as established.
+	v, _, _ := env.store.PendingConfigVersion()
+	if !contains(v.BaselineSessions, "edge_v4") {
+		t.Fatalf("baseline should include edge_v4, got %q", v.BaselineSessions)
+	}
+
+	// Now edge_v4 goes down in the fake client, and the poller re-snapshots.
+	env.fc.protocols = []birdc.ProtocolSummary{{Name: "edge_v4", Proto: "BGP", State: "start", Info: "Active"}}
+	env.srv.poller.Run(cancelledCtx())
+
+	body := env.do(t, "GET", "/changes", nil).Body.String()
+	if !contains(body, "regressed since you applied") {
+		t.Error("a dropped baseline session should be flagged on the pending panel")
+	}
+}
+
+func cancelledCtx() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
 }

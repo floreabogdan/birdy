@@ -16,6 +16,7 @@ const (
 	EventConfigRevert  = "config_revert"
 	EventBirdUnreach   = "bird_unreachable" // the control socket / daemon went away
 	EventBirdReachable = "bird_reachable"   // ... and came back
+	EventPrefixDrop    = "prefix_drop"      // a session's imported count fell sharply
 )
 
 type Event struct {

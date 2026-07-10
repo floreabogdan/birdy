@@ -31,6 +31,9 @@ type ProtoState struct {
 	// recent detail fetch; nil for non-BGP protocols and for sessions
 	// that are down (no detail is fetched then).
 	Channels []birdc.ChannelDetail
+	// Imported is the total accepted routes across the session's channels, kept
+	// so a poll can spot a sharp drop against the previous one.
+	Imported int
 }
 
 // Snapshot is the latest poll result, safe to read concurrently via Poller.Snapshot.
@@ -60,11 +63,12 @@ type Notifier interface {
 }
 
 type Poller struct {
-	client   birdClient
-	store    *store.Store
-	interval time.Duration
-	log      *slog.Logger
-	notifier Notifier
+	client    birdClient
+	store     *store.Store
+	interval  time.Duration
+	log       *slog.Logger
+	notifier  Notifier
+	dropRatio float64 // alert if imported falls to <= this fraction of the prior poll
 
 	mu             sync.RWMutex
 	snap           Snapshot
@@ -92,13 +96,19 @@ func New(client birdClient, st *store.Store, interval time.Duration, log *slog.L
 		log = slog.Default()
 	}
 	return &Poller{
-		client:   client,
-		store:    st,
-		interval: interval,
-		log:      log,
-		snap:     Snapshot{States: map[string]ProtoState{}},
+		client:    client,
+		store:     st,
+		interval:  interval,
+		log:       log,
+		dropRatio: 0.5,
+		snap:      Snapshot{States: map[string]ProtoState{}},
 	}
 }
+
+// SetDropRatio configures the prefix-drop alert threshold: a session's imported
+// count falling to this fraction (or less) of the previous poll fires an alert.
+// 0 disables the check. Call before Run.
+func (p *Poller) SetDropRatio(r float64) { p.dropRatio = r }
 
 // Snapshot returns a copy of the latest poll result.
 func (p *Poller) Snapshot() Snapshot {
@@ -189,6 +199,7 @@ func (p *Poller) poll() {
 
 		if proto.Proto == "BGP" && up {
 			p.updateImportLimits(proto, &state)
+			p.checkPrefixDrop(proto, prior, seen, first, &state)
 		}
 
 		next[proto.Name] = state
@@ -216,6 +227,26 @@ func isUp(p birdc.ProtocolSummary) bool {
 	return p.State == "up"
 }
 
+// dropBaseline is the smallest prior count worth alerting on — below it, a
+// "sharp drop" is just noise on a session that carries little.
+const dropBaseline = 1000
+
+// checkPrefixDrop alerts when a session's imported count falls sharply from the
+// previous poll — the classic sign of a broken filter or a withdrawn table,
+// which the session-state alerts (the session is still up) would miss entirely.
+func (p *Poller) checkPrefixDrop(proto birdc.ProtocolSummary, prior ProtoState, seen, first bool, state *ProtoState) {
+	if first || !seen || p.dropRatio <= 0 {
+		return
+	}
+	if !prior.Up || prior.Imported < dropBaseline {
+		return
+	}
+	if float64(state.Imported) <= float64(prior.Imported)*p.dropRatio {
+		p.emit(store.EventPrefixDrop, proto.Name,
+			fmt.Sprintf("%s: imported routes dropped from %d to %d", proto.Name, prior.Imported, state.Imported))
+	}
+}
+
 func (p *Poller) recordTransition(proto birdc.ProtocolSummary, prior ProtoState, seen bool, up bool) {
 	kind := store.EventSessionDown
 	msg := fmt.Sprintf("%s (%s) went down", proto.Name, proto.Proto)
@@ -241,6 +272,7 @@ func (p *Poller) updateImportLimits(proto birdc.ProtocolSummary, state *ProtoSta
 	}
 	state.Channels = detail.Channels
 	for _, ch := range detail.Channels {
+		state.Imported += ch.RoutesImported
 		limit, err := strconv.Atoi(strings.TrimSpace(ch.ImportLimit))
 		if err != nil || limit <= 0 {
 			continue

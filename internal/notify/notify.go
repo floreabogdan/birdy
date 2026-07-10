@@ -22,7 +22,7 @@ import (
 // go through.
 var throttled = map[string]bool{
 	store.EventSessionDown: true, store.EventSessionUp: true,
-	store.EventFlap: true, store.EventLimitHit: true,
+	store.EventFlap: true, store.EventLimitHit: true, store.EventPrefixDrop: true,
 }
 
 // Dispatcher fans one event out to every enabled destination. Safe for
@@ -87,6 +87,8 @@ func (a alert) title() string {
 		return "Session flapping: " + a.Protocol
 	case store.EventLimitHit:
 		return "Import limit reached: " + a.Protocol
+	case store.EventPrefixDrop:
+		return "Prefix count dropped: " + a.Protocol
 	case store.EventBirdUnreach:
 		return "BIRD is unreachable"
 	case store.EventBirdReachable:
@@ -99,7 +101,7 @@ func (a alert) title() string {
 // severity drives the colour on every platform. good/warning/danger/info.
 func (a alert) severity() string {
 	switch a.Kind {
-	case store.EventSessionDown, store.EventLimitHit, store.EventBirdUnreach:
+	case store.EventSessionDown, store.EventLimitHit, store.EventBirdUnreach, store.EventPrefixDrop:
 		return "danger"
 	case store.EventSessionUp, store.EventBirdReachable:
 		return "good"

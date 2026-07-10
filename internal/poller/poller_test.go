@@ -235,3 +235,56 @@ var errBirdGone = fmtError("dial /run/bird/bird.ctl: connection refused")
 type fmtError string
 
 func (e fmtError) Error() string { return string(e) }
+
+func TestPollerAlertsOnPrefixDrop(t *testing.T) {
+	st := openTestStore(t)
+	full := birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 900000}}}
+	broken := birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 50}}}
+	fc := &fakeClient{
+		polls: [][]birdc.ProtocolSummary{
+			{bgp("edge_v4", "up", "Established")}, // baseline: 900k
+			{bgp("edge_v4", "up", "Established")}, // 900k again (no drop)
+			{bgp("edge_v4", "up", "Established")}, // 50 -> sharp drop
+		},
+		detail: map[string]birdc.ProtocolDetail{"edge_v4": full},
+	}
+	p := New(fc, st, time.Second, nil)
+
+	p.poll() // baseline
+	p.poll() // still 900k, no alert
+	fc.detail["edge_v4"] = broken
+	p.poll() // 50 -> prefix_drop
+
+	events, _ := st.ListEvents(10, 0)
+	var drops int
+	for _, e := range events {
+		if e.Kind == store.EventPrefixDrop {
+			drops++
+		}
+	}
+	if drops != 1 {
+		t.Fatalf("want exactly 1 prefix_drop event, got %d: %+v", drops, events)
+	}
+}
+
+// A small session dropping is noise, not an alert.
+func TestPollerIgnoresSmallDrops(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{
+		polls: [][]birdc.ProtocolSummary{
+			{bgp("edge_v4", "up", "Established")},
+			{bgp("edge_v4", "up", "Established")},
+		},
+		detail: map[string]birdc.ProtocolDetail{"edge_v4": {Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 100}}}},
+	}
+	p := New(fc, st, time.Second, nil)
+	p.poll()
+	fc.detail["edge_v4"] = birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 1}}}
+	p.poll()
+	events, _ := st.ListEvents(10, 0)
+	for _, e := range events {
+		if e.Kind == store.EventPrefixDrop {
+			t.Errorf("a drop below the baseline should not alert: %+v", e)
+		}
+	}
+}

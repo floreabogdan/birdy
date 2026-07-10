@@ -35,6 +35,7 @@ func cmdServer(args []string) error {
 	snapshotRetain := fs.Int("snapshot-retain", defaultSnapshotKeep, "number of nightly snapshots to keep")
 	connectTimeout := fs.Duration("connect-timeout", 30*time.Second, "how long to retry connecting to BIRD at startup")
 	alertCooldown := fs.Duration("alert-cooldown", 5*time.Minute, "suppress a repeat alert for the same session within this window (0 disables)")
+	dropRatio := fs.Float64("prefix-drop-ratio", 0.5, "alert when a session's imported routes fall to this fraction of the previous poll (0 disables)")
 	metrics := fs.Bool("metrics", false, "expose an unauthenticated Prometheus /metrics endpoint (put it behind your own network controls)")
 	fs.Parse(args)
 
@@ -73,6 +74,7 @@ func cmdServer(args []string) error {
 	dispatcher := notify.NewDispatcher(st, log, *alertCooldown)
 	p := poller.New(client, st, *pollInterval, log)
 	p.SetNotifier(dispatcher)
+	p.SetDropRatio(*dropRatio)
 	go p.Run(ctx)
 
 	snapMgr := snapshot.NewManager(*dbPath, *snapshotDir, *snapshotRetain)

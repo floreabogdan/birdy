@@ -32,6 +32,9 @@ type changesView struct {
 	// LiveSessions is the current BGP session states, shown on a pending apply so
 	// the operator can see the effect before deciding to confirm.
 	LiveSessions []protoRow
+	// Regressed names sessions that were established when the pending config was
+	// applied but are not established now — the signal to roll back.
+	Regressed []string
 
 	// Candidate is the config birdy would write, secrets masked.
 	Candidate string
@@ -251,12 +254,26 @@ func (s *Server) fillApplyState(v *changesView, storedHash string) string {
 		}
 		// Show the live session states so the operator can judge the apply's
 		// effect — did the sessions stay up? — before confirming it.
-		for _, row := range s.liveStates() {
+		live := s.liveStates()
+		for _, row := range live {
 			if row.IsBGP() {
 				v.LiveSessions = append(v.LiveSessions, row)
 			}
 		}
 		sort.Slice(v.LiveSessions, func(i, j int) bool { return v.LiveSessions[i].Name < v.LiveSessions[j].Name })
+
+		// Compare against the sessions that were up when this was applied: any
+		// that were established then and are not now have regressed.
+		for _, name := range strings.Split(pending.BaselineSessions, ",") {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			if row, ok := live[name]; !ok || !row.Up {
+				v.Regressed = append(v.Regressed, name)
+			}
+		}
+		sort.Strings(v.Regressed)
 	}
 	return onDisk
 }

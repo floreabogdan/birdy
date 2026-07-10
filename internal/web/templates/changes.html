@@ -38,6 +38,13 @@
 						in <span id="apply-countdown" class="mono">{{.PendingSecs}}</span>s unless you confirm it.
 						Check that your sessions are up and you can still reach the router.
 					</p>
+					{{if .Regressed}}
+					<div class="error-text" style="margin:2px 0 12px">
+						<strong>{{len .Regressed}} session{{if ne (len .Regressed) 1}}s{{end}} regressed since you applied:</strong>
+						{{range .Regressed}}<span class="chip">{{.}}</span> {{end}}
+						&mdash; these were established before and are not now. Consider rolling back.
+					</div>
+					{{end}}
 					{{if .LiveSessions}}
 					<div class="kv" style="margin:4px 0 14px">
 						{{range .LiveSessions}}

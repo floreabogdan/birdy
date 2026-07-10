@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	birdconf "github.com/floreabogdan/birdy/internal/render"
@@ -144,6 +145,18 @@ func (s *Server) writeGuard(w http.ResponseWriter) bool {
 		return false
 	}
 	return true
+}
+
+// establishedSessions is the set of BGP sessions up right now, captured as the
+// baseline before an apply so the pending panel can flag any that go down.
+func (s *Server) establishedSessions() []string {
+	var out []string
+	for _, row := range s.liveStates() {
+		if row.IsBGP() && row.Up {
+			out = append(out, row.Name)
+		}
+	}
+	return out
 }
 
 // emitEvent records an event and forwards it to the alert destinations, so an
@@ -317,7 +330,8 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 	id, err := s.store.CreateConfigVersion(store.ConfigVersion{
 		SHA256: newHash, Size: len(cfg), ConfigText: cfg, BackupPath: backup,
 		Status: store.ConfigPending, Deadline: deadline,
-		Message: fmt.Sprintf("Applied (%s) with a %ds safety timeout.", how, s.applyTimeout),
+		Message:          fmt.Sprintf("Applied (%s) with a %ds safety timeout.", how, s.applyTimeout),
+		BaselineSessions: strings.Join(s.establishedSessions(), ","),
 	})
 	if err != nil {
 		s.serverError(w, "record config version", err)
