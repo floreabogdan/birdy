@@ -297,3 +297,24 @@ func TestAlertEmailPasswordNotLeaked(t *testing.T) {
 		t.Error("a stored password should show as 'unchanged'")
 	}
 }
+
+func TestBFDAndBlackholePersist(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+
+	form := peerForm()
+	form.Set("bfd", "on")
+	env.do(t, "POST", "/peers/new", form)
+	if p, _ := env.store.GetPeerByName("transit_v4"); !p.BFD {
+		t.Error("BFD should persist on the peer")
+	}
+
+	pol := url.Values{"name": {"CUST_IN"}, "direction": {"import"}, "defaultRoute": {"reject"},
+		"bogonAsns": {"off"}, "rov": {"off"}, "acceptBlackhole": {"on"}}
+	if rec := env.do(t, "POST", "/policies/new", pol); rec.Code != http.StatusSeeOther {
+		t.Fatalf("policy save: %d %s", rec.Code, rec.Body.String())
+	}
+	if p, _ := env.store.GetPolicyByName("CUST_IN"); !p.AcceptBlackhole {
+		t.Error("accept-blackhole should persist on the policy")
+	}
+}

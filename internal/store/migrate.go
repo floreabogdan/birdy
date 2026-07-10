@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 14
+const schemaVersion = 15
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -220,6 +220,16 @@ func migrate(db *sql.DB) error {
 	if version < 14 {
 		// A destination can now choose which event kinds it wants; empty = all.
 		if err := ensureColumn(tx, "alert_destinations", "events", `ALTER TABLE alert_destinations ADD COLUMN events TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 15 {
+		// BFD per peer, and RFC 7999 blackhole acceptance per import policy.
+		if err := ensureColumn(tx, "peers", "bfd", `ALTER TABLE peers ADD COLUMN bfd INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "policies", "accept_blackhole", `ALTER TABLE policies ADD COLUMN accept_blackhole INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return err
 		}
 	}

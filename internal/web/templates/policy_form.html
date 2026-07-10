@@ -166,6 +166,14 @@
 								<div class="hint">Drop any route tagged with this community &mdash; a blocklist signal. One community: <span class="mono">ASN:value</span> or <span class="mono">ASN:x:y</span>.</div>
 								{{with index .Errs "matchCommunity"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
+							<div class="checks">
+								<label class="check"><input type="checkbox" name="acceptBlackhole" {{if .Policy.AcceptBlackhole}}checked{{end}}> Accept customer blackhole requests (RFC 7999)</label>
+							</div>
+							<div class="hint">
+								A host route (a <span class="mono">/32</span> or <span class="mono">/128</span>) tagged with the well-known
+								<span class="mono">BLACKHOLE</span> community <span class="mono">65535:666</span> is accepted past the length filter and
+								turned into a discard &mdash; so a customer can null-route an address under attack.
+							</div>
 						</div>
 					</div>
 					{{else}}

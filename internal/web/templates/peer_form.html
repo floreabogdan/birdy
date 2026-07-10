@@ -226,6 +226,7 @@
 							<div class="checks">
 								<label class="check"><input type="checkbox" name="enabled" {{if .Peer.Enabled}}checked{{end}}> Enabled</label>
 								<label class="check"><input type="checkbox" name="passive" {{if .Peer.Passive}}checked{{end}}> Passive — wait for the peer to connect</label>
+								<label class="check"><input type="checkbox" name="bfd" {{if .Peer.BFD}}checked{{end}}> BFD — detect a link failure in well under a second, instead of waiting out the hold timer</label>
 								<span data-role-only="ebgp" {{if eq .Peer.Role "ibgp"}}hidden{{end}} class="checks">
 									<label class="check"><input type="checkbox" name="enforceFirstAs" {{if .Peer.EnforceFirstAS}}checked{{end}}> Require the peer to be the first AS in the path</label>
 									<label class="check"><input type="checkbox" name="originPeerOnly" {{if .Peer.OriginPeerOnly}}checked{{end}}> Accept only prefixes this peer originates &mdash; no downstreams</label>

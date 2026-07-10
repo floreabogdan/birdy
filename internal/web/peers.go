@@ -139,6 +139,7 @@ func peerFromForm(r *http.Request) store.Peer {
 		PrependCount:      atoi("prependCount"),
 		ExportCommunities: strings.TrimSpace(r.FormValue("exportCommunities")),
 		Drained:           r.FormValue("drained") == "on",
+		BFD:               r.FormValue("bfd") == "on",
 	}
 }
 

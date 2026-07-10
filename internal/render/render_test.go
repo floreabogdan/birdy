@@ -866,3 +866,57 @@ func TestPolicyCommunityMatch(t *testing.T) {
 		t.Errorf("export policy should accept on the large community:\n%s", out)
 	}
 }
+
+func TestBFDRenders(t *testing.T) {
+	in := baseInput()
+	p := ebgpPeer()
+	p.BFD = true
+	in.Peers = []store.Peer{p}
+	out, err := Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "protocol bfd bfd1 {") {
+		t.Error("a peer with BFD should render the bfd protocol")
+	}
+	// The session enables it.
+	seg := out[strings.Index(out, "protocol bgp "+p.Name):]
+	if !strings.Contains(seg[:strings.Index(seg, "\n}")], "\tbfd;\n") {
+		t.Errorf("the session should enable bfd:\n%s", seg)
+	}
+	// No BFD peer -> no protocol.
+	in.Peers[0].BFD = false
+	out, _ = Config(in)
+	if strings.Contains(out, "protocol bfd") {
+		t.Error("no bfd protocol should render when no peer uses it")
+	}
+}
+
+func TestAcceptBlackholeRenders(t *testing.T) {
+	in := baseInput()
+	pol := store.Policy{ID: 1, Name: "CUST_IN", Direction: store.DirImport,
+		DefaultRoute: store.DefaultReject, MinLenV4: 8, MaxLenV4: 24, AcceptBlackhole: true}
+	in.Policies = []store.Policy{pol}
+	p := ebgpPeer()
+	p.ImportPolicies = []store.Policy{pol}
+	in.Peers = []store.Peer{p}
+
+	out, err := Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// v4 function: blackhole accept for a /32, before the length reject.
+	fn := out[strings.Index(out, "function imp_CUST_IN_v4"):]
+	fn = fn[:strings.Index(fn, "\n}")]
+	if !strings.Contains(fn, "(65535, 666) ~ bgp_community && net.len = 32") {
+		t.Errorf("v4 should accept a blackhole /32:\n%s", fn)
+	}
+	if !strings.Contains(fn, "dest = RTD_BLACKHOLE;") {
+		t.Error("a blackhole route should be discarded")
+	}
+	bh := strings.Index(fn, "RTD_BLACKHOLE")
+	lenReject := strings.Index(fn, "prefix length out of bounds")
+	if bh < 0 || lenReject < 0 || bh > lenReject {
+		t.Error("the blackhole accept must come before the prefix-length reject")
+	}
+}

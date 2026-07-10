@@ -72,6 +72,11 @@ type Policy struct {
 	// follows the direction: an import policy rejects a route that carries it, an
 	// export policy accepts one that does. Empty = no community match.
 	MatchCommunity string
+	// AcceptBlackhole honours the RFC 7999 BLACKHOLE community (65535:666) on an
+	// import policy: a host route (a /32 or /128) tagged with it is accepted —
+	// past the normal prefix-length filter — and turned into a discard, so a
+	// customer can null-route a host under attack. Import only.
+	AcceptBlackhole bool
 }
 
 func (p Policy) IsImport() bool { return p.Direction == DirImport }
@@ -171,13 +176,14 @@ func (p *Policy) zeroImportFields() {
 	p.OriginASSetID = sql.NullInt64{}
 	p.ROV = ROVOff
 	p.SetLocalPref = 0
+	p.AcceptBlackhole = false
 }
 
 const policyCols = `id, name, description, direction, builtin,
 	default_route, min_len_v4, max_len_v4, min_len_v6, max_len_v6,
 	reject_own_asn, max_as_path_len, bogon_asns, accept_only_set_id, origin_as_set_id, rov, set_local_pref,
 	announce_everything, announce_default, announce_from_upstream, announce_from_ix,
-	announce_from_customer, reject_bogon_prefixes, match_community`
+	announce_from_customer, reject_bogon_prefixes, match_community, accept_blackhole`
 
 func scanPolicy(sc scanner) (Policy, error) {
 	var p Policy
@@ -185,7 +191,7 @@ func scanPolicy(sc scanner) (Policy, error) {
 		&p.DefaultRoute, &p.MinLenV4, &p.MaxLenV4, &p.MinLenV6, &p.MaxLenV6,
 		&p.RejectOwnASN, &p.MaxASPathLen, &p.BogonASNs, &p.AcceptOnlySetID, &p.OriginASSetID, &p.ROV, &p.SetLocalPref,
 		&p.AnnounceEverything, &p.AnnounceDefault, &p.AnnounceFromUpstream, &p.AnnounceFromIX,
-		&p.AnnounceFromCustomer, &p.RejectBogonPrefixes, &p.MatchCommunity)
+		&p.AnnounceFromCustomer, &p.RejectBogonPrefixes, &p.MatchCommunity, &p.AcceptBlackhole)
 	return p, err
 }
 
@@ -265,13 +271,13 @@ func (s *Store) CreatePolicy(p Policy) (int64, error) {
 			default_route, min_len_v4, max_len_v4, min_len_v6, max_len_v6,
 			reject_own_asn, max_as_path_len, bogon_asns, accept_only_set_id, origin_as_set_id, rov, set_local_pref,
 			announce_everything, announce_default, announce_from_upstream, announce_from_ix,
-			announce_from_customer, reject_bogon_prefixes, match_community, created_at, updated_at)
-		VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			announce_from_customer, reject_bogon_prefixes, match_community, accept_blackhole, created_at, updated_at)
+		VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Description, p.Direction,
 		p.DefaultRoute, p.MinLenV4, p.MaxLenV4, p.MinLenV6, p.MaxLenV6,
 		p.RejectOwnASN, p.MaxASPathLen, p.BogonASNs, p.AcceptOnlySetID, p.OriginASSetID, p.ROV, p.SetLocalPref,
 		p.AnnounceEverything, p.AnnounceDefault, p.AnnounceFromUpstream, p.AnnounceFromIX,
-		p.AnnounceFromCustomer, p.RejectBogonPrefixes, p.MatchCommunity, ts, ts)
+		p.AnnounceFromCustomer, p.RejectBogonPrefixes, p.MatchCommunity, p.AcceptBlackhole, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create policy: %w", err)
 	}
@@ -297,13 +303,13 @@ func (s *Store) UpdatePolicy(p Policy) error {
 			reject_own_asn = ?, max_as_path_len = ?, bogon_asns = ?, accept_only_set_id = ?,
 			origin_as_set_id = ?, rov = ?, set_local_pref = ?,
 			announce_everything = ?, announce_default = ?, announce_from_upstream = ?, announce_from_ix = ?,
-			announce_from_customer = ?, reject_bogon_prefixes = ?, match_community = ?, updated_at = ?
+			announce_from_customer = ?, reject_bogon_prefixes = ?, match_community = ?, accept_blackhole = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Description, p.Direction,
 		p.DefaultRoute, p.MinLenV4, p.MaxLenV4, p.MinLenV6, p.MaxLenV6,
 		p.RejectOwnASN, p.MaxASPathLen, p.BogonASNs, p.AcceptOnlySetID, p.OriginASSetID, p.ROV, p.SetLocalPref,
 		p.AnnounceEverything, p.AnnounceDefault, p.AnnounceFromUpstream, p.AnnounceFromIX,
-		p.AnnounceFromCustomer, p.RejectBogonPrefixes, p.MatchCommunity, now(), p.ID)
+		p.AnnounceFromCustomer, p.RejectBogonPrefixes, p.MatchCommunity, p.AcceptBlackhole, now(), p.ID)
 	if err != nil {
 		return fmt.Errorf("store: update policy: %w", err)
 	}
