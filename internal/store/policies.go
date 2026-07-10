@@ -56,7 +56,7 @@ type Policy struct {
 	OriginASSetID sql.NullInt64
 	// ROV is RPKI route-origin validation: off, log, or reject.
 	ROV          string
-	SetLocalPref int
+	SetLocalPref int64
 
 	// export
 	AnnounceEverything   bool

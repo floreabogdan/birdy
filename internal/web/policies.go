@@ -111,6 +111,11 @@ func policyFromForm(r *http.Request) store.Policy {
 		n, _ := strconv.Atoi(strings.TrimSpace(r.FormValue(k)))
 		return n
 	}
+	// Local preference is a 32-bit unsigned value, wider than a 32-bit int.
+	atoi64 := func(k string) int64 {
+		n, _ := strconv.ParseInt(strings.TrimSpace(r.FormValue(k)), 10, 64)
+		return n
+	}
 	p := store.Policy{
 		Name:        r.FormValue("name"),
 		Description: strings.TrimSpace(r.FormValue("description")),
@@ -125,7 +130,7 @@ func policyFromForm(r *http.Request) store.Policy {
 		MaxASPathLen: atoi("maxAsPathLen"),
 		BogonASNs:    r.FormValue("bogonAsns"),
 		ROV:          r.FormValue("rov"),
-		SetLocalPref: atoi("setLocalPref"),
+		SetLocalPref: atoi64("setLocalPref"),
 
 		AnnounceEverything:   r.FormValue("announceEverything") == "on",
 		AnnounceDefault:      r.FormValue("announceDefault") == "on",
