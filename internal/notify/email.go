@@ -14,16 +14,20 @@ import (
 
 const smtpTimeout = 15 * time.Second
 
-// sendEmail delivers one alert as an HTML email over SMTP, honouring the
-// destination's transport security (none / STARTTLS / implicit TLS) and using
-// AUTH PLAIN when a username is set.
+// sendEmail delivers one alert as an HTML email over SMTP.
 func sendEmail(d store.Destination, a alert) error {
 	tos := store.SplitAddresses(d.SMTPTo)
 	if len(tos) == 0 {
 		return fmt.Errorf("no recipients")
 	}
-	msg := buildEmail(d.SMTPFrom, tos, a)
+	subject := a.emoji() + " birdy: " + a.title()
+	return sendSMTP(d, tos, buildMIME(d.SMTPFrom, tos, subject, a.plainText(), emailHTML(a)))
+}
 
+// sendSMTP is the transport, shared by alert and config-backup mail. It honours
+// the destination's security (none / STARTTLS / implicit TLS) and uses AUTH
+// PLAIN when a username is set.
+func sendSMTP(d store.Destination, tos []string, msg string) error {
 	addr := net.JoinHostPort(d.SMTPHost, fmt.Sprintf("%d", d.SMTPPort))
 	var auth smtp.Auth
 	if d.SMTPUsername != "" {
@@ -86,12 +90,10 @@ func dialSMTP(d store.Destination, addr string) (*smtp.Client, error) {
 	return smtp.NewClient(conn, d.SMTPHost)
 }
 
-// buildEmail assembles a multipart/alternative message: a plain-text part for
-// clients that want it and a styled HTML part for the ones that render it.
-func buildEmail(from string, tos []string, a alert) string {
-	subject := a.emoji() + " birdy: " + a.title()
+// buildMIME assembles a multipart/alternative message: a plain-text part for
+// clients that want it and an HTML part for the ones that render it.
+func buildMIME(from string, tos []string, subject, textBody, htmlBody string) string {
 	boundary := "birdy-boundary-0f8a1c"
-
 	var b strings.Builder
 	b.WriteString("From: " + from + "\r\n")
 	b.WriteString("To: " + strings.Join(tos, ", ") + "\r\n")
@@ -101,18 +103,22 @@ func buildEmail(from string, tos []string, a alert) string {
 
 	b.WriteString("--" + boundary + "\r\n")
 	b.WriteString("Content-Type: text/plain; charset=\"utf-8\"\r\n\r\n")
-	b.WriteString(a.plainLine() + "\r\n")
-	if a.Router != "" {
-		b.WriteString("Router: " + a.Router + "\r\n")
-	}
-	b.WriteString("Event: " + a.Kind + "\r\n")
-	b.WriteString("Time: " + a.Time.UTC().Format(time.RFC1123Z) + "\r\n\r\n")
+	b.WriteString(textBody + "\r\n\r\n")
 
 	b.WriteString("--" + boundary + "\r\n")
 	b.WriteString("Content-Type: text/html; charset=\"utf-8\"\r\n\r\n")
-	b.WriteString(emailHTML(a))
+	b.WriteString(htmlBody)
 	b.WriteString("\r\n--" + boundary + "--\r\n")
 	return b.String()
+}
+
+// plainText is the text/plain body for an alert email.
+func (a alert) plainText() string {
+	s := a.plainLine() + "\n"
+	if a.Router != "" {
+		s += "Router: " + a.Router + "\n"
+	}
+	return s + "Event: " + a.Kind + "\nTime: " + a.Time.UTC().Format(time.RFC1123Z) + "\n"
 }
 
 // emailHTML is a small self-contained card, coloured by severity. Inline styles
@@ -150,4 +156,24 @@ func emailHTML(a alert) string {
 func htmlEscape(s string) string {
 	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
 	return r.Replace(s)
+}
+
+// mailConfig emails the (masked) applied config to one email destination.
+func mailConfig(d store.Destination, router, maskedConfig string) error {
+	tos := store.SplitAddresses(d.SMTPTo)
+	if len(tos) == 0 {
+		return fmt.Errorf("no recipients")
+	}
+	subject := "birdy: config applied"
+	if router != "" {
+		subject += " on " + router
+	}
+	html := "<!doctype html><html><body style=\"font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f3f4f6;padding:24px\">" +
+		"<div style=\"max-width:760px;margin:0 auto;background:#fff;border-radius:12px;padding:24px\">" +
+		"<div style=\"font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#2e9e6b;font-weight:700\">birdy config backup</div>" +
+		"<div style=\"font-size:18px;font-weight:700;color:#111827;margin:6px 0 12px\">" + htmlEscape(subject) + "</div>" +
+		"<p style=\"font-size:13px;color:#374151\">This is the config birdy just applied, kept here off the router. Passwords are masked.</p>" +
+		"<pre style=\"font-size:12px;line-height:1.5;background:#0b1021;color:#e6edf3;padding:16px;border-radius:8px;overflow-x:auto\">" +
+		htmlEscape(maskedConfig) + "</pre></div></body></html>"
+	return sendSMTP(d, tos, buildMIME(d.SMTPFrom, tos, subject, maskedConfig, html))
 }

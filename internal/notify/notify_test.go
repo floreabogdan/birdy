@@ -110,7 +110,7 @@ func TestNotifyFansOutToEnabledOnly(t *testing.T) {
 // The email body is a valid MIME message with both parts and the alert content.
 func TestBuildEmail(t *testing.T) {
 	a := alert{Kind: store.EventSessionDown, Protocol: "edge_v4", Message: "edge_v4 went down", Router: "rtr1", Time: time.Unix(1_700_000_000, 0)}
-	msg := buildEmail("birdy@example.com", []string{"noc@example.com"}, a)
+	msg := buildMIME("birdy@example.com", []string{"noc@example.com"}, "birdy: "+a.title(), a.plainText(), emailHTML(a))
 	for _, want := range []string{
 		"From: birdy@example.com", "To: noc@example.com", "Subject:",
 		"multipart/alternative", "text/plain", "text/html", "edge_v4 went down",

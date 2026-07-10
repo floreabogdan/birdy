@@ -7,6 +7,7 @@ package web
 import (
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
 	"github.com/floreabogdan/birdy/internal/poller"
@@ -58,13 +59,24 @@ type Server struct {
 	notifier alertNotifier
 	metrics  bool
 
+	// applyMu serialises everything that touches bird.conf and the pending-apply
+	// record. HTTP handlers run concurrently, and two applies at once could both
+	// pass the no-pending check, both back up and overwrite the file, and leave
+	// two pending versions. One writer at a time.
+	applyMu sync.Mutex
+
+	// login throttles failed logins per client IP.
+	login *loginLimiter
+
 	mux *http.ServeMux
 }
 
 // alertNotifier is the slice of the dispatcher the web layer needs: fire an
-// event out to the configured destinations.
+// event out to the configured destinations, and mail a copy of an applied config
+// off the box.
 type alertNotifier interface {
 	Notify(kind, protocol, message string)
+	MailConfig(maskedConfig string)
 }
 
 type Config struct {
@@ -116,6 +128,7 @@ func New(cfg Config) *Server {
 		applyTimeout:  applyTimeout,
 		notifier:      cfg.Notifier,
 		metrics:       cfg.Metrics,
+		login:         newLoginLimiter(),
 		mux:           http.NewServeMux(),
 	}
 	s.routes()
@@ -130,6 +143,7 @@ func (s *Server) routes() {
 	// Public
 	s.mux.HandleFunc("GET /login", s.handleLoginForm)
 	s.mux.HandleFunc("POST /login", s.handleLoginSubmit)
+	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
 	s.mux.Handle("GET /static/", http.StripPrefix("/static/", staticHandler()))
 
 	// Prometheus scrape target, unauthenticated and only when explicitly enabled.
@@ -229,6 +243,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/events", s.requireAuth(s.apiEvents))
 	s.mux.Handle("GET /api/lg", s.requireAuth(s.apiLookingGlass))
 	s.mux.Handle("GET /api/snapshot/download", s.requireAuth(s.apiSnapshotDownload))
+	s.mux.Handle("GET /api/backup/download", s.requireAuth(s.handleBackupDownload))
 	s.mux.Handle("POST /api/snapshot/restore", s.requireAuth(s.apiSnapshotRestore))
 	s.mux.Handle("GET /api/alerts/summary", s.requireAuth(s.apiAlertsSummary))
 }

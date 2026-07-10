@@ -87,6 +87,10 @@ func (a alert) title() string {
 		return "Session flapping: " + a.Protocol
 	case store.EventLimitHit:
 		return "Import limit reached: " + a.Protocol
+	case store.EventBirdUnreach:
+		return "BIRD is unreachable"
+	case store.EventBirdReachable:
+		return "BIRD is reachable again"
 	default:
 		return "birdy alert"
 	}
@@ -95,9 +99,9 @@ func (a alert) title() string {
 // severity drives the colour on every platform. good/warning/danger/info.
 func (a alert) severity() string {
 	switch a.Kind {
-	case store.EventSessionDown, store.EventLimitHit:
+	case store.EventSessionDown, store.EventLimitHit, store.EventBirdUnreach:
 		return "danger"
-	case store.EventSessionUp:
+	case store.EventSessionUp, store.EventBirdReachable:
 		return "good"
 	case store.EventFlap:
 		return "warning"
@@ -176,9 +180,16 @@ func (d *Dispatcher) deliverAllSync(kind, protocol, message string) {
 	if len(dests) == 0 {
 		return
 	}
+	// A recovery follows its outage's subscription: if you asked to hear that
+	// BIRD went unreachable, you hear when it comes back, without a second box.
+	filterKind := kind
+	if kind == store.EventBirdReachable {
+		filterKind = store.EventBirdUnreach
+	}
+
 	a := d.build(kind, protocol, message)
 	for _, dest := range dests {
-		if !dest.Wants(kind) {
+		if !dest.Wants(filterKind) {
 			continue // this destination filtered this kind out
 		}
 		if err := d.deliver(dest, a); err != nil {
@@ -192,6 +203,32 @@ func (d *Dispatcher) deliverAllSync(kind, protocol, message string) {
 func (d *Dispatcher) SendTest(dest store.Destination) error {
 	a := d.build("test", "", "This is a test alert from birdy. If you can read this, alerts are wired up.")
 	return d.deliver(dest, a)
+}
+
+// MailConfig emails a copy of the applied config to every enabled EMAIL
+// destination — an off-box record of what is running, landing in an inbox that
+// survives the router's disk. It is background and best-effort; a chat webhook
+// is no place for a config dump, so only email destinations get it. The config
+// passed in must already be password-masked.
+func (d *Dispatcher) MailConfig(maskedConfig string) {
+	go func() {
+		dests, err := d.store.EnabledAlertDestinations()
+		if err != nil {
+			return
+		}
+		router := ""
+		if st, ok, _ := d.store.GetSettings(); ok {
+			router = st.RouterLabel
+		}
+		for _, dest := range dests {
+			if !dest.IsEmail() {
+				continue
+			}
+			if err := mailConfig(dest, router, maskedConfig); err != nil {
+				d.log.Warn("config-backup email failed", "destination", dest.Name, "error", err)
+			}
+		}
+	}()
 }
 
 func (d *Dispatcher) build(kind, protocol, message string) alert {

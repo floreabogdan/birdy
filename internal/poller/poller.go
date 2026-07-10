@@ -66,9 +66,11 @@ type Poller struct {
 	log      *slog.Logger
 	notifier Notifier
 
-	mu          sync.RWMutex
-	snap        Snapshot
-	initialized bool // false until the first poll completes, so we don't log spurious transitions at startup
+	mu             sync.RWMutex
+	snap           Snapshot
+	initialized    bool // false until the first poll completes, so we don't log spurious transitions at startup
+	birdReachable  bool // last-known reachability of the control socket, for edge-triggered alerts
+	reachableKnown bool // whether birdReachable has been set at least once
 }
 
 // SetNotifier attaches an alert sink. Call before Run.
@@ -143,6 +145,14 @@ func (p *Poller) poll() {
 
 	protocols, err := p.client.Protocols()
 	if err != nil {
+		// BIRD is unreachable. Alert on the transition — this is the one failure
+		// the session-transition alerts can never catch, because detecting a
+		// session change needs a working poll. Edge-triggered, so a persistent
+		// outage pages once, not every interval.
+		if p.reachableKnown && p.birdReachable {
+			p.emit(store.EventBirdUnreach, "", "BIRD is unreachable: "+err.Error())
+		}
+		p.birdReachable, p.reachableKnown = false, true
 		p.mu.Lock()
 		p.snap.Err = err
 		p.snap.UpdatedAt = time.Now()
@@ -150,6 +160,10 @@ func (p *Poller) poll() {
 		p.log.Warn("poll failed", "error", err)
 		return
 	}
+	if p.reachableKnown && !p.birdReachable {
+		p.emit(store.EventBirdReachable, "", "BIRD is reachable again")
+	}
+	p.birdReachable, p.reachableKnown = true, true
 
 	prevStates := p.Snapshot().States
 	first := !p.initialized

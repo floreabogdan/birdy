@@ -27,6 +27,11 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?error=1", http.StatusSeeOther)
 		return
 	}
+	ip := clientIP(r)
+	if s.login.blocked(ip) {
+		http.Redirect(w, r, "/login?error=locked", http.StatusSeeOther)
+		return
+	}
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
@@ -37,9 +42,11 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
+		s.login.fail(ip)
 		http.Redirect(w, r, "/login?error=1", http.StatusSeeOther)
 		return
 	}
+	s.login.reset(ip)
 
 	token, err := newSessionToken()
 	if err != nil {

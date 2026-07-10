@@ -57,6 +57,10 @@ var funcs = template.FuncMap{
 			class, label = "badge-info", "config"
 		case store.EventConfigRevert:
 			class, label = "badge-info", "revert"
+		case store.EventBirdUnreach:
+			class, label = "badge-danger", "bird down"
+		case store.EventBirdReachable:
+			class, label = "badge-success", "bird up"
 		}
 		return template.HTML(`<span class="badge ` + class + `">` + template.HTMLEscapeString(label) + `</span>`)
 	},

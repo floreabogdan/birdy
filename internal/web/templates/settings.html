@@ -147,8 +147,11 @@
 			<div class="card">
 				<div class="card-header">Database snapshots</div>
 				<div class="card-body">
-					<p class="text-muted">birdy's entire state — settings, sessions, users, the event timeline — lives in one SQLite file. A fresh, consistent snapshot is taken nightly and can also be downloaded on demand below.</p>
-					<p><a class="btn btn-primary" href="/api/snapshot/download">Download snapshot now</a></p>
+					<p class="text-muted">birdy's entire state — settings, sessions, users, the event timeline — lives in one SQLite file. A fresh, consistent snapshot is taken nightly and can also be downloaded on demand below. The <strong>backup bundle</strong> also includes the rendered config, so you have an off-box copy of both.</p>
+					<p class="form-actions" style="margin-top:0">
+						<a class="btn btn-primary" href="/api/backup/download">Download backup bundle</a>
+						<a class="btn" href="/api/snapshot/download">Database only</a>
+					</p>
 
 					{{if not .ReadOnly}}
 					<hr style="border:none;border-top:1px solid var(--border);margin:18px 0">

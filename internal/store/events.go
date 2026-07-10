@@ -8,12 +8,14 @@ import (
 
 // Event kinds recorded on the timeline.
 const (
-	EventSessionUp    = "session_up"
-	EventSessionDown  = "session_down"
-	EventFlap         = "flap"
-	EventLimitHit     = "limit_hit"
-	EventConfigApply  = "config_apply"
-	EventConfigRevert = "config_revert"
+	EventSessionUp     = "session_up"
+	EventSessionDown   = "session_down"
+	EventFlap          = "flap"
+	EventLimitHit      = "limit_hit"
+	EventConfigApply   = "config_apply"
+	EventConfigRevert  = "config_revert"
+	EventBirdUnreach   = "bird_unreachable" // the control socket / daemon went away
+	EventBirdReachable = "bird_reachable"   // ... and came back
 )
 
 type Event struct {

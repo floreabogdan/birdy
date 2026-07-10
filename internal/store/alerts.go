@@ -66,6 +66,7 @@ func AlertEventKinds() []AlertEventKind {
 		{EventSessionUp, "Session recovery"},
 		{EventFlap, "Flap"},
 		{EventLimitHit, "Import limit"},
+		{EventBirdUnreach, "BIRD unreachable"},
 		{EventConfigApply, "Config applied"},
 		{EventConfigRevert, "Config reverted"},
 	}

@@ -75,6 +75,8 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 // It is the emergency-rollback path: "the config from before worked, put it
 // back", with the same timeout-armed safety as any apply.
 func (s *Server) handleReapply(w http.ResponseWriter, r *http.Request) {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
 	if !s.canStartApply(w, r) {
 		return
 	}

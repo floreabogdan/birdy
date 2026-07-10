@@ -149,9 +149,13 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// An armed reconfigure that BIRD already auto-reverted is recorded here, so
-	// the page never shows a pending apply that is really over.
-	if err := s.reconcilePending(); err != nil {
-		s.log.Error("reconcile pending", "error", err)
+	// the page never shows a pending apply that is really over. Under the apply
+	// lock, since it mutates the pending record a concurrent apply also touches.
+	s.applyMu.Lock()
+	reconcileErr := s.reconcilePending()
+	s.applyMu.Unlock()
+	if reconcileErr != nil {
+		s.log.Error("reconcile pending", "error", reconcileErr)
 	}
 	settings, _, err := s.store.GetSettings()
 	if err != nil {

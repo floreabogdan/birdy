@@ -201,6 +201,8 @@ func (s *Server) canStartApply(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
 	if !s.canStartApply(w, r) {
 		return
 	}
@@ -328,6 +330,8 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 }
 
 func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
 	if !s.writeGuard(w) {
 		return
 	}
@@ -372,10 +376,17 @@ func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.emitEvent(store.EventConfigApply, "", fmt.Sprintf("Config apply confirmed (version %d)", pending.ID))
+	// Keep an off-box copy: mail the applied config, password-masked, to any
+	// email destinations. A disk failure then does not lose what was running.
+	if s.notifier != nil {
+		s.notifier.MailConfig(birdconf.MaskPasswords(pending.ConfigText))
+	}
 	s.redirectChanges(w, r, "Confirmed. birdy now owns this config.")
 }
 
 func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
 	if !s.writeGuard(w) {
 		return
 	}
@@ -414,6 +425,8 @@ func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
 // apply diffs against it and replaces it cleanly. Nothing about the running
 // daemon changes.
 func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
 	if !s.writeGuard(w) {
 		return
 	}

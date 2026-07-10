@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/floreabogdan/birdy/internal/store"
@@ -393,5 +394,39 @@ func TestApplyEventsAreNotified(t *testing.T) {
 	}
 	if apply < 2 { // one for the timeout-apply, one for the confirm
 		t.Fatalf("apply and confirm should both notify, got kinds %v", fn.kinds)
+	}
+}
+
+// Ten applies fired at once must produce exactly one pending version and one
+// write, not ten interleaved ones.
+func TestConcurrentAppliesSerialize(t *testing.T) {
+	env := applyReady(t)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			env.do(t, "POST", "/apply", nil)
+		}()
+	}
+	wg.Wait()
+
+	versions, err := env.store.ListConfigVersions(100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("concurrent applies created %d versions, want exactly 1", len(versions))
+	}
+	// BIRD's timeout-apply ran exactly once.
+	var timeouts int
+	for _, c := range env.fc.calls {
+		if c == "timeout" {
+			timeouts++
+		}
+	}
+	if timeouts != 1 {
+		t.Fatalf("configure timeout ran %d times, want 1: %v", timeouts, env.fc.calls)
 	}
 }

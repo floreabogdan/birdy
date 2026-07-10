@@ -111,9 +111,13 @@ type testEnv struct {
 
 // fakeNotifier records the events the web layer emits, so a test can assert an
 // apply or rollback was forwarded to alert destinations.
-type fakeNotifier struct{ kinds []string }
+type fakeNotifier struct {
+	kinds  []string
+	mailed string
+}
 
 func (f *fakeNotifier) Notify(kind, protocol, message string) { f.kinds = append(f.kinds, kind) }
+func (f *fakeNotifier) MailConfig(maskedConfig string)        { f.mailed = maskedConfig }
 
 // newTestEnvMetrics builds an env with the Prometheus endpoint enabled.
 func newTestEnvMetrics(t *testing.T) *testEnv {

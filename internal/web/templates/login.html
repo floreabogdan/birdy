@@ -10,7 +10,8 @@
 		<div class="card-body">
 			<span class="brand">birdy</span>
 			<div class="login-sub">single-router BIRD manager</div>
-			{{if .Error}}<div class="error-text">Invalid username or password.</div>{{end}}
+			{{if eq .Error "locked"}}<div class="error-text">Too many failed attempts. Try again in a few minutes.</div>
+			{{else if .Error}}<div class="error-text">Invalid username or password.</div>{{end}}
 			<form method="post" action="/login">
 				<div class="field">
 					<label for="username">Username</label>

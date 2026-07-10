@@ -16,11 +16,18 @@ type fakeClient struct {
 	polls  [][]birdc.ProtocolSummary
 	detail map[string]birdc.ProtocolDetail
 	i      int
+	step   int
+	errAt  map[int]error // poll (call) number -> error, to script BIRD-unreachable
 }
 
 func (f *fakeClient) Status() (birdc.Status, error) { return birdc.Status{}, nil }
 
 func (f *fakeClient) Protocols() ([]birdc.ProtocolSummary, error) {
+	step := f.step
+	f.step++
+	if err, ok := f.errAt[step]; ok {
+		return nil, err // an errored poll does not consume a scripted result
+	}
 	if f.i >= len(f.polls) {
 		return f.polls[len(f.polls)-1], nil
 	}
@@ -188,3 +195,43 @@ func TestPollerNotifiesOnTransition(t *testing.T) {
 		t.Fatalf("notifier kinds = %v, want [session_down]", n.kinds)
 	}
 }
+
+func TestPollerAlertsWhenBirdUnreachable(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{
+		polls: [][]birdc.ProtocolSummary{
+			{bgp("edge_v4", "up", "Established")}, // step 0: baseline (reachable)
+			{bgp("edge_v4", "up", "Established")}, // step 2: recovery
+		},
+		errAt: map[int]error{1: errBirdGone}, // step 1: unreachable
+	}
+	n := &capturingNotifier{}
+	p := New(fc, st, time.Second, nil)
+	p.SetNotifier(n)
+
+	p.poll() // baseline reachable, no event
+	p.poll() // unreachable -> bird_unreachable
+	p.poll() // reachable again -> bird_reachable
+
+	events, err := st.ListEvents(10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := []string{}
+	for _, e := range events {
+		kinds = append(kinds, e.Kind)
+	}
+	// newest first: reachable, then unreachable
+	if len(events) != 2 || events[0].Kind != store.EventBirdReachable || events[1].Kind != store.EventBirdUnreach {
+		t.Fatalf("want [reachable, unreachable], got %v", kinds)
+	}
+	if len(n.kinds) != 2 {
+		t.Fatalf("both reachability transitions should notify, got %v", n.kinds)
+	}
+}
+
+var errBirdGone = fmtError("dial /run/bird/bird.ctl: connection refused")
+
+type fmtError string
+
+func (e fmtError) Error() string { return string(e) }

@@ -48,7 +48,9 @@ anything.
 - On-demand looking glass (`show route for …`)
 - Timeline of session transitions, flaps, and prefix-limit hits
 - Alerts to any number of destinations — Slack, Discord, email (SMTP), or a generic JSON webhook — when a session drops, recovers, flaps, hits its limit, or a config is applied/reverted; per-destination event filtering and repeat-suppression
-- A Prometheus `/metrics` endpoint (opt-in, `--metrics`) exposing session up/down and route counts
+- A Prometheus `/metrics` endpoint (opt-in, `--metrics`) exposing session up/down and route counts, and a public `/healthz` liveness probe
+- An alert when BIRD itself becomes unreachable — the one failure session alerts can't catch, since detecting a session change needs a working poll
+- Login rate-limiting (per-IP lockout after repeated failures) and a downloadable off-box backup bundle (model + rendered config); the applied config can also be emailed on each confirm
 - Live BIRD-code preview on every editor: the generated config updates as you type, before you save
 
 **Model**
