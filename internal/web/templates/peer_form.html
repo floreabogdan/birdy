@@ -70,7 +70,11 @@
 								</div>
 								<div class="field">
 									<label for="remoteAsn">Remote AS</label>
-									<input type="number" id="remoteAsn" name="remoteAsn" class="mono" value="{{if .Peer.RemoteASN}}{{.Peer.RemoteASN}}{{end}}" min="1" max="4294967295" required>
+									<div style="display:flex;gap:8px;align-items:center">
+										<input type="number" id="remoteAsn" name="remoteAsn" class="mono" value="{{if .Peer.RemoteASN}}{{.Peer.RemoteASN}}{{end}}" min="1" max="4294967295" required style="flex:1">
+										{{if .PeeringDB}}<button type="button" class="btn btn-sm" id="pdb-lookup" title="Pre-fill from PeeringDB">Look up</button>{{end}}
+									</div>
+									<div class="hint" id="pdb-status" hidden></div>
 									{{with index .Errs "remoteAsn"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
 							</div>
@@ -294,5 +298,6 @@
 <script src="/static/policy-chain.js"></script>
 <script src="/static/peer-form.js"></script>
 <script src="/static/live-preview.js"></script>
+<script src="/static/peeringdb.js"></script>
 </body>
 </html>

@@ -37,6 +37,7 @@ func cmdServer(args []string) error {
 	alertCooldown := fs.Duration("alert-cooldown", 5*time.Minute, "suppress a repeat alert for the same session within this window (0 disables)")
 	dropRatio := fs.Float64("prefix-drop-ratio", 0.5, "alert when a session's imported routes fall to this fraction of the previous poll (0 disables)")
 	metrics := fs.Bool("metrics", false, "expose an unauthenticated Prometheus /metrics endpoint (put it behind your own network controls)")
+	peeringDB := fs.Bool("peeringdb", false, "enable PeeringDB lookups on the peer form (dials out to peeringdb.com)")
 	fs.Parse(args)
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -83,7 +84,7 @@ func cmdServer(args []string) error {
 	srv := web.New(web.Config{
 		Store: st, Client: client, Poller: p, Snapshot: snapMgr, Log: log, ReadOnly: *readOnly,
 		BirdConfPath: *birdConf, BirdBackupDir: *birdBackupDir, BirdBinary: *birdBinary,
-		ApplyTimeout: *applyTimeout, Notifier: dispatcher, Metrics: *metrics,
+		ApplyTimeout: *applyTimeout, Notifier: dispatcher, Metrics: *metrics, PeeringDB: *peeringDB,
 	})
 
 	httpServer := &http.Server{Addr: effListen, Handler: srv}

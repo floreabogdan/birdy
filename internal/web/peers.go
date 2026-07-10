@@ -31,6 +31,9 @@ type peerFormView struct {
 	// ClonedFrom names the peer a new form was pre-filled from, so the operator
 	// knows the shape came from somewhere and only the identity needs its values.
 	ClonedFrom string
+	// PeeringDB reports whether the PeeringDB lookup is enabled, so the form can
+	// show the "look up ASN" button.
+	PeeringDB bool
 	// Preview is the BIRD code this peer alone would contribute, rendered with
 	// secrets masked. Empty when the form does not yet validate.
 	Preview    string
@@ -279,6 +282,7 @@ func (s *Server) handlePeerDelete(w http.ResponseWriter, r *http.Request) {
 // renderPeerForm fills in the live BIRD-code preview and the lint findings
 // before rendering. The preview always masks secrets: it goes to a browser.
 func (s *Server) renderPeerForm(w http.ResponseWriter, v peerFormView) {
+	v.PeeringDB = s.peeringDB
 	policies, err := s.store.ListPolicies()
 	if err != nil {
 		s.serverError(w, "list policies", err)

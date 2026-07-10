@@ -55,9 +55,11 @@ type Server struct {
 	applyTimeout  int
 
 	// notifier delivers apply/rollback events to alert destinations. nil in
-	// tests. metrics gates the unauthenticated Prometheus endpoint.
-	notifier alertNotifier
-	metrics  bool
+	// tests. metrics gates the unauthenticated Prometheus endpoint; peeringDB
+	// gates the PeeringDB lookup that dials out to a third party.
+	notifier  alertNotifier
+	metrics   bool
+	peeringDB bool
 
 	// applyMu serialises everything that touches bird.conf and the pending-apply
 	// record. HTTP handlers run concurrently, and two applies at once could both
@@ -92,6 +94,7 @@ type Config struct {
 	ApplyTimeout  int
 	Notifier      alertNotifier
 	Metrics       bool
+	PeeringDB     bool
 }
 
 func New(cfg Config) *Server {
@@ -128,6 +131,7 @@ func New(cfg Config) *Server {
 		applyTimeout:  applyTimeout,
 		notifier:      cfg.Notifier,
 		metrics:       cfg.Metrics,
+		peeringDB:     cfg.PeeringDB,
 		login:         newLoginLimiter(),
 		mux:           http.NewServeMux(),
 	}
@@ -160,6 +164,9 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /peers", s.requireAuth(s.handlePeersList))
 	s.mux.Handle("GET /peers/new", s.requireAuth(s.handlePeerNew))
 	s.mux.Handle("POST /peers/new", s.requireAuth(s.handlePeerSave))
+	if s.peeringDB {
+		s.mux.Handle("GET /api/peeringdb/{asn}", s.requireAuth(s.handlePeeringDBLookup))
+	}
 	s.mux.Handle("GET /peers/{name}", s.requireAuth(s.handlePeerDetail))
 	s.mux.Handle("GET /peers/{name}/edit", s.requireAuth(s.handlePeerEdit))
 	s.mux.Handle("POST /peers/{name}/edit", s.requireAuth(s.handlePeerSave))
