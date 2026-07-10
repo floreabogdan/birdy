@@ -53,7 +53,8 @@ anything.
 - Peers with roles (upstream, IX peer, customer, iBGP), which drive automatic origin tagging
 - iBGP with next-hop-self and route reflection
 - AS-path prepending, export communities, and one-click drain (RFC 8326 graceful shutdown) per peer
-- Composable import and export policy chains, rather than one policy per session
+- Composable import and export policy chains (which can match communities), rather than one policy per session
+- Clone an existing peer to make another of the same shape — birdy's peer templates
 - A library of prefix sets, AS sets, and static routes
 - Static routes for what no protocol discovers on its own (a subnet behind a non-BGP device, a far
   router's loopback for iBGP next-hop resolution)
@@ -79,8 +80,8 @@ For apply to work, birdy needs write access to `bird.conf` and its directory, an
 be the same path BIRD was started with (`bird -c`). Passwords go to disk (BIRD needs them) but are
 still masked everywhere in the browser.
 
-**Not built yet:** peer templates, general community matching (birdy sets communities but does not yet
-match on them to make policy decisions), and the RPKI dry-run report (which needs RPKI actually running).
+**Not built yet:** the RPKI dry-run report ("N routes would be dropped") — it needs RPKI actually
+running on the router, so it comes after you enable apply and turn RPKI on.
 
 **Not modelled, so it belongs in the raw block:** BFD, graceful restart tuning, extra routing tables,
 IGPs (OSPF, Babel), MPLS, and restricting which interfaces the `direct` protocol picks up. (A static

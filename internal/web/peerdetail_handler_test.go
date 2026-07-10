@@ -120,3 +120,50 @@ func TestPeerDetailOfAnUnappliedPeerExplainsItself(t *testing.T) {
 		t.Error("it should point at the config that would create it")
 	}
 }
+
+func TestClonePeerPrefillsShapeNotIdentity(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+
+	// Make a source peer with a distinctive shape.
+	form := peerForm()
+	form.Set("name", "cust_a")
+	form.Set("role", "customer")
+	form.Set("neighborIp", "198.51.100.20")
+	form.Set("remoteAsn", "64512")
+	form.Set("password", "s3cr3t")
+	form.Set("prependCount", "2")
+	form.Set("importPolicyIds", "") // no chains, keep it simple
+	if rec := env.do(t, "POST", "/peers/new", form); rec.Code != http.StatusSeeOther {
+		t.Fatalf("create source: %d %s", rec.Code, rec.Body.String())
+	}
+
+	body := env.do(t, "GET", "/peers/new?from=cust_a", nil).Body.String()
+	// The shape carries: role customer, prepend 2.
+	if !strings.Contains(body, `value="customer" selected`) {
+		t.Error("clone should carry the role")
+	}
+	if !strings.Contains(body, `Cloned from`) {
+		t.Error("clone should note its source")
+	}
+	// The identity and secret do NOT carry.
+	if strings.Contains(body, "198.51.100.20") || strings.Contains(body, "64512") {
+		t.Error("clone must not carry the neighbor or ASN")
+	}
+	if strings.Contains(body, "s3cr3t") {
+		t.Error("clone must never carry the password")
+	}
+}
+
+// Cloning a peer that no longer exists falls back to a blank form, not a 404.
+func TestCloneMissingPeerIsBlankForm(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+	rec := env.do(t, "GET", "/peers/new?from=ghost", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want a blank form, got %d", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "Cloned from") {
+		t.Error("a missing source should not claim to be a clone")
+	}
+}

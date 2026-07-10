@@ -17,7 +17,10 @@
 			<div class="page-header">
 				<div>
 					<h1>{{if .IsNew}}Add peer{{else}}Edit {{.Peer.Name}}{{end}}</h1>
-					<div class="page-sub">Saved to birdy's model. The router is not touched until you apply a config.</div>
+					<div class="page-sub">
+						{{if .ClonedFrom}}Cloned from <span class="mono">{{.ClonedFrom}}</span> &mdash; fill in the name, neighbor and AS, and set a password.
+						{{else}}Saved to birdy's model. The router is not touched until you apply a config.{{end}}
+					</div>
 				</div>
 			</div>
 
@@ -65,7 +68,7 @@
 								</div>
 								<div class="field">
 									<label for="remoteAsn">Remote AS</label>
-									<input type="number" id="remoteAsn" name="remoteAsn" class="mono" value="{{.Peer.RemoteASN}}" min="1" max="4294967295" required>
+									<input type="number" id="remoteAsn" name="remoteAsn" class="mono" value="{{if .Peer.RemoteASN}}{{.Peer.RemoteASN}}{{end}}" min="1" max="4294967295" required>
 									{{with index .Errs "remoteAsn"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
 							</div>

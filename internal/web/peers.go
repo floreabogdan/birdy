@@ -28,6 +28,9 @@ type peerFormView struct {
 	Imports  []store.Policy // every import policy, for the picker
 	Exports  []store.Policy
 	Errs     map[string]string
+	// ClonedFrom names the peer a new form was pre-filled from, so the operator
+	// knows the shape came from somewhere and only the identity needs its values.
+	ClonedFrom string
 	// Preview is the BIRD code this peer alone would contribute, rendered with
 	// secrets masked. Empty when the form does not yet validate.
 	Preview    string
@@ -64,6 +67,25 @@ func (s *Server) handlePeersList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePeerNew(w http.ResponseWriter, r *http.Request) {
+	// Clone an existing peer as a template: keep its role, policy chains, limits
+	// and export transforms; drop the identity (name, addresses, ASN) and never
+	// carry the password. This is birdy's "peer template" — the common shape of a
+	// customer or IX peer, captured from one you already made.
+	if from := r.URL.Query().Get("from"); from != "" {
+		src, err := s.store.GetPeerByName(from)
+		if err == nil {
+			if err := s.loadPeerChains(&src); err != nil {
+				s.serverError(w, "peer policies", err)
+				return
+			}
+			src.ID, src.Name, src.NeighborIP, src.LocalIP, src.RemoteASN, src.Password = 0, "", "", "", 0, ""
+			src.Drained = false // a fresh session is not in maintenance
+			s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: true, Peer: src, ClonedFrom: from})
+			return
+		}
+		// Source gone — fall through to a blank form rather than 404.
+	}
+
 	// A new session is an eBGP upstream, enabled, with the first-AS check on
 	// and BIRD restarting it if the peer floods us past the import limit.
 	// NextHopSelf is pre-ticked for the moment the operator switches to iBGP:

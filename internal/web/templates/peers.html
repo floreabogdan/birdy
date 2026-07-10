@@ -68,6 +68,7 @@
 								{{else}}<span class="badge badge-warning" title="BIRD has no protocol by this name. birdy has not applied a config.">not applied</span>{{end}}
 							</td>
 							<td class="row-actions">
+								<a class="icon-action" href="/peers/new?from={{.Name}}" title="Clone {{.Name}} into a new peer" aria-label="Clone {{.Name}}">{{template "icon-copy"}}</a>
 								<a class="icon-action a-primary" href="/peers/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
 								<form method="post" action="/peers/{{.Name}}/delete" onsubmit="return confirm('Delete peer {{.Name}}? This only changes birdy\'s model — the running session is untouched.')">
 									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
