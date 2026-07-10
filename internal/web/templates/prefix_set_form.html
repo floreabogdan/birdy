@@ -54,6 +54,19 @@
 								</select>
 								{{with index .Errs "family"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
+							{{if and .Bgpq4 (not .Set.System)}}
+							<div class="field">
+								<label for="source">IRR AS-SET</label>
+								<div style="display:flex;gap:8px;align-items:center">
+									<input type="text" id="source" name="source" class="mono" value="{{.Set.Source}}" placeholder="AS-CUSTOMER or AS64500" autocomplete="off" style="flex:1">
+									<button type="button" class="btn btn-sm" id="irr-refresh" title="Expand this AS-SET into the prefixes below">Refresh from IRR</button>
+								</div>
+								<div class="hint" id="irr-status" hidden></div>
+								<div class="hint">Expands with <span class="mono">bgpq4</span> for this set's address family, then fills the box below to review before saving.</div>
+							</div>
+							{{else if .Set.Source}}
+							<input type="hidden" name="source" value="{{.Set.Source}}">
+							{{end}}
 							<div class="field">
 								<label for="entries">Prefixes</label>
 								<textarea id="entries" name="entries" rows="14" class="mono" spellcheck="false" placeholder="192.0.2.0/24&#10;198.51.100.0/24+&#10;203.0.113.0/24{25,32}">{{range .Set.Entries}}{{.Pattern}}
@@ -113,5 +126,6 @@
 	</div>
 </div>
 <script src="/static/live-preview.js"></script>
+<script src="/static/irr.js"></script>
 </body>
 </html>

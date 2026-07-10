@@ -38,6 +38,7 @@ func cmdServer(args []string) error {
 	dropRatio := fs.Float64("prefix-drop-ratio", 0.5, "alert when a session's imported routes fall to this fraction of the previous poll (0 disables)")
 	metrics := fs.Bool("metrics", false, "expose an unauthenticated Prometheus /metrics endpoint (put it behind your own network controls)")
 	peeringDB := fs.Bool("peeringdb", false, "enable PeeringDB lookups on the peer form (dials out to peeringdb.com)")
+	bgpq4 := fs.String("bgpq4", "", "path to bgpq4 to enable IRR AS-SET expansion on prefix sets (empty disables; \"bgpq4\" uses PATH)")
 	fs.Parse(args)
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -85,6 +86,7 @@ func cmdServer(args []string) error {
 		Store: st, Client: client, Poller: p, Snapshot: snapMgr, Log: log, ReadOnly: *readOnly,
 		BirdConfPath: *birdConf, BirdBackupDir: *birdBackupDir, BirdBinary: *birdBinary,
 		ApplyTimeout: *applyTimeout, Notifier: dispatcher, Metrics: *metrics, PeeringDB: *peeringDB,
+		Bgpq4Bin: *bgpq4,
 	})
 
 	httpServer := &http.Server{Addr: effListen, Handler: srv}

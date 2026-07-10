@@ -48,7 +48,10 @@ type PrefixSet struct {
 	// System sets (the bogon lists) are named directly by generated filters.
 	// They live under Settings, never appear in a prefix-set picker, and
 	// cannot be renamed, re-familied or deleted.
-	System  bool
+	System bool
+	// Source is the IRR AS-SET this set's prefixes are expanded from (bgpq4),
+	// empty when maintained by hand.
+	Source  string
 	Entries []PrefixEntry
 }
 
@@ -145,7 +148,7 @@ func validModifier(mod string, p netip.Prefix) string {
 
 func (s *Store) ListPrefixSets() ([]PrefixSet, error) {
 	rows, err := s.db.Query(`
-		SELECT id, name, description, family, originate, originate_action, builtin, system
+		SELECT id, name, description, family, originate, originate_action, builtin, system, source
 		FROM prefix_sets ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list prefix sets: %w", err)
@@ -154,7 +157,7 @@ func (s *Store) ListPrefixSets() ([]PrefixSet, error) {
 	var out []PrefixSet
 	for rows.Next() {
 		var ps PrefixSet
-		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System); err != nil {
+		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System, &ps.Source); err != nil {
 			return nil, err
 		}
 		out = append(out, ps)
@@ -192,9 +195,9 @@ func (s *Store) ListSelectablePrefixSets() ([]PrefixSet, error) {
 func (s *Store) GetPrefixSet(id int64) (PrefixSet, error) {
 	var ps PrefixSet
 	row := s.db.QueryRow(`
-		SELECT id, name, description, family, originate, originate_action, builtin, system
+		SELECT id, name, description, family, originate, originate_action, builtin, system, source
 		FROM prefix_sets WHERE id = ?`, id)
-	if err := row.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System); err != nil {
+	if err := row.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System, &ps.Source); err != nil {
 		if err == sql.ErrNoRows {
 			return PrefixSet{}, ErrNotFound
 		}
@@ -246,8 +249,8 @@ func (s *Store) CreatePrefixSet(ps PrefixSet) (int64, error) {
 	defer tx.Rollback()
 	ts := now()
 	res, err := tx.Exec(`
-		INSERT INTO prefix_sets (name, description, family, originate, originate_action, builtin, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 0, ?, ?)`, ps.Name, ps.Description, ps.Family, ps.Originate, ps.OriginateAction, ts, ts)
+		INSERT INTO prefix_sets (name, description, family, originate, originate_action, source, builtin, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`, ps.Name, ps.Description, ps.Family, ps.Originate, ps.OriginateAction, ps.Source, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create prefix set: %w", err)
 	}
@@ -271,8 +274,8 @@ func (s *Store) UpdatePrefixSet(ps PrefixSet) error {
 	}
 	defer tx.Rollback()
 	res, err := tx.Exec(`
-		UPDATE prefix_sets SET name = ?, description = ?, family = ?, originate = ?, originate_action = ?, updated_at = ?
-		WHERE id = ?`, ps.Name, ps.Description, ps.Family, ps.Originate, ps.OriginateAction, now(), ps.ID)
+		UPDATE prefix_sets SET name = ?, description = ?, family = ?, originate = ?, originate_action = ?, source = ?, updated_at = ?
+		WHERE id = ?`, ps.Name, ps.Description, ps.Family, ps.Originate, ps.OriginateAction, ps.Source, now(), ps.ID)
 	if err != nil {
 		return fmt.Errorf("store: update prefix set: %w", err)
 	}

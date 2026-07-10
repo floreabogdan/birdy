@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 16
+const schemaVersion = 17
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -230,6 +230,13 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 		if err := ensureColumn(tx, "policies", "accept_blackhole", `ALTER TABLE policies ADD COLUMN accept_blackhole INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+
+	if version < 17 {
+		// A prefix set can be expanded from an IRR AS-SET with bgpq4.
+		if err := ensureColumn(tx, "prefix_sets", "source", `ALTER TABLE prefix_sets ADD COLUMN source TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
 	}

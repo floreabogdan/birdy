@@ -60,6 +60,7 @@ type Server struct {
 	notifier  alertNotifier
 	metrics   bool
 	peeringDB bool
+	bgpq4Bin  string // non-empty enables IRR expansion via bgpq4
 
 	// applyMu serialises everything that touches bird.conf and the pending-apply
 	// record. HTTP handlers run concurrently, and two applies at once could both
@@ -95,6 +96,7 @@ type Config struct {
 	Notifier      alertNotifier
 	Metrics       bool
 	PeeringDB     bool
+	Bgpq4Bin      string
 }
 
 func New(cfg Config) *Server {
@@ -132,6 +134,7 @@ func New(cfg Config) *Server {
 		notifier:      cfg.Notifier,
 		metrics:       cfg.Metrics,
 		peeringDB:     cfg.PeeringDB,
+		bgpq4Bin:      cfg.Bgpq4Bin,
 		login:         newLoginLimiter(),
 		mux:           http.NewServeMux(),
 	}
@@ -166,6 +169,9 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /peers/new", s.requireAuth(s.handlePeerSave))
 	if s.peeringDB {
 		s.mux.Handle("GET /api/peeringdb/{asn}", s.requireAuth(s.handlePeeringDBLookup))
+	}
+	if s.bgpq4Bin != "" {
+		s.mux.Handle("GET /api/irr/prefixes", s.requireAuth(s.handleIRRPrefixes))
 	}
 	s.mux.Handle("GET /peers/{name}", s.requireAuth(s.handlePeerDetail))
 	s.mux.Handle("GET /peers/{name}/edit", s.requireAuth(s.handlePeerEdit))

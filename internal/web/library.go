@@ -24,6 +24,7 @@ type prefixSetFormView struct {
 	Errs       map[string]string
 	Preview    string
 	PreviewErr string
+	Bgpq4      bool // whether IRR expansion is enabled
 }
 
 func (s *Server) handlePrefixSetsList(w http.ResponseWriter, r *http.Request) {
@@ -78,6 +79,7 @@ func prefixSetFromForm(r *http.Request) store.PrefixSet {
 		Family:          r.FormValue("family"),
 		Originate:       r.FormValue("originate") == "on",
 		OriginateAction: r.FormValue("originateAction"),
+		Source:          strings.TrimSpace(r.FormValue("source")),
 	}
 	for line := range strings.Lines(r.FormValue("entries")) {
 		line = strings.TrimSpace(line)
@@ -171,6 +173,7 @@ func (s *Server) handlePrefixSetDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderPrefixSetForm(w http.ResponseWriter, v prefixSetFormView) {
+	v.Bgpq4 = s.bgpq4Bin != ""
 	v.Preview, v.PreviewErr = previewPrefixSet(v.Set)
 	render(w, s.log, "prefix_set_form.html", v)
 }

@@ -59,7 +59,8 @@ anything.
 - AS-path prepending, export communities, and one-click drain (RFC 8326 graceful shutdown) per peer
 - Composable import and export policy chains (which can match communities), rather than one policy per session
 - Clone an existing peer to make another of the same shape — birdy's peer templates
-- A library of prefix sets, AS sets, and static routes
+- A library of prefix sets, AS sets, and static routes — a prefix set can be expanded from an IRR AS-SET with `bgpq4` (opt-in)
+- PeeringDB and BFD; RFC 7999 customer blackhole (RTBH)
 - Static routes for what no protocol discovers on its own (a subnet behind a non-BGP device, a far
   router's loopback for iBGP next-hop resolution)
 - Bogon prefixes and bogon ASNs, editable, in Settings
