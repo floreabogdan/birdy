@@ -238,4 +238,26 @@ CREATE TABLE IF NOT EXISTS config_versions (
 	resolved_at      TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_cv_status ON config_versions(status);
+
+-- Where session alerts are delivered. One row per destination, so an operator
+-- can page one channel and email another. The type discriminator decides which
+-- fields matter: url for the webhook kinds, the smtp_* fields for email.
+CREATE TABLE IF NOT EXISTS alert_destinations (
+	id            INTEGER PRIMARY KEY AUTOINCREMENT,
+	name          TEXT NOT NULL UNIQUE,
+	-- webhook | slack | discord | email
+	type          TEXT NOT NULL,
+	enabled       INTEGER NOT NULL DEFAULT 1,
+	url           TEXT NOT NULL DEFAULT '',
+	smtp_host     TEXT NOT NULL DEFAULT '',
+	smtp_port     INTEGER NOT NULL DEFAULT 587,
+	smtp_username TEXT NOT NULL DEFAULT '',
+	smtp_password TEXT NOT NULL DEFAULT '',
+	smtp_from     TEXT NOT NULL DEFAULT '',
+	smtp_to       TEXT NOT NULL DEFAULT '',
+	-- none | starttls | tls
+	smtp_security TEXT NOT NULL DEFAULT 'starttls',
+	created_at    TEXT NOT NULL,
+	updated_at    TEXT NOT NULL
+);
 `

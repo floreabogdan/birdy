@@ -69,7 +69,7 @@ func cmdServer(args []string) error {
 	defer stop()
 
 	p := poller.New(client, st, *pollInterval, log)
-	p.SetNotifier(notify.NewWebhook(st, log))
+	p.SetNotifier(notify.NewDispatcher(st, log))
 	go p.Run(ctx)
 
 	snapMgr := snapshot.NewManager(*dbPath, *snapshotDir, *snapshotRetain)

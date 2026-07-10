@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — {{if .IsNew}}new alert destination{{else}}{{.Dest.Name}}{{end}}</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">{{if .IsNew}}New destination{{else}}Edit destination{{end}}</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/alerts">Alerts</a><span class="sep">/</span><span class="current mono">{{if .IsNew}}new{{else}}{{.Dest.Name}}{{end}}</span></div>
+			</div>
+			<div class="page-header">
+				<div><h1>{{if .IsNew}}Add destination{{else}}Edit {{.Dest.Name}}{{end}}</h1></div>
+			</div>
+
+			<form method="post" action="{{if .IsNew}}/alerts/new{{else}}/alerts/{{.Dest.ID}}/edit{{end}}">
+				<div class="card" style="max-width:640px">
+					<div class="card-body">
+						<div class="field-row">
+							<div class="field">
+								<label for="name">Name</label>
+								<input type="text" id="name" name="name" value="{{.Dest.Name}}" placeholder="e.g. noc-slack" autocomplete="off" required>
+								{{with index .Errs "name"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="field">
+								<label for="type">Type</label>
+								<select id="type" name="type">
+									<option value="slack" {{if eq .Dest.Type "slack"}}selected{{end}}>Slack</option>
+									<option value="discord" {{if eq .Dest.Type "discord"}}selected{{end}}>Discord</option>
+									<option value="webhook" {{if eq .Dest.Type "webhook"}}selected{{end}}>Webhook (generic JSON)</option>
+									<option value="email" {{if eq .Dest.Type "email"}}selected{{end}}>Email (SMTP)</option>
+								</select>
+								{{with index .Errs "type"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+						</div>
+						<div class="checks">
+							<label class="check"><input type="checkbox" name="enabled" {{if .Dest.Enabled}}checked{{end}}> Enabled</label>
+						</div>
+
+						{{/* Webhook / Slack / Discord all just need a URL. */}}
+						<div data-alert-kind="webhook" {{if .Dest.IsEmail}}hidden{{end}}>
+							<div class="field" style="margin-top:6px">
+								<label for="url">Webhook URL</label>
+								<input type="url" id="url" name="url" class="mono" value="{{.Dest.URL}}" placeholder="https://hooks.slack.com/services/… or https://discord.com/api/webhooks/…" autocomplete="off">
+								<div class="hint">Slack: an <em>Incoming Webhook</em> URL. Discord: a channel <em>Webhook URL</em>. Webhook: any endpoint that accepts a JSON POST.</div>
+								{{with index .Errs "url"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+						</div>
+
+						{{/* Email needs the SMTP settings. */}}
+						<div data-alert-kind="email" {{if not .Dest.IsEmail}}hidden{{end}}>
+							<div class="field-row" style="margin-top:6px">
+								<div class="field">
+									<label for="smtpHost">SMTP host</label>
+									<input type="text" id="smtpHost" name="smtpHost" class="mono" value="{{.Dest.SMTPHost}}" placeholder="smtp.example.com" autocomplete="off">
+									{{with index .Errs "smtpHost"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field" style="max-width:9rem">
+									<label for="smtpPort">Port</label>
+									<input type="number" id="smtpPort" name="smtpPort" class="mono" value="{{if .Dest.SMTPPort}}{{.Dest.SMTPPort}}{{else}}587{{end}}" min="1" max="65535">
+									{{with index .Errs "smtpPort"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field" style="max-width:11rem">
+									<label for="smtpSecurity">Security</label>
+									<select id="smtpSecurity" name="smtpSecurity">
+										<option value="starttls" {{if eq .Dest.SMTPSecurity "starttls"}}selected{{end}}>STARTTLS (587)</option>
+										<option value="tls" {{if eq .Dest.SMTPSecurity "tls"}}selected{{end}}>TLS (465)</option>
+										<option value="none" {{if eq .Dest.SMTPSecurity "none"}}selected{{end}}>None (25)</option>
+									</select>
+									{{with index .Errs "smtpSecurity"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+							</div>
+							<div class="field-row">
+								<div class="field">
+									<label for="smtpUsername">Username</label>
+									<input type="text" id="smtpUsername" name="smtpUsername" class="mono" value="{{.Dest.SMTPUsername}}" placeholder="optional" autocomplete="off">
+								</div>
+								<div class="field">
+									<label for="smtpPassword">Password</label>
+									<input type="password" id="smtpPassword" name="smtpPassword" value="" autocomplete="new-password" placeholder="{{if .HasPassword}}unchanged{{else}}optional{{end}}">
+									<div class="hint">Left blank keeps the stored password. Used with the username for AUTH.</div>
+								</div>
+							</div>
+							<div class="field-row">
+								<div class="field">
+									<label for="smtpFrom">From</label>
+									<input type="text" id="smtpFrom" name="smtpFrom" class="mono" value="{{.Dest.SMTPFrom}}" placeholder="birdy@example.com" autocomplete="off">
+									{{with index .Errs "smtpFrom"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field">
+									<label for="smtpTo">To</label>
+									<input type="text" id="smtpTo" name="smtpTo" class="mono" value="{{.Dest.SMTPTo}}" placeholder="noc@example.com, oncall@example.com" autocomplete="off">
+									<div class="hint">One or more addresses, comma-separated.</div>
+									{{with index .Errs "smtpTo"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+							</div>
+						</div>
+
+						<div class="hint" style="margin-top:8px">The message layout is fixed and tuned for each platform &mdash; nothing to design.</div>
+					</div>
+				</div>
+
+				<div class="form-actions">
+					{{if .IsNew}}<button type="submit" class="btn btn-success">{{template "icon-plus"}}Create destination</button>{{else}}<button type="submit" class="btn btn-primary">Save changes</button>{{end}}
+					<a class="btn" href="/alerts">Cancel</a>
+					{{if not .IsNew}}<span class="hint" style="align-self:center">Save first, then use <strong>Test</strong> on the list.</span>{{end}}
+				</div>
+			</form>
+		</div>
+	</div>
+</div>
+<script src="/static/alert-form.js"></script>
+</body>
+</html>

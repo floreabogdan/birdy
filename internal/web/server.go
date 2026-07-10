@@ -184,8 +184,15 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /settings/identity", s.requireAuth(s.handleSettingsIdentity))
 	s.mux.Handle("POST /settings/bogons", s.requireAuth(s.handleSettingsBogons))
 	s.mux.Handle("POST /settings/raw", s.requireAuth(s.handleSettingsRaw))
-	s.mux.Handle("POST /settings/alerts", s.requireAuth(s.handleSettingsAlerts))
-	s.mux.Handle("POST /settings/alerts/test", s.requireAuth(s.handleSettingsAlertsTest))
+
+	// Alerts (destinations for session notifications).
+	s.mux.Handle("GET /alerts", s.requireAuth(s.handleAlertsList))
+	s.mux.Handle("GET /alerts/new", s.requireAuth(s.handleAlertNew))
+	s.mux.Handle("POST /alerts/new", s.requireAuth(s.handleAlertSave))
+	s.mux.Handle("GET /alerts/{id}/edit", s.requireAuth(s.handleAlertEdit))
+	s.mux.Handle("POST /alerts/{id}/edit", s.requireAuth(s.handleAlertSave))
+	s.mux.Handle("POST /alerts/{id}/delete", s.requireAuth(s.handleAlertDelete))
+	s.mux.Handle("POST /alerts/{id}/test", s.requireAuth(s.handleAlertTest))
 	s.mux.Handle("POST /logout", s.requireAuth(s.handleLogout))
 
 	// Authenticated JSON API

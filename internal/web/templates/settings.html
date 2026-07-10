@@ -138,21 +138,9 @@
 				<div class="card-header"><span class="card-title">{{template "icon-bell"}}Alerts</span></div>
 				<div class="card-body">
 					<p class="text-muted" style="margin-top:0">
-						Post an alert to a webhook when a session goes down, recovers, flaps, or hits its import limit.
-						Works with Slack and Discord incoming webhooks, or any endpoint that accepts a JSON <span class="mono">POST</span>
-						(the body carries <span class="mono">text</span>, <span class="mono">content</span> and structured fields).
+						Session alerts (down, recovery, flap, import-limit) now go to one or more destinations &mdash; Slack, Discord,
+						a generic webhook, or email. Manage them on the <a href="/alerts">Alerts</a> page.
 					</p>
-					<form method="post" action="/settings/alerts">
-						<div class="field">
-							<label for="webhookUrl">Webhook URL</label>
-							<input type="url" id="webhookUrl" name="webhookUrl" class="mono" value="{{.Settings.WebhookURL}}" placeholder="https://hooks.slack.com/services/… (blank = off)" autocomplete="off">
-							<div class="hint">Leave blank to turn alerts off.</div>
-						</div>
-						<div class="form-actions" style="margin-top:0">
-							<button type="submit" class="btn btn-primary">Save</button>
-							<button type="submit" class="btn" formaction="/settings/alerts/test">Send test alert</button>
-						</div>
-					</form>
 				</div>
 			</div>
 

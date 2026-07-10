@@ -6,76 +6,132 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
-func TestDeliverPayload(t *testing.T) {
-	var got payload
-	var gotType string
+func openStore(t *testing.T) *store.Store {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "birdy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.SaveSettings(store.Settings{RouterLabel: "rtr1", BirdSocketPath: "/x", ListenAddr: "y"}); err != nil {
+		t.Fatal(err)
+	}
+	return st
+}
+
+// A generic webhook gets text (Slack-ish) and content (Discord-ish) plus fields.
+func TestWebhookPayload(t *testing.T) {
+	var got map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotType = r.Header.Get("Content-Type")
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &got)
 		w.WriteHeader(200)
 	}))
 	defer srv.Close()
 
-	w := NewWebhook(nil, nil)
-	if err := w.deliver(srv.URL, store.EventSessionDown, "edge_v4", "edge_v4 (BGP) went down", "rtr1", time.Now()); err != nil {
+	st := openStore(t)
+	if _, err := st.CreateAlertDestination(store.Destination{Name: "w", Type: store.AlertWebhook, Enabled: true, URL: srv.URL}); err != nil {
 		t.Fatal(err)
 	}
-	if gotType != "application/json" {
-		t.Errorf("content-type = %q", gotType)
+	d := NewDispatcher(st, nil)
+	if err := d.SendTest(mustGet(t, st, "w")); err != nil {
+		t.Fatal(err)
 	}
-	// Slack reads text, Discord reads content — both must be present and equal.
-	if got.Text == "" || got.Text != got.Content {
-		t.Errorf("text/content = %q / %q", got.Text, got.Content)
+	if got["text"] == "" || got["text"] != got["content"] {
+		t.Errorf("text/content = %v / %v", got["text"], got["content"])
 	}
-	if got.Event != store.EventSessionDown || got.Protocol != "edge_v4" {
-		t.Errorf("structured fields wrong: %+v", got)
-	}
-	if got.Router != "rtr1" {
-		t.Errorf("router = %q", got.Router)
+	if got["severity"] == nil {
+		t.Error("payload should carry severity")
 	}
 }
 
-func TestDeliverReportsHTTPError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(500)
-	}))
-	defer srv.Close()
-	w := NewWebhook(nil, nil)
-	if err := w.deliver(srv.URL, "test", "", "hi", "", time.Now()); err == nil {
-		t.Error("a 500 response should be an error")
+// Slack gets attachments with a colour; Discord gets embeds with a colour.
+func TestSlackAndDiscordShape(t *testing.T) {
+	for _, tc := range []struct {
+		typ, wantKey string
+	}{{store.AlertSlack, "attachments"}, {store.AlertDiscord, "embeds"}} {
+		var got map[string]any
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			_ = json.Unmarshal(body, &got)
+			w.WriteHeader(204)
+		}))
+		st := openStore(t)
+		if _, err := st.CreateAlertDestination(store.Destination{Name: "d", Type: tc.typ, Enabled: true, URL: srv.URL}); err != nil {
+			t.Fatal(err)
+		}
+		if err := NewDispatcher(st, nil).SendTest(mustGet(t, st, "d")); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := got[tc.wantKey]; !ok {
+			t.Errorf("%s payload missing %q: %v", tc.typ, tc.wantKey, got)
+		}
+		srv.Close()
 	}
 }
 
-// A configured webhook receives session events; an empty one is a no-op.
-func TestNotifyReadsStoredURL(t *testing.T) {
-	received := make(chan struct{}, 1)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		received <- struct{}{}
-		w.WriteHeader(200)
-	}))
-	defer srv.Close()
+// Notify fans out to every enabled destination and skips disabled ones.
+func TestNotifyFansOutToEnabledOnly(t *testing.T) {
+	hits := make(chan string, 4)
+	on := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits <- "on"; w.WriteHeader(200) }))
+	defer on.Close()
+	off := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits <- "off"; w.WriteHeader(200) }))
+	defer off.Close()
 
-	st, err := store.Open(filepath.Join(t.TempDir(), "birdy.db"))
+	st := openStore(t)
+	st.CreateAlertDestination(store.Destination{Name: "on", Type: store.AlertWebhook, Enabled: true, URL: on.URL})
+	st.CreateAlertDestination(store.Destination{Name: "off", Type: store.AlertWebhook, Enabled: false, URL: off.URL})
+
+	NewDispatcher(st, nil).Notify(store.EventSessionDown, "edge_v4", "went down")
+
+	select {
+	case got := <-hits:
+		if got != "on" {
+			t.Errorf("delivered to the disabled destination")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no delivery")
+	}
+	// The disabled one must not fire.
+	select {
+	case got := <-hits:
+		t.Errorf("unexpected second delivery: %s", got)
+	case <-time.After(300 * time.Millisecond):
+	}
+}
+
+// The email body is a valid MIME message with both parts and the alert content.
+func TestBuildEmail(t *testing.T) {
+	a := alert{Kind: store.EventSessionDown, Protocol: "edge_v4", Message: "edge_v4 went down", Router: "rtr1", Time: time.Unix(1_700_000_000, 0)}
+	msg := buildEmail("birdy@example.com", []string{"noc@example.com"}, a)
+	for _, want := range []string{
+		"From: birdy@example.com", "To: noc@example.com", "Subject:",
+		"multipart/alternative", "text/plain", "text/html", "edge_v4 went down",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("email missing %q", want)
+		}
+	}
+}
+
+func mustGet(t *testing.T, st *store.Store, name string) store.Destination {
+	t.Helper()
+	all, err := st.ListAlertDestinations()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
-	if err := st.SaveSettings(store.Settings{WebhookURL: srv.URL, BirdSocketPath: "/x", ListenAddr: "y"}); err != nil {
-		t.Fatal(err)
+	for _, d := range all {
+		if d.Name == name {
+			return d
+		}
 	}
-
-	w := NewWebhook(st, nil)
-	w.Notify(store.EventSessionDown, "edge_v4", "down")
-	select {
-	case <-received:
-	case <-time.After(2 * time.Second):
-		t.Fatal("webhook was not called")
-	}
+	t.Fatalf("destination %q not found", name)
+	return store.Destination{}
 }

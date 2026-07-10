@@ -217,39 +217,83 @@ func TestPeerTrafficEngineeringPersists(t *testing.T) {
 	}
 }
 
-func TestAlertsWebhookSaveAndValidate(t *testing.T) {
+func TestAlertDestinationCRUD(t *testing.T) {
 	env := newTestEnv(t, false)
-	withIdentity(t, env)
 
-	// A good URL saves.
-	rec := env.do(t, "POST", "/settings/alerts", url.Values{"webhookUrl": {"https://hooks.example.com/x"}})
-	if rec.Code != http.StatusSeeOther {
-		t.Fatalf("save: %d", rec.Code)
+	// Create a Slack destination.
+	form := url.Values{"name": {"noc-slack"}, "type": {"slack"}, "enabled": {"on"},
+		"url": {"https://hooks.slack.com/services/x"}}
+	if rec := env.do(t, "POST", "/alerts/new", form); rec.Code != http.StatusSeeOther {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
 	}
-	st, _, _ := env.store.GetSettings()
-	if st.WebhookURL != "https://hooks.example.com/x" {
-		t.Errorf("webhook url = %q", st.WebhookURL)
+	dests, _ := env.store.ListAlertDestinations()
+	if len(dests) != 1 || dests[0].Type != "slack" {
+		t.Fatalf("destination not saved: %+v", dests)
 	}
 
-	// A non-http URL is refused.
-	rec = env.do(t, "POST", "/settings/alerts", url.Values{"webhookUrl": {"ftp://nope"}})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "http(s) URL") {
+	// It shows on the list.
+	body := env.do(t, "GET", "/alerts", nil).Body.String()
+	if !strings.Contains(body, "noc-slack") || !strings.Contains(body, "Slack") {
+		t.Error("the destination should appear on the alerts page")
+	}
+
+	// A Slack destination with a non-http URL is refused.
+	bad := url.Values{"name": {"bad"}, "type": {"discord"}, "url": {"ftp://nope"}}
+	if rec := env.do(t, "POST", "/alerts/new", bad); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "webhook URL") {
 		t.Errorf("a bad URL should be refused, got %d", rec.Code)
 	}
 
-	// Empty turns alerts off.
-	env.do(t, "POST", "/settings/alerts", url.Values{"webhookUrl": {""}})
-	st, _, _ = env.store.GetSettings()
-	if st.WebhookURL != "" {
-		t.Error("empty should clear the webhook")
+	// Delete it.
+	env.do(t, "POST", "/alerts/"+itoa(dests[0].ID)+"/delete", nil)
+	if d, _ := env.store.ListAlertDestinations(); len(d) != 0 {
+		t.Error("destination was not deleted")
 	}
 }
 
-func TestAlertsTestNeedsURL(t *testing.T) {
+func TestAlertEmailValidation(t *testing.T) {
 	env := newTestEnv(t, false)
-	withIdentity(t, env)
-	rec := env.do(t, "POST", "/settings/alerts/test", url.Values{"webhookUrl": {""}})
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Enter a webhook URL") {
-		t.Errorf("testing an empty URL should prompt for one, got %d", rec.Code)
+
+	// Email needs host, from and to.
+	form := url.Values{"name": {"mail"}, "type": {"email"}, "enabled": {"on"},
+		"smtpPort": {"587"}, "smtpSecurity": {"starttls"}, "smtpFrom": {"nope"}}
+	rec := env.do(t, "POST", "/alerts/new", form)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want the form back with errors, got %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "SMTP server host") {
+		t.Error("a missing host should be reported")
+	}
+
+	// A valid email destination saves.
+	good := url.Values{"name": {"mail"}, "type": {"email"}, "enabled": {"on"},
+		"smtpHost": {"smtp.example.com"}, "smtpPort": {"587"}, "smtpSecurity": {"starttls"},
+		"smtpFrom": {"birdy@example.com"}, "smtpTo": {"noc@example.com, oncall@example.com"}}
+	if rec := env.do(t, "POST", "/alerts/new", good); rec.Code != http.StatusSeeOther {
+		t.Fatalf("valid email save: %d %s", rec.Code, rec.Body.String())
+	}
+	d, _ := env.store.ListAlertDestinations()
+	if len(d) != 1 || d[0].SMTPHost != "smtp.example.com" {
+		t.Fatalf("email destination not saved: %+v", d)
+	}
+}
+
+// The SMTP password is never rendered back to the browser, like a BGP password.
+func TestAlertEmailPasswordNotLeaked(t *testing.T) {
+	env := newTestEnv(t, false)
+	id, err := env.store.CreateAlertDestination(store.Destination{
+		Name: "mail", Type: store.AlertEmail, Enabled: true, SMTPHost: "smtp.example.com",
+		SMTPPort: 587, SMTPSecurity: store.SMTPStartTLS, SMTPFrom: "a@b.com", SMTPTo: "c@d.com",
+		SMTPUsername: "user", SMTPPassword: "s3cr3t",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := env.do(t, "GET", "/alerts/"+itoa(id)+"/edit", nil).Body.String()
+	if strings.Contains(body, "s3cr3t") {
+		t.Error("the SMTP password must never be rendered to the browser")
+	}
+	if !strings.Contains(body, "unchanged") {
+		t.Error("a stored password should show as 'unchanged'")
 	}
 }

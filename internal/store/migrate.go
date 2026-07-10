@@ -3,11 +3,12 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 12
+const schemaVersion = 13
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -196,6 +197,23 @@ func migrate(db *sql.DB) error {
 		// it, export accepts one — the customer-signalling pattern.
 		if err := ensureColumn(tx, "policies", "match_community", `ALTER TABLE policies ADD COLUMN match_community TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
+		}
+	}
+
+	if version < 13 {
+		// Alerts moved from a single settings.webhook_url to a table of
+		// destinations. Carry an existing webhook over so nobody loses it.
+		var legacy string
+		if err := tx.QueryRow(`SELECT webhook_url FROM settings WHERE id = 1`).Scan(&legacy); err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		if strings.TrimSpace(legacy) != "" {
+			ts := now()
+			if _, err := tx.Exec(`
+				INSERT INTO alert_destinations (name, type, enabled, url, smtp_port, smtp_security, created_at, updated_at)
+				VALUES ('webhook', 'webhook', 1, ?, 587, 'starttls', ?, ?)`, legacy, ts, ts); err != nil {
+				return err
+			}
 		}
 	}
 

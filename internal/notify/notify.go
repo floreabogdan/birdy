@@ -1,14 +1,14 @@
-// Package notify delivers session alerts to an operator's webhook. It is
-// deliberately format-agnostic: the JSON payload carries both a "text" field
-// (which Slack reads) and a "content" field (which Discord reads), plus the
-// structured fields a generic consumer would want. No webhook configured means
-// every call is a silent no-op.
+// Package notify delivers session alerts to the operator's configured
+// destinations. Each destination gets a payload shaped for its platform: Slack
+// attachments, Discord embeds, an HTML email, or a generic JSON webhook. No
+// enabled destinations means every call is a silent no-op.
 package notify
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -16,66 +16,163 @@ import (
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
-// Webhook posts alerts to the URL stored in settings. Safe for concurrent use.
-type Webhook struct {
+// Dispatcher fans one event out to every enabled destination. Safe for
+// concurrent use.
+type Dispatcher struct {
 	store  *store.Store
 	log    *slog.Logger
 	client *http.Client
 }
 
-func NewWebhook(st *store.Store, log *slog.Logger) *Webhook {
+func NewDispatcher(st *store.Store, log *slog.Logger) *Dispatcher {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Webhook{store: st, log: log, client: &http.Client{Timeout: 10 * time.Second}}
+	return &Dispatcher{store: st, log: log, client: &http.Client{Timeout: 10 * time.Second}}
 }
 
-// payload is what birdy POSTs. text/content cover Slack/Discord; the rest is for
-// anything parsing the body itself.
-type payload struct {
-	Text     string `json:"text"`
-	Content  string `json:"content"`
-	Event    string `json:"event"`
-	Protocol string `json:"protocol"`
-	Message  string `json:"message"`
-	Router   string `json:"router,omitempty"`
-	Time     string `json:"time"`
+// alert is one thing worth telling the operator, in platform-neutral form.
+type alert struct {
+	Kind     string
+	Protocol string
+	Message  string
+	Router   string
+	Time     time.Time
 }
 
-// Notify sends an alert for one event, in the background so it never blocks the
-// poller. A delivery failure is logged, not retried — a missed alert must not
-// wedge the poll loop.
-func (w *Webhook) Notify(kind, protocol, message string) {
-	go w.send(kind, protocol, message)
-}
-
-func (w *Webhook) send(kind, protocol, message string) {
-	settings, ok, err := w.store.GetSettings()
-	if err != nil || !ok || settings.WebhookURL == "" {
-		return
-	}
-	if err := w.deliver(settings.WebhookURL, kind, protocol, message, settings.RouterLabel, time.Now()); err != nil {
-		w.log.Warn("webhook delivery failed", "url", settings.WebhookURL, "error", err)
+func (a alert) title() string {
+	switch a.Kind {
+	case store.EventSessionDown:
+		return "Session down: " + a.Protocol
+	case store.EventSessionUp:
+		return "Session recovered: " + a.Protocol
+	case store.EventFlap:
+		return "Session flapping: " + a.Protocol
+	case store.EventLimitHit:
+		return "Import limit reached: " + a.Protocol
+	default:
+		return "birdy alert"
 	}
 }
 
-// deliver builds and POSTs the payload. Split out so a test can drive it against
-// a local server without touching the store.
-func (w *Webhook) deliver(url, kind, protocol, message, router string, now time.Time) error {
-	line := prefix(kind) + " birdy"
-	if router != "" {
-		line += " [" + router + "]"
+// severity drives the colour on every platform. good/warning/danger/info.
+func (a alert) severity() string {
+	switch a.Kind {
+	case store.EventSessionDown, store.EventLimitHit:
+		return "danger"
+	case store.EventSessionUp:
+		return "good"
+	case store.EventFlap:
+		return "warning"
+	default:
+		return "info"
 	}
-	line += ": " + message
+}
 
-	body, err := json.Marshal(payload{
-		Text: line, Content: line, Event: kind, Protocol: protocol,
-		Message: message, Router: router, Time: now.UTC().Format(time.RFC3339),
-	})
+func (a alert) emoji() string {
+	switch a.severity() {
+	case "danger":
+		return "\U0001F534"
+	case "good":
+		return "\U0001F7E2"
+	case "warning":
+		return "\U0001F7E1"
+	default:
+		return "\U0001F4E2"
+	}
+}
+
+// hexColor / intColor give the same severity colour in the two forms Slack (hex
+// string) and Discord (decimal int) each want.
+func (a alert) hexColor() string {
+	switch a.severity() {
+	case "danger":
+		return "#d64545"
+	case "good":
+		return "#2e9e6b"
+	case "warning":
+		return "#d9a441"
+	default:
+		return "#3b7dd8"
+	}
+}
+
+func (a alert) intColor() int {
+	switch a.severity() {
+	case "danger":
+		return 0xd64545
+	case "good":
+		return 0x2e9e6b
+	case "warning":
+		return 0xd9a441
+	default:
+		return 0x3b7dd8
+	}
+}
+
+func (a alert) plainLine() string {
+	line := a.emoji() + " " + a.title()
+	if a.Router != "" {
+		line += " (" + a.Router + ")"
+	}
+	return line + " — " + a.Message
+}
+
+// Notify delivers an event to every enabled destination, in the background so
+// the poller is never blocked. A delivery failure is logged, not retried.
+func (d *Dispatcher) Notify(kind, protocol, message string) {
+	go func() {
+		dests, err := d.store.EnabledAlertDestinations()
+		if err != nil {
+			d.log.Warn("could not load alert destinations", "error", err)
+			return
+		}
+		if len(dests) == 0 {
+			return
+		}
+		a := d.build(kind, protocol, message)
+		for _, dest := range dests {
+			if err := d.deliver(dest, a); err != nil {
+				d.log.Warn("alert delivery failed", "destination", dest.Name, "type", dest.Type, "error", err)
+			}
+		}
+	}()
+}
+
+// SendTest delivers a synthetic alert to one destination, inline, so the UI can
+// report whether it worked.
+func (d *Dispatcher) SendTest(dest store.Destination) error {
+	a := d.build("test", "", "This is a test alert from birdy. If you can read this, alerts are wired up.")
+	return d.deliver(dest, a)
+}
+
+func (d *Dispatcher) build(kind, protocol, message string) alert {
+	router := ""
+	if st, ok, _ := d.store.GetSettings(); ok {
+		router = st.RouterLabel
+	}
+	return alert{Kind: kind, Protocol: protocol, Message: message, Router: router, Time: time.Now()}
+}
+
+func (d *Dispatcher) deliver(dest store.Destination, a alert) error {
+	switch dest.Type {
+	case store.AlertSlack:
+		return d.postJSON(dest.URL, slackPayload(a))
+	case store.AlertDiscord:
+		return d.postJSON(dest.URL, discordPayload(a))
+	case store.AlertEmail:
+		return sendEmail(dest, a)
+	default: // generic webhook
+		return d.postJSON(dest.URL, webhookPayload(a))
+	}
+}
+
+// postJSON marshals v and POSTs it, treating any non-2xx as an error.
+func (d *Dispatcher) postJSON(url string, v any) error {
+	body, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -83,39 +180,66 @@ func (w *Webhook) deliver(url, kind, protocol, message, router string, now time.
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := w.client.Do(req)
+	resp, err := d.client.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return &httpError{resp.StatusCode}
+		return fmt.Errorf("%s returned HTTP %d", url, resp.StatusCode)
 	}
 	return nil
 }
 
-// SendTest delivers a synthetic alert so an operator can confirm the webhook
-// works from the settings page. Unlike Notify it runs inline and returns the
-// error, so the UI can report success or failure.
-func (w *Webhook) SendTest(url, router string) error {
-	return w.deliver(url, "test", "", "test alert from birdy — your webhook is wired up", router, time.Now())
-}
+// ---- platform payloads ----
 
-func prefix(kind string) string {
-	switch kind {
-	case store.EventSessionDown:
-		return "\U0001F534" // red circle
-	case store.EventSessionUp:
-		return "\U0001F7E2" // green circle
-	case store.EventFlap:
-		return "\U0001F7E1" // yellow circle
-	case store.EventLimitHit:
-		return "⚠️" // warning sign
-	default:
-		return "\U0001F4E2" // loudspeaker
+// webhookPayload carries text (Slack-compatible) and content (Discord-compatible)
+// so a generic endpoint has something obvious to read, plus the structured
+// fields for anything parsing the body.
+func webhookPayload(a alert) map[string]any {
+	return map[string]any{
+		"text":     a.plainLine(),
+		"content":  a.plainLine(),
+		"event":    a.Kind,
+		"protocol": a.Protocol,
+		"message":  a.Message,
+		"router":   a.Router,
+		"severity": a.severity(),
+		"time":     a.Time.UTC().Format(time.RFC3339),
 	}
 }
 
-type httpError struct{ code int }
+func slackPayload(a alert) map[string]any {
+	fields := []map[string]any{{"title": "Event", "value": a.Kind, "short": true}}
+	if a.Router != "" {
+		fields = append(fields, map[string]any{"title": "Router", "value": a.Router, "short": true})
+	}
+	return map[string]any{
+		"attachments": []map[string]any{{
+			"fallback": a.plainLine(),
+			"color":    a.hexColor(),
+			"title":    a.emoji() + " " + a.title(),
+			"text":     a.Message,
+			"fields":   fields,
+			"footer":   "birdy",
+			"ts":       a.Time.Unix(),
+		}},
+	}
+}
 
-func (e *httpError) Error() string { return "webhook returned HTTP " + http.StatusText(e.code) }
+func discordPayload(a alert) map[string]any {
+	fields := []map[string]any{{"name": "Event", "value": a.Kind, "inline": true}}
+	if a.Router != "" {
+		fields = append(fields, map[string]any{"name": "Router", "value": a.Router, "inline": true})
+	}
+	return map[string]any{
+		"embeds": []map[string]any{{
+			"title":       a.emoji() + " " + a.title(),
+			"description": a.Message,
+			"color":       a.intColor(),
+			"fields":      fields,
+			"footer":      map[string]any{"text": "birdy"},
+			"timestamp":   a.Time.UTC().Format(time.RFC3339),
+		}},
+	}
+}
