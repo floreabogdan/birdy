@@ -47,7 +47,8 @@ anything.
 - Route browser per session — imports, exports, and what was rejected on export
 - On-demand looking glass (`show route for …`)
 - Timeline of session transitions, flaps, and prefix-limit hits
-- Webhook alerts (Slack, Discord, or any JSON endpoint) when a session drops, recovers, flaps, or hits its limit
+- Alerts to any number of destinations — Slack, Discord, email (SMTP), or a generic JSON webhook — when a session drops, recovers, flaps, or hits its limit
+- Live BIRD-code preview on every editor: the generated config updates as you type, before you save
 
 **Model**
 - Peers with roles (upstream, IX peer, customer, iBGP), which drive automatic origin tagging

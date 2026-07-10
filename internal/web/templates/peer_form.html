@@ -24,18 +24,20 @@
 				</div>
 			</div>
 
-			{{if .Warnings}}
-			<div class="card panel-danger">
-				<div class="panel-head">{{template "icon-alert"}}This session may not do what it looks like it does</div>
-				<div class="card-body">
-					<ul class="lint-list">
-						{{range .Warnings}}<li class="lint-{{.Severity}}">{{.Message}}</li>{{end}}
-					</ul>
+			<div data-preview-warnings {{if not .Warnings}}hidden{{end}}>
+				{{if .Warnings}}
+				<div class="card panel-warning">
+					<div class="panel-head">{{template "icon-alert"}}Review before you apply this</div>
+					<div class="card-body">
+						<ul class="lint-list">
+							{{range .Warnings}}<li class="lint-{{.Severity}}">{{if .Peer}}<span class="chip">{{.Peer}}</span> {{end}}{{.Message}}</li>{{end}}
+						</ul>
+					</div>
 				</div>
+				{{end}}
 			</div>
-			{{end}}
 
-			<form method="post" action="{{if .IsNew}}/peers/new{{else}}/peers/{{.Peer.Name}}/edit{{end}}">
+			<form method="post" action="{{if .IsNew}}/peers/new{{else}}/peers/{{.Peer.Name}}/edit{{end}}" data-preview-url="/peers/preview">
 			<div class="split">
 				<div>
 					<div class="card">
@@ -270,12 +272,14 @@
 
 				<div>
 					<div class="card sticky-preview">
-						<div class="card-header"><span class="card-title">{{template "icon-changes"}}Generated BIRD code</span></div>
+						<div class="card-header"><span class="card-title">{{template "icon-changes"}}Generated BIRD code</span><span class="live-badge">live</span></div>
+						<div data-preview-body>
 						{{if .Preview}}
 						<pre class="code-block">{{.Preview}}</pre>
 						{{else}}
 						<div class="card-body text-muted">{{.PreviewErr}}</div>
 						{{end}}
+						</div>
 						<div class="card-body preview-note">
 							The filter calls each policy in turn. Our own large communities are stripped before the role tag is added, so a peer cannot forge one. Passwords are masked here.
 						</div>
@@ -288,5 +292,6 @@
 </div>
 <script src="/static/policy-chain.js"></script>
 <script src="/static/peer-form.js"></script>
+<script src="/static/live-preview.js"></script>
 </body>
 </html>

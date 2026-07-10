@@ -21,7 +21,7 @@
 				</div>
 			</div>
 
-			<form method="post" action="{{if .IsNew}}/library/as-sets/new{{else}}/library/as-sets/{{.Set.Name}}/edit{{end}}">
+			<form method="post" action="{{if .IsNew}}/library/as-sets/new{{else}}/library/as-sets/{{.Set.Name}}/edit{{end}}" data-preview-url="/library/as-sets/preview">
 			<div class="split">
 				<div>
 					<div class="card">
@@ -69,12 +69,14 @@
 
 				<div>
 					<div class="card sticky-preview">
-						<div class="card-header"><span class="card-title">{{template "icon-changes"}}Generated BIRD code</span></div>
+						<div class="card-header"><span class="card-title">{{template "icon-changes"}}Generated BIRD code</span><span class="live-badge">live</span></div>
+						<div data-preview-body>
 						{{if .Preview}}
 						<pre class="code-block">{{.Preview}}</pre>
 						{{else}}
 						<div class="card-body text-muted">{{.PreviewErr}}</div>
 						{{end}}
+						</div>
 						<div class="card-body preview-note">
 							An import policy compares each route&rsquo;s origin AS &mdash; the last AS in its path &mdash; against this set.
 						</div>
@@ -85,5 +87,6 @@
 		</div>
 	</div>
 </div>
+<script src="/static/live-preview.js"></script>
 </body>
 </html>

@@ -195,6 +195,13 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /alerts/{id}/test", s.requireAuth(s.handleAlertTest))
 	s.mux.Handle("POST /logout", s.requireAuth(s.handleLogout))
 
+	// Live preview: render a form's BIRD code without saving. Read-only-safe.
+	s.mux.Handle("POST /peers/preview", s.requireAuth(s.handlePeerPreview))
+	s.mux.Handle("POST /policies/preview", s.requireAuth(s.handlePolicyPreview))
+	s.mux.Handle("POST /library/prefix-sets/preview", s.requireAuth(s.handlePrefixSetPreview))
+	s.mux.Handle("POST /library/as-sets/preview", s.requireAuth(s.handleASSetPreview))
+	s.mux.Handle("POST /library/static-routes/preview", s.requireAuth(s.handleStaticRoutePreview))
+
 	// Authenticated JSON API
 	s.mux.Handle("GET /api/dashboard", s.requireAuth(s.apiDashboard))
 	s.mux.Handle("GET /api/peers/{name}", s.requireAuth(s.apiPeerDetail))

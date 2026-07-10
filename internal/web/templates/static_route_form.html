@@ -18,7 +18,7 @@
 				<div><h1>{{if .IsNew}}Add static route{{else}}Edit {{.Route.Prefix}}{{end}}</h1></div>
 			</div>
 
-			<form method="post" action="{{if .IsNew}}/library/static-routes/new{{else}}/library/static-routes/{{.Route.ID}}/edit{{end}}">
+			<form method="post" action="{{if .IsNew}}/library/static-routes/new{{else}}/library/static-routes/{{.Route.ID}}/edit{{end}}" data-preview-url="/library/static-routes/preview">
 			<div class="split">
 				<div>
 					<div class="card">
@@ -70,12 +70,14 @@
 
 				<div>
 					<div class="card sticky-preview">
-						<div class="card-header"><span class="card-title">{{template "icon-changes"}}Generated BIRD code</span></div>
+						<div class="card-header"><span class="card-title">{{template "icon-changes"}}Generated BIRD code</span><span class="live-badge">live</span></div>
+						<div data-preview-body>
 						{{if .Preview}}
 						<pre class="code-block">{{.Preview}}</pre>
 						{{else}}
 						<div class="card-body text-muted">{{.PreviewErr}}</div>
 						{{end}}
+						</div>
 					</div>
 				</div>
 			</div>
@@ -84,5 +86,6 @@
 	</div>
 </div>
 <script src="/static/static-route-form.js"></script>
+<script src="/static/live-preview.js"></script>
 </body>
 </html>

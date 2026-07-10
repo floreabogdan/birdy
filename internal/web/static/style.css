@@ -366,6 +366,14 @@ h1, h2, h3 { font-weight: 700; color: var(--text); margin: 0; }
 }
 .card-title { display: flex; align-items: center; gap: 9px; font-size: 1rem; font-weight: 700; }
 .card-title svg { width: 18px; height: 18px; color: var(--secondary-deep); }
+.live-badge {
+	font-size: 0.625rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+	color: var(--success-deep); background: color-mix(in srgb, var(--success) 16%, var(--surface));
+	border-radius: 999px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 5px;
+}
+.live-badge::before {
+	content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--success);
+}
 .tabs { display: flex; gap: 4px; }
 .tab-btn { font-weight: 500; }
 .tab-btn.active { background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); color: #fff; }

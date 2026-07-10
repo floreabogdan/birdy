@@ -21,7 +21,7 @@
 				</div>
 			</div>
 
-			<form method="post" action="{{if .IsNew}}/library/prefix-sets/new{{else}}/library/prefix-sets/{{.Set.Name}}/edit{{end}}">
+			<form method="post" action="{{if .IsNew}}/library/prefix-sets/new{{else}}/library/prefix-sets/{{.Set.Name}}/edit{{end}}" data-preview-url="/library/prefix-sets/preview">
 			<div class="split">
 				<div>
 					{{if .Set.System}}
@@ -97,12 +97,14 @@
 
 				<div>
 					<div class="card sticky-preview">
-						<div class="card-header"><span class="card-title">{{template "icon-changes"}}Generated BIRD code</span></div>
+						<div class="card-header"><span class="card-title">{{template "icon-changes"}}Generated BIRD code</span><span class="live-badge">live</span></div>
+						<div data-preview-body>
 						{{if .Preview}}
 						<pre class="code-block">{{.Preview}}</pre>
 						{{else}}
 						<div class="card-body text-muted">{{.PreviewErr}}</div>
 						{{end}}
+						</div>
 					</div>
 				</div>
 			</div>
@@ -110,5 +112,6 @@
 		</div>
 	</div>
 </div>
+<script src="/static/live-preview.js"></script>
 </body>
 </html>
