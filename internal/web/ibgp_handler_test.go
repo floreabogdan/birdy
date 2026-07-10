@@ -216,3 +216,40 @@ func TestPeerTrafficEngineeringPersists(t *testing.T) {
 		t.Errorf("a bad community should be rejected on the form, got %d", rec.Code)
 	}
 }
+
+func TestAlertsWebhookSaveAndValidate(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+
+	// A good URL saves.
+	rec := env.do(t, "POST", "/settings/alerts", url.Values{"webhookUrl": {"https://hooks.example.com/x"}})
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("save: %d", rec.Code)
+	}
+	st, _, _ := env.store.GetSettings()
+	if st.WebhookURL != "https://hooks.example.com/x" {
+		t.Errorf("webhook url = %q", st.WebhookURL)
+	}
+
+	// A non-http URL is refused.
+	rec = env.do(t, "POST", "/settings/alerts", url.Values{"webhookUrl": {"ftp://nope"}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "http(s) URL") {
+		t.Errorf("a bad URL should be refused, got %d", rec.Code)
+	}
+
+	// Empty turns alerts off.
+	env.do(t, "POST", "/settings/alerts", url.Values{"webhookUrl": {""}})
+	st, _, _ = env.store.GetSettings()
+	if st.WebhookURL != "" {
+		t.Error("empty should clear the webhook")
+	}
+}
+
+func TestAlertsTestNeedsURL(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+	rec := env.do(t, "POST", "/settings/alerts/test", url.Values{"webhookUrl": {""}})
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Enter a webhook URL") {
+		t.Errorf("testing an empty URL should prompt for one, got %d", rec.Code)
+	}
+}

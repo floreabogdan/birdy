@@ -163,3 +163,28 @@ func TestPollerRunStopsOnContextCancel(t *testing.T) {
 		t.Fatal("Run did not return after context cancellation")
 	}
 }
+
+// The notifier receives the same events the poller records.
+type capturingNotifier struct{ kinds []string }
+
+func (c *capturingNotifier) Notify(kind, protocol, message string) {
+	c.kinds = append(c.kinds, kind)
+}
+
+func TestPollerNotifiesOnTransition(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{polls: [][]birdc.ProtocolSummary{
+		{bgp("edge_v4", "up", "Established")}, // baseline
+		{bgp("edge_v4", "start", "Connect")},  // down -> event + notify
+	}}
+	n := &capturingNotifier{}
+	p := New(fc, st, time.Second, nil)
+	p.SetNotifier(n)
+
+	p.poll()
+	p.poll()
+
+	if len(n.kinds) != 1 || n.kinds[0] != store.EventSessionDown {
+		t.Fatalf("notifier kinds = %v, want [session_down]", n.kinds)
+	}
+}

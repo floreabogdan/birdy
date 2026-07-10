@@ -47,10 +47,12 @@ anything.
 - Route browser per session — imports, exports, and what was rejected on export
 - On-demand looking glass (`show route for …`)
 - Timeline of session transitions, flaps, and prefix-limit hits
+- Webhook alerts (Slack, Discord, or any JSON endpoint) when a session drops, recovers, flaps, or hits its limit
 
 **Model**
 - Peers with roles (upstream, IX peer, customer, iBGP), which drive automatic origin tagging
 - iBGP with next-hop-self and route reflection
+- AS-path prepending, export communities, and one-click drain (RFC 8326 graceful shutdown) per peer
 - Composable import and export policy chains, rather than one policy per session
 - A library of prefix sets, AS sets, and static routes
 - Static routes for what no protocol discovers on its own (a subnet behind a non-BGP device, a far
@@ -65,16 +67,20 @@ anything.
 - A linter for what `bird -p` cannot catch: route leaks, sessions that would accept nothing,
   unreachable filter branches, an RTR server nobody validates against
 - **Apply** (when not read-only): back up the current file, write the new one, `configure check` on
-  the daemon, then `configure timeout` — BIRD holds the new config with an armed auto-revert. Confirm
-  within the window to keep it; do nothing and BIRD reverts on its own. Every apply is recorded.
+  the daemon, then `configure [soft] timeout` — BIRD holds the new config with an armed auto-revert.
+  Confirm within the window to keep it; do nothing and BIRD reverts on its own. Soft reload (the
+  default) re-runs filters without bouncing sessions. The pending screen shows live session states.
 - **The authorship guard**: birdy stores a hash of what it wrote and refuses to overwrite a `bird.conf`
   it did not author. A hand-managed file must be explicitly adopted (which backs it up) first.
+- **Apply history**: every applied config is kept — browse it, diff any version against what is
+  running, and re-apply an old one (the emergency-rollback path). `birdy doctor` checks apply-readiness.
 
 For apply to work, birdy needs write access to `bird.conf` and its directory, and `--bird-conf` must
 be the same path BIRD was started with (`bird -c`). Passwords go to disk (BIRD needs them) but are
 still masked everywhere in the browser.
 
-**Not built yet:** peer templates, community manipulation and prepending, and alerting.
+**Not built yet:** peer templates, general community matching (birdy sets communities but does not yet
+match on them to make policy decisions), and the RPKI dry-run report (which needs RPKI actually running).
 
 **Not modelled, so it belongs in the raw block:** BFD, graceful restart tuning, extra routing tables,
 IGPs (OSPF, Babel), MPLS, and restricting which interfaces the `direct` protocol picks up. (A static

@@ -6,11 +6,13 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/floreabogdan/birdy/internal/notify"
 	birdconf "github.com/floreabogdan/birdy/internal/render"
 	"github.com/floreabogdan/birdy/internal/store"
 )
@@ -297,6 +299,75 @@ func (s *Server) handleSettingsRaw(w http.ResponseWriter, r *http.Request) {
 		msg = "Raw config saved, but not checked: " + reason
 	}
 	http.Redirect(w, r, "/settings?flash="+flash(msg), http.StatusSeeOther)
+}
+
+// handleSettingsAlerts saves the webhook URL that session alerts are posted to.
+// Empty turns alerts off.
+func (s *Server) handleSettingsAlerts(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	url := strings.TrimSpace(r.FormValue("webhookUrl"))
+	if msg := validWebhookURL(url); msg != "" {
+		s.renderSettings(w, SettingsView{Active: "settings", ReadOnly: s.readOnly, Err: msg})
+		return
+	}
+	settings, ok, err := s.store.GetSettings()
+	if err != nil || !ok {
+		s.serverError(w, "get settings", err)
+		return
+	}
+	settings.WebhookURL = url
+	if err := s.store.SaveSettings(settings); err != nil {
+		s.serverError(w, "save settings", err)
+		return
+	}
+	msg := "Alert webhook saved"
+	if url == "" {
+		msg = "Alerts turned off"
+	}
+	http.Redirect(w, r, "/settings?flash="+flash(msg), http.StatusSeeOther)
+}
+
+// handleSettingsAlertsTest posts a synthetic alert to the URL in the form, so
+// the operator can confirm the webhook works before relying on it.
+func (s *Server) handleSettingsAlertsTest(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	url := strings.TrimSpace(r.FormValue("webhookUrl"))
+	if url == "" {
+		s.renderSettings(w, SettingsView{Active: "settings", ReadOnly: s.readOnly, Err: "Enter a webhook URL to test."})
+		return
+	}
+	if msg := validWebhookURL(url); msg != "" {
+		s.renderSettings(w, SettingsView{Active: "settings", ReadOnly: s.readOnly, Err: msg})
+		return
+	}
+	label := ""
+	if st, ok, _ := s.store.GetSettings(); ok {
+		label = st.RouterLabel
+	}
+	if err := notify.NewWebhook(s.store, s.log).SendTest(url, label); err != nil {
+		s.renderSettings(w, SettingsView{Active: "settings", ReadOnly: s.readOnly, Err: "Test failed: " + err.Error()})
+		return
+	}
+	http.Redirect(w, r, "/settings?flash="+flash("Test alert sent — check your channel"), http.StatusSeeOther)
+}
+
+// validWebhookURL accepts an empty value (alerts off) or an absolute http(s)
+// URL. It intentionally does not resolve or dial it — that is the test button.
+func validWebhookURL(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := neturl.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "Enter an http(s) URL, or leave it blank to turn alerts off."
+	}
+	return ""
 }
 
 // apiSnapshotDownload always produces a fresh, consistent snapshot on demand

@@ -184,6 +184,8 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /settings/identity", s.requireAuth(s.handleSettingsIdentity))
 	s.mux.Handle("POST /settings/bogons", s.requireAuth(s.handleSettingsBogons))
 	s.mux.Handle("POST /settings/raw", s.requireAuth(s.handleSettingsRaw))
+	s.mux.Handle("POST /settings/alerts", s.requireAuth(s.handleSettingsAlerts))
+	s.mux.Handle("POST /settings/alerts/test", s.requireAuth(s.handleSettingsAlertsTest))
 	s.mux.Handle("POST /logout", s.requireAuth(s.handleLogout))
 
 	// Authenticated JSON API

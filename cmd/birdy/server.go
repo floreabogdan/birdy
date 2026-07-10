@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
+	"github.com/floreabogdan/birdy/internal/notify"
 	"github.com/floreabogdan/birdy/internal/poller"
 	"github.com/floreabogdan/birdy/internal/snapshot"
 	"github.com/floreabogdan/birdy/internal/store"
@@ -68,6 +69,7 @@ func cmdServer(args []string) error {
 	defer stop()
 
 	p := poller.New(client, st, *pollInterval, log)
+	p.SetNotifier(notify.NewWebhook(st, log))
 	go p.Run(ctx)
 
 	snapMgr := snapshot.NewManager(*dbPath, *snapshotDir, *snapshotRetain)

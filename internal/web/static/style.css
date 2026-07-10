@@ -646,6 +646,11 @@ textarea {
 	border-radius: var(--radius-control);
 	padding: 10px 14px; margin-bottom: 16px; font-size: 0.8125rem; font-weight: 500;
 }
+.flash-error {
+	background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+	border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+	color: var(--danger-deep);
+}
 
 /* Form on the left, live BIRD-code preview on the right. */
 .split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }

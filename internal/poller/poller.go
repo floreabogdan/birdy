@@ -53,15 +53,36 @@ type birdClient interface {
 	RouteCount() ([]birdc.RouteCountEntry, error)
 }
 
+// Notifier receives every event the poller records, so an out-of-band channel
+// (a webhook) can alert on session changes. Optional: nil means no alerts.
+type Notifier interface {
+	Notify(kind, protocol, message string)
+}
+
 type Poller struct {
 	client   birdClient
 	store    *store.Store
 	interval time.Duration
 	log      *slog.Logger
+	notifier Notifier
 
 	mu          sync.RWMutex
 	snap        Snapshot
 	initialized bool // false until the first poll completes, so we don't log spurious transitions at startup
+}
+
+// SetNotifier attaches an alert sink. Call before Run.
+func (p *Poller) SetNotifier(n Notifier) { p.notifier = n }
+
+// emit records an event and forwards it to the notifier. Every event birdy logs
+// is a candidate alert; the notifier decides whether a webhook is configured.
+func (p *Poller) emit(kind, protocol, message string) {
+	if err := p.store.InsertEvent(kind, protocol, message); err != nil {
+		p.log.Warn("failed to record event", "error", err)
+	}
+	if p.notifier != nil {
+		p.notifier.Notify(kind, protocol, message)
+	}
 }
 
 func New(client birdClient, st *store.Store, interval time.Duration, log *slog.Logger) *Poller {
@@ -192,9 +213,7 @@ func (p *Poller) recordTransition(proto birdc.ProtocolSummary, prior ProtoState,
 			msg = fmt.Sprintf("%s (%s) flapped (down for %s)", proto.Name, proto.Proto, time.Since(prior.LastChange).Round(time.Second))
 		}
 	}
-	if err := p.store.InsertEvent(kind, proto.Name, msg); err != nil {
-		p.log.Warn("failed to record event", "error", err)
-	}
+	p.emit(kind, proto.Name, msg)
 }
 
 // updateImportLimits fetches protocol detail for one BGP session, keeps the
@@ -215,9 +234,7 @@ func (p *Poller) updateImportLimits(proto birdc.ProtocolSummary, state *ProtoSta
 		hit := ch.RoutesImported >= limit
 		if hit && !state.LimitHit[ch.AFI] {
 			msg := fmt.Sprintf("%s (%s): import limit reached (%d/%d)", proto.Name, ch.AFI, ch.RoutesImported, limit)
-			if err := p.store.InsertEvent(store.EventLimitHit, proto.Name, msg); err != nil {
-				p.log.Warn("failed to record event", "error", err)
-			}
+			p.emit(store.EventLimitHit, proto.Name, msg)
 		}
 		state.LimitHit[ch.AFI] = hit
 	}
