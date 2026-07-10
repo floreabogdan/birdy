@@ -41,6 +41,46 @@ func Lint(in Input) []Warning {
 		prefixSets[ps.ID] = ps
 	}
 
+	// An eBGP peer whose ASN is our own is an iBGP session wearing the wrong
+	// label: it gets the role tagging, the first-AS check and the bogon filters,
+	// none of which make sense inside our own AS.
+	for _, p := range in.Peers {
+		switch {
+		case p.IsIBGP() && p.RemoteASN != in.LocalASN:
+			add(SeverityDanger, p.Name,
+				"This peer is marked iBGP but its remote AS is %d, not our own AS%d. BIRD will open an eBGP session and none of the iBGP handling applies.",
+				p.RemoteASN, in.LocalASN)
+		case !p.IsIBGP() && p.RemoteASN == in.LocalASN:
+			add(SeverityDanger, p.Name,
+				"This peer carries our own AS%d but is not marked iBGP, so birdy renders eBGP filters for it — including the check that rejects our own ASN in the AS path.",
+				in.LocalASN)
+		}
+
+		// The one that black-holes traffic rather than merely dropping routes.
+		if p.IsIBGP() && !p.NextHopSelf {
+			add(SeverityWarn, p.Name,
+				"Next-hop-self is off. Routes learned from an eBGP peer will be readvertised on this session carrying that peer's address as the next hop; the far end can only use them if your IGP carries the peering subnets.")
+		}
+	}
+
+	if in.RRClusterID != "" {
+		var reflecting bool
+		for _, p := range in.Peers {
+			if p.RRClient {
+				reflecting = true
+			}
+		}
+		if !reflecting {
+			add(SeverityWarn, "",
+				"A route reflector cluster ID is set, but no peer is marked as a reflector client, so it is never rendered.")
+		}
+	}
+
+	if strings.TrimSpace(in.RawConfig) != "" {
+		add(SeverityWarn, "",
+			"This config ends with a raw block that birdy does not understand. It is checked by bird -p and by nothing else — no lint rule here applies to it.")
+	}
+
 	for _, p := range in.Peers {
 		if p.IsIBGP() {
 			continue

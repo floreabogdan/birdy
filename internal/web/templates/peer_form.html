@@ -86,8 +86,7 @@
 						</div>
 					</div>
 
-					{{if ne .Peer.Role "ibgp"}}
-					<div class="card">
+					<div class="card" data-role-only="ebgp" {{if eq .Peer.Role "ibgp"}}hidden{{end}}>
 						<div class="card-header"><span class="card-title">{{template "icon-filter"}}Policies</span></div>
 						<div class="card-body">
 							<label>Import chain — what we accept from this peer</label>
@@ -157,7 +156,6 @@
 							</div>
 						</div>
 					</div>
-					{{end}}
 
 					<div class="card">
 						<div class="card-header"><span class="card-title">{{template "icon-shield"}}Transport &amp; limits</span></div>
@@ -198,24 +196,40 @@
 							<div class="checks">
 								<label class="check"><input type="checkbox" name="enabled" {{if .Peer.Enabled}}checked{{end}}> Enabled</label>
 								<label class="check"><input type="checkbox" name="passive" {{if .Peer.Passive}}checked{{end}}> Passive — wait for the peer to connect</label>
-								{{if ne .Peer.Role "ibgp"}}
-								<label class="check"><input type="checkbox" name="enforceFirstAs" {{if .Peer.EnforceFirstAS}}checked{{end}}> Require the peer to be the first AS in the path</label>
-								<label class="check"><input type="checkbox" name="originPeerOnly" {{if .Peer.OriginPeerOnly}}checked{{end}}> Accept only prefixes this peer originates &mdash; no downstreams</label>
-								{{end}}
+								<span data-role-only="ebgp" {{if eq .Peer.Role "ibgp"}}hidden{{end}} class="checks">
+									<label class="check"><input type="checkbox" name="enforceFirstAs" {{if .Peer.EnforceFirstAS}}checked{{end}}> Require the peer to be the first AS in the path</label>
+									<label class="check"><input type="checkbox" name="originPeerOnly" {{if .Peer.OriginPeerOnly}}checked{{end}}> Accept only prefixes this peer originates &mdash; no downstreams</label>
+								</span>
+								<span data-role-only="ibgp" {{if ne .Peer.Role "ibgp"}}hidden{{end}} class="checks">
+									<label class="check"><input type="checkbox" name="nextHopSelf" {{if .Peer.NextHopSelf}}checked{{end}}> Next-hop-self &mdash; announce these routes with our own address as the next hop</label>
+									<label class="check"><input type="checkbox" name="rrClient" {{if .Peer.RRClient}}checked{{end}}> Route reflector client &mdash; we reflect iBGP routes to this peer</label>
+								</span>
 							</div>
-							{{if ne .Peer.Role "ibgp"}}
-							<div class="hint">
-								BGP makes a peer prepend its own AS number before it announces a route, so every path this peer sends should start with
-								AS{{if .Peer.RemoteASN}}{{.Peer.RemoteASN}}{{else}}&hellip;{{end}}. If it does not, they are misconfigured or leaking someone else's routes.
-								<strong>Turn this off for an IXP route server</strong>: a route server forwards routes without prepending itself, so leaving this on would reject everything it sends.
+							<div data-role-only="ibgp" {{if ne .Peer.Role "ibgp"}}hidden{{end}}>
+								<div class="hint">
+									A route learned from an eBGP peer carries <em>that peer's</em> address as its next hop. Readvertise it over iBGP unchanged and the
+									router at the other end has nowhere to send the traffic, unless your IGP carries the peering subnets.
+									<strong>Leave next-hop-self on</strong> unless you know it does.
+								</div>
+								<div class="hint">
+									BGP never readvertises an iBGP route to another iBGP peer, which is why a plain iBGP mesh has to be full.
+									Marking a peer a <strong>reflector client</strong> lifts that rule for them. Set a cluster ID under
+									<a href="/settings">Settings</a> if you run more than one reflector.
+								</div>
 							</div>
-							<div class="hint">
-								The second switch checks the <strong>origin</strong> AS instead: it accepts a prefix only if this peer announced it as their own.
-								Use it when you sell someone transit but do not carry their downstreams. Their own prepending still works.
-								To carry their downstreams too, leave it off and point an import policy at an
-								<a href="/library/as-sets">AS set</a> holding their expanded AS-SET.
+							<div data-role-only="ebgp" {{if eq .Peer.Role "ibgp"}}hidden{{end}}>
+								<div class="hint">
+									BGP makes a peer prepend its own AS number before it announces a route, so every path this peer sends should start with
+									AS{{if .Peer.RemoteASN}}{{.Peer.RemoteASN}}{{else}}&hellip;{{end}}. If it does not, they are misconfigured or leaking someone else's routes.
+									<strong>Turn this off for an IXP route server</strong>: a route server forwards routes without prepending itself, so leaving this on would reject everything it sends.
+								</div>
+								<div class="hint">
+									The second switch checks the <strong>origin</strong> AS instead: it accepts a prefix only if this peer announced it as their own.
+									Use it when you sell someone transit but do not carry their downstreams. Their own prepending still works.
+									To carry their downstreams too, leave it off and point an import policy at an
+									<a href="/library/as-sets">AS set</a> holding their expanded AS-SET.
+								</div>
 							</div>
-							{{end}}
 						</div>
 					</div>
 
@@ -245,5 +259,6 @@
 	</div>
 </div>
 <script src="/static/policy-chain.js"></script>
+<script src="/static/peer-form.js"></script>
 </body>
 </html>

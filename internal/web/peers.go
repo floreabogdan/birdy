@@ -66,7 +66,10 @@ func (s *Server) handlePeersList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePeerNew(w http.ResponseWriter, r *http.Request) {
 	// A new session is an eBGP upstream, enabled, with the first-AS check on
 	// and BIRD restarting it if the peer floods us past the import limit.
-	p := store.Peer{Role: store.RoleUpstream, Enabled: true, EnforceFirstAS: true, ImportLimitAction: "restart"}
+	// NextHopSelf is pre-ticked for the moment the operator switches to iBGP:
+	// it is ignored for every other role, and off is the setting that blackholes.
+	p := store.Peer{Role: store.RoleUpstream, Enabled: true, EnforceFirstAS: true,
+		NextHopSelf: true, ImportLimitAction: "restart"}
 	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: true, Peer: p})
 }
 
@@ -109,6 +112,8 @@ func peerFromForm(r *http.Request) store.Peer {
 		ImportLimitAction: r.FormValue("importLimitAction"),
 		EnforceFirstAS:    r.FormValue("enforceFirstAs") == "on",
 		OriginPeerOnly:    r.FormValue("originPeerOnly") == "on",
+		NextHopSelf:       r.FormValue("nextHopSelf") == "on",
+		RRClient:          r.FormValue("rrClient") == "on",
 	}
 }
 
@@ -282,10 +287,14 @@ func (s *Server) renderPeerForm(w http.ResponseWriter, v peerFormView) {
 	}
 
 	var localASN int64
-	if settings, ok, err := s.store.GetSettings(); err == nil && ok && settings.LocalASN.Valid {
-		localASN = settings.LocalASN.Int64
+	var rrClusterID string
+	if settings, ok, err := s.store.GetSettings(); err == nil && ok {
+		if settings.LocalASN.Valid {
+			localASN = settings.LocalASN.Int64
+		}
+		rrClusterID = settings.RRClusterID
 	}
-	v.Preview, v.PreviewErr, v.Warnings = previewPeer(v.Peer, sets, asSets, policies, rpkiServers, bogonASNs, localASN)
+	v.Preview, v.PreviewErr, v.Warnings = previewPeer(v.Peer, sets, asSets, policies, rpkiServers, bogonASNs, localASN, rrClusterID)
 	render(w, s.log, "peer_form.html", v)
 }
 
@@ -295,7 +304,7 @@ func (s *Server) renderPeerForm(w http.ResponseWriter, v peerFormView) {
 // The real local ASN is required, not a placeholder: it appears verbatim in the
 // AS-path loop guard and in the large communities, and showing the wrong number
 // there would teach the operator to distrust the preview.
-func previewPeer(p store.Peer, sets []store.PrefixSet, asSets []store.ASSet, policies []store.Policy, rpkiServers []store.RPKIServer, bogonASNs []store.BogonASN, localASN int64) (string, string, []birdconf.Warning) {
+func previewPeer(p store.Peer, sets []store.PrefixSet, asSets []store.ASSet, policies []store.Policy, rpkiServers []store.RPKIServer, bogonASNs []store.BogonASN, localASN int64, rrClusterID string) (string, string, []birdconf.Warning) {
 	if localASN == 0 {
 		return "", "Set the local ASN under Settings to preview the generated BIRD code.", nil
 	}
@@ -308,7 +317,7 @@ func previewPeer(p store.Peer, sets []store.PrefixSet, asSets []store.ASSet, pol
 	in := birdconf.Input{
 		RouterID: "0.0.0.1", LocalASN: localASN, // the router id never appears in a peer block
 		PrefixSets: sets, ASSets: asSets, Policies: policies, Peers: []store.Peer{probe},
-		RPKIServers: rpkiServers, BogonASNs: bogonASNs, MaskSecrets: true,
+		RPKIServers: rpkiServers, BogonASNs: bogonASNs, RRClusterID: rrClusterID, MaskSecrets: true,
 	}
 	full, err := birdconf.Config(in)
 	if err != nil {

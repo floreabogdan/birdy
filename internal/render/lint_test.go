@@ -166,12 +166,73 @@ func TestLintNoImportPolicy(t *testing.T) {
 	}
 }
 
-func TestLintIgnoresIBGP(t *testing.T) {
-	p := ebgpPeer()
-	p.Role = store.RoleIBGP
+// iBGP peers take no policies, so none of the policy-chain checks apply to
+// them. A correctly configured one produces nothing at all.
+func TestLintIgnoresPolicyChecksForIBGP(t *testing.T) {
 	in := baseInput()
+	p := ibgpPeer(in.LocalASN)
 	in.Peers = []store.Peer{p}
 	if ws := findings(t, in, p.Name); len(ws) != 0 {
-		t.Errorf("iBGP peers take no policies and should not be linted, got %+v", ws)
+		t.Errorf("a well-formed iBGP peer should lint clean, got %+v", ws)
+	}
+}
+
+// The finding that matters most: without next-hop-self, readvertised eBGP
+// routes carry a next hop the far end cannot resolve.
+func TestLintFlagsIBGPWithoutNextHopSelf(t *testing.T) {
+	in := baseInput()
+	p := ibgpPeer(in.LocalASN)
+	p.NextHopSelf = false
+	in.Peers = []store.Peer{p}
+
+	ws := findings(t, in, p.Name)
+	if len(ws) != 1 || !strings.Contains(ws[0].Message, "Next-hop-self is off") {
+		t.Fatalf("want a next-hop-self warning, got %+v", ws)
+	}
+}
+
+// A role/ASN mismatch means BIRD opens the opposite kind of session to the one
+// the operator configured, and every filter decision follows from that.
+func TestLintFlagsRoleASNMismatch(t *testing.T) {
+	in := baseInput()
+
+	ibgp := ibgpPeer(in.LocalASN)
+	ibgp.RemoteASN = in.LocalASN + 1
+	in.Peers = []store.Peer{ibgp}
+	ws := findings(t, in, ibgp.Name)
+	if len(ws) == 0 || !strings.Contains(ws[0].Message, "marked iBGP but its remote AS") {
+		t.Errorf("an iBGP peer with a foreign ASN should be flagged, got %+v", ws)
+	}
+
+	ebgp := ebgpPeer()
+	ebgp.RemoteASN = in.LocalASN
+	in.Peers = []store.Peer{ebgp}
+	ws = findings(t, in, ebgp.Name)
+	if len(ws) == 0 || !strings.Contains(ws[0].Message, "is not marked iBGP") {
+		t.Errorf("an eBGP peer carrying our own ASN should be flagged, got %+v", ws)
+	}
+}
+
+func TestLintFlagsRawConfig(t *testing.T) {
+	in := baseInput()
+	in.RawConfig = "protocol bfd {}\n"
+	var found bool
+	for _, w := range Lint(in) {
+		if strings.Contains(w.Message, "raw block") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a raw config block should be called out as unchecked by birdy")
+	}
+}
+
+// ibgpPeer is a correctly configured internal session: our own ASN, and the
+// next-hop rewrite that keeps readvertised eBGP routes usable.
+func ibgpPeer(localASN int64) store.Peer {
+	return store.Peer{
+		Name: "ibgp_core", Role: store.RoleIBGP, Enabled: true,
+		NeighborIP: "192.0.2.9", RemoteASN: localASN,
+		NextHopSelf: true, ImportLimitAction: "restart",
 	}
 }

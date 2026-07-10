@@ -56,6 +56,17 @@ type Peer struct {
 	// compares the route's origin AS against this peer's own ASN.
 	OriginPeerOnly bool
 
+	// NextHopSelf rewrites the next hop to our own address before announcing.
+	// iBGP only, and on by default: a route learned from an eBGP peer keeps that
+	// peer's address as its next hop, which the router at the other end of an
+	// iBGP session usually has no route to. Turn it off only if your IGP carries
+	// the peering subnets.
+	NextHopSelf bool
+	// RRClient makes us a route reflector for this peer. iBGP only. Without it,
+	// BGP's loop rule stops us readvertising an iBGP route to another iBGP peer,
+	// which is why a plain iBGP mesh has to be full.
+	RRClient bool
+
 	// Ordered policy chains, filled by the caller from SetPeerPolicies/PeerPolicies.
 	ImportPolicies []Policy
 	ExportPolicies []Policy
@@ -86,6 +97,12 @@ func (p *Peer) Validate() map[string]string {
 	}
 	if !peerRoles[p.Role] {
 		errs["role"] = "Choose a role: upstream, IX peer, customer or iBGP."
+	}
+	// Both are iBGP concepts. Normalise rather than reject: the form always
+	// submits them, and an eBGP peer that carried them would render nonsense.
+	if !p.IsIBGP() {
+		p.NextHopSelf = false
+		p.RRClient = false
 	}
 
 	neighbor, err := netip.ParseAddr(strings.TrimSpace(p.NeighborIP))
@@ -139,7 +156,7 @@ func (s *Store) ListPeers() ([]Peer, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
-		       origin_peer_only
+		       origin_peer_only, next_hop_self, rr_client
 		FROM peers ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list peers: %w", err)
@@ -160,7 +177,7 @@ func (s *Store) GetPeer(id int64) (Peer, error) {
 	row := s.db.QueryRow(`
 		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
-		       origin_peer_only
+		       origin_peer_only, next_hop_self, rr_client
 		FROM peers WHERE id = ?`, id)
 	p, err := scanPeer(row)
 	if err == sql.ErrNoRows {
@@ -176,7 +193,7 @@ func (s *Store) GetPeerByName(name string) (Peer, error) {
 	row := s.db.QueryRow(`
 		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
-		       origin_peer_only
+		       origin_peer_only, next_hop_self, rr_client
 		FROM peers WHERE name = ?`, name)
 	p, err := scanPeer(row)
 	if err == sql.ErrNoRows {
@@ -191,7 +208,8 @@ func scanPeer(sc scanner) (Peer, error) {
 	var p Peer
 	err := sc.Scan(&p.ID, &p.Name, &p.Description, &p.Role, &p.Enabled, &p.NeighborIP,
 		&p.RemoteASN, &p.LocalIP, &p.Multihop, &p.Passive, &p.Password,
-		&p.ImportLimit, &p.ImportLimitAction, &p.EnforceFirstAS, &p.OriginPeerOnly)
+		&p.ImportLimit, &p.ImportLimitAction, &p.EnforceFirstAS, &p.OriginPeerOnly,
+		&p.NextHopSelf, &p.RRClient)
 	return p, err
 }
 
@@ -200,11 +218,12 @@ func (s *Store) CreatePeer(p Peer) (int64, error) {
 	res, err := s.db.Exec(`
 		INSERT INTO peers (name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		                   multihop, passive, password, import_limit, import_limit_action,
-		                   enforce_first_as, origin_peer_only, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   enforce_first_as, origin_peer_only, next_hop_self, rr_client,
+		                   created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
-		p.EnforceFirstAS, p.OriginPeerOnly, ts, ts)
+		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create peer: %w", err)
 	}
@@ -216,11 +235,11 @@ func (s *Store) UpdatePeer(p Peer) error {
 		UPDATE peers SET name = ?, description = ?, role = ?, enabled = ?, neighbor_ip = ?,
 		                 remote_asn = ?, local_ip = ?, multihop = ?, passive = ?, password = ?,
 		                 import_limit = ?, import_limit_action = ?, enforce_first_as = ?,
-		                 origin_peer_only = ?, updated_at = ?
+		                 origin_peer_only = ?, next_hop_self = ?, rr_client = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
-		p.EnforceFirstAS, p.OriginPeerOnly, now(), p.ID)
+		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient, now(), p.ID)
 	if err != nil {
 		return fmt.Errorf("store: update peer: %w", err)
 	}

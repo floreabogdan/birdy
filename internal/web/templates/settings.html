@@ -41,6 +41,12 @@
 								<div class="hint">Rendered as <code class="mono">define LOCAL_ASN</code> and used in the AS-path loop guard.</div>
 								{{with index .IdentityErrs "localAsn"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
+							<div class="field">
+								<label for="rrClusterId">Route reflector cluster ID</label>
+								<input type="text" id="rrClusterId" name="rrClusterId" class="mono" value="{{.Settings.RRClusterID}}" placeholder="optional" autocomplete="off">
+								<div class="hint">Only used by peers marked as reflector clients. Blank means BIRD uses the router ID, which is right until you run a second reflector for the same clients.</div>
+								{{with index .IdentityErrs "rrClusterId"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
 						</div>
 						<button type="submit" class="btn btn-primary">Save identity</button>
 					</form>
@@ -98,6 +104,31 @@
 							<button type="submit" name="restore" value="defaults" class="btn"
 								onclick="return confirm('Replace all three lists with the values birdy ships with?')">Restore defaults</button>
 						</div>
+					</form>
+				</div>
+			</div>
+
+			<div class="card {{if .RawErr}}panel-danger{{else}}panel-warning{{end}}">
+				<div class="panel-head">{{template "icon-terminal"}}Raw configuration</div>
+				<div class="card-body">
+					<p style="margin-top:0;font-size:0.8125rem" class="text-muted">
+						Appended verbatim to the end of the generated <span class="mono">bird.conf</span>. The escape hatch for what birdy does not
+						model &mdash; BFD, extra tables, graceful restart tuning. <strong>birdy does not understand any of it.</strong>
+						Nothing here is linted, diffed intelligently, or protected from you; the only check it gets is
+						<span class="mono">bird -p</span>, which runs before this saves.
+					</p>
+					{{if .RawErr}}
+					<div class="error-text">{{.RawErr}}</div>
+					{{if .RawOutput}}<pre class="code-block" style="margin-top:12px">{{.RawOutput}}</pre>{{end}}
+					{{end}}
+					<form method="post" action="/settings/raw">
+						<div class="field">
+							<label for="rawConfig">Config appended to the end of the file</label>
+							<textarea id="rawConfig" name="rawConfig" rows="10" class="mono" spellcheck="false"
+								placeholder="protocol bfd {&#10;&#9;interface &quot;eno1&quot;;&#10;}">{{.RawConfig}}</textarea>
+							<div class="hint">Leave empty if you do not need it. It cannot reference the filters birdy generates &mdash; it is appended after them, not before.</div>
+						</div>
+						<button type="submit" class="btn btn-primary">Save raw config</button>
 					</form>
 				</div>
 			</div>

@@ -22,9 +22,10 @@ does not exist as far as birdy is concerned, and would be gone from any config i
 
 **birdy is opinionated.** It does not expose every knob BIRD has. It renders what its authors believe
 is good practice — RFC 8212 default-deny on export, bogon prefix and ASN filtering, large communities
-to tag route origin, enforce-first-AS on eBGP, RPKI invalid drop — and it will happily refuse to render
-a config it thinks is a route leak. If you disagree with those opinions, birdy is the wrong tool and
-you should write `bird.conf` by hand. That is a perfectly good way to run a router.
+to tag route origin, enforce-first-AS on eBGP, next-hop-self on iBGP, RPKI invalid drop — and it will
+happily refuse to render a config it thinks is a route leak. Anything it does not model goes in a raw
+block, appended verbatim. If you disagree with those opinions, birdy is the wrong tool and you should
+write `bird.conf` by hand. That is a perfectly good way to run a router.
 
 **There is no support.** No warranty, no SLA, no guarantee of fitness for anything. Issues and pull
 requests are welcome and may be ignored. If you run this and it breaks your BGP session, your
@@ -48,10 +49,12 @@ before it is allowed to touch anything.
 
 **Model**
 - Peers with roles (upstream, IX peer, customer, iBGP), which drive automatic origin tagging
+- iBGP with next-hop-self and route reflection
 - Composable import and export policy chains, rather than one policy per session
 - A library of prefix sets and AS sets
 - Bogon prefixes and bogon ASNs, editable, in Settings
 - RPKI: RTR servers and per-policy validation (log-only or drop-invalid)
+- A raw config block for everything birdy does not model, checked by `bird -p` before it saves
 
 **Preview**
 - The whole candidate `bird.conf`, rendered from the model, with a syntax check via `bird -p`
@@ -64,6 +67,9 @@ the browser, so fill in the real MD5 secrets yourself.
 
 **Not built yet:** writing `bird.conf`, the apply pipeline (`configure check` / `timeout` / `confirm`
 / `undo`, backup, rollback), peer templates, community manipulation and prepending, and alerting.
+
+**Not modelled, so it belongs in the raw block:** BFD, graceful restart tuning, extra routing tables,
+IGPs (OSPF, Babel), MPLS, and restricting which interfaces the `direct` protocol picks up.
 
 ## Install
 

@@ -7,7 +7,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 7
+const schemaVersion = 8
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -132,6 +132,27 @@ func migrate(db *sql.DB) error {
 		// A public RTR endpoint, disabled, so RPKI is one click away without
 		// birdy ever dialling out on its own.
 		if err := seedRPKIServers(tx); err != nil {
+			return err
+		}
+	}
+
+	if version < 8 {
+		// iBGP was rendered as "import all; export all;" and nothing else, which
+		// readvertises eBGP routes carrying the original next hop. Unless the IGP
+		// happens to carry every peering subnet, the receiving router cannot
+		// resolve it and the traffic is black-holed. Default the fix ON: an
+		// operator who wants BIRD's stock behaviour has to ask for it.
+		if err := ensureColumn(tx, "peers", "next_hop_self", `ALTER TABLE peers ADD COLUMN next_hop_self INTEGER NOT NULL DEFAULT 1`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "peers", "rr_client", `ALTER TABLE peers ADD COLUMN rr_client INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "settings", "rr_cluster_id", `ALTER TABLE settings ADD COLUMN rr_cluster_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		// The escape hatch: config birdy does not model, appended verbatim.
+		if err := ensureColumn(tx, "settings", "raw_config", `ALTER TABLE settings ADD COLUMN raw_config TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
 	}

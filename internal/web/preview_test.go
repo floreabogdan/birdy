@@ -185,7 +185,7 @@ func TestPreview(t *testing.T) {
 			formV.Exports = append(formV.Exports, p)
 		}
 	}
-	formV.Preview, formV.PreviewErr, formV.Warnings = previewPeer(formV.Peer, sets, nil, allPolicies, nil, nil, 65551)
+	formV.Preview, formV.PreviewErr, formV.Warnings = previewPeer(formV.Peer, sets, nil, allPolicies, nil, nil, 65551, "")
 
 	// A peer whose configuration parses but misbehaves, to show the lint panel.
 	leaky := customer
@@ -194,7 +194,7 @@ func TestPreview(t *testing.T) {
 	leaky.ExportPolicies = []store.Policy{expFull}
 	leakyV := peerFormView{Active: "peers", Peer: leaky, Imports: formV.Imports,
 		Exports: append(append([]store.Policy{}, formV.Exports...), expFull)}
-	leakyV.Preview, leakyV.PreviewErr, leakyV.Warnings = previewPeer(leaky, sets, nil, append(allPolicies, expFull), nil, nil, 65551)
+	leakyV.Preview, leakyV.PreviewErr, leakyV.Warnings = previewPeer(leaky, sets, nil, append(allPolicies, expFull), nil, nil, 65551, "")
 
 	policiesV := policiesView{Active: "policies", Imports: formV.Imports, Exports: formV.Exports,
 		InUse: map[int64]int{100: 2, 110: 1}, SetNames: map[int64]string{3: "ANNOUNCE_V4", 1: "BOGONS_V4"}}

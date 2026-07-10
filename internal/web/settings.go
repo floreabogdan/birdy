@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	birdconf "github.com/floreabogdan/birdy/internal/render"
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
@@ -31,6 +32,12 @@ type SettingsView struct {
 	BogonsV6  string
 	BogonASNs string
 	BogonErrs map[string]string
+
+	// RawConfig is the escape hatch, echoed back on a failed save so the
+	// operator does not lose what they typed.
+	RawConfig string
+	RawErr    string
+	RawOutput string // what bird -p said, when it rejected the config
 }
 
 func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +59,11 @@ func (s *Server) renderSettings(w http.ResponseWriter, v SettingsView) {
 	if s.snap != nil {
 		if p, ok := s.snap.LatestSnapshot(); ok {
 			v.LatestSnapshot = p
+		}
+	}
+	if v.RawErr == "" {
+		if settings, ok, err := s.store.GetSettings(); err == nil && ok {
+			v.RawConfig = settings.RawConfig
 		}
 	}
 	// A rejected bogon edit keeps the text the user typed; otherwise load stored.
@@ -195,22 +207,96 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 	if err != nil || asn < 1 || asn > 4294967295 {
 		errs["localAsn"] = "Enter an AS number between 1 and 4294967295."
 	}
+	probe := store.Settings{RRClusterID: r.FormValue("rrClusterId")}
+	if msg := probe.ValidateRRClusterID(); msg != "" {
+		errs["rrClusterId"] = msg
+	}
 
 	if len(errs) > 0 {
 		v := SettingsView{Active: "settings", ReadOnly: s.readOnly, IdentityErrs: errs}
 		v.Settings.RouterID = routerID
 		v.Settings.LocalASN = sql.NullInt64{Int64: asn, Valid: errs["localAsn"] == ""}
+		v.Settings.RRClusterID = probe.RRClusterID
 		s.renderSettings(w, v)
 		return
 	}
 
 	settings.RouterID = routerID
 	settings.LocalASN = sql.NullInt64{Int64: asn, Valid: true}
+	settings.RRClusterID = probe.RRClusterID
 	if err := s.store.SaveSettings(settings); err != nil {
 		s.serverError(w, "save settings", err)
 		return
 	}
 	http.Redirect(w, r, "/settings?flash="+flash("Router identity saved"), http.StatusSeeOther)
+}
+
+// maxRawConfig bounds the escape hatch. It is a router config, not a document;
+// anything approaching this is a sign the model should grow instead.
+const maxRawConfig = 64 << 10
+
+// handleSettingsRaw saves the raw config block, but only if BIRD can still parse
+// the whole file with it in place. birdy understands nothing about what is in
+// here, so `bird -p` is the only gate — and it has to run against the complete
+// rendered config, not the fragment, because a stray brace only shows up in
+// context.
+func (s *Server) handleSettingsRaw(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	raw := strings.ReplaceAll(r.FormValue("rawConfig"), "\r\n", "\n")
+
+	fail := func(msg, output string) {
+		s.renderSettings(w, SettingsView{
+			Active: "settings", ReadOnly: s.readOnly,
+			RawConfig: raw, RawErr: msg, RawOutput: output,
+		})
+	}
+	if len(raw) > maxRawConfig {
+		fail(fmt.Sprintf("Too long: %d bytes, limit is %d.", len(raw), maxRawConfig), "")
+		return
+	}
+	if strings.ContainsRune(raw, 0) {
+		fail("Contains a NUL byte.", "")
+		return
+	}
+
+	// Masked: the password is a string literal either way, so a masked config
+	// proves the syntax just as well without writing real secrets to a temp file.
+	in, reason, err := s.renderInput(true)
+	if err != nil {
+		s.serverError(w, "build render input", err)
+		return
+	}
+	in.RawConfig = raw
+
+	// Without a router identity there is no config to check this against. Save
+	// it anyway and say so, rather than blocking on an unrelated setting.
+	unchecked := reason != ""
+	if !unchecked {
+		candidate, err := birdconf.Config(in)
+		if err != nil {
+			fail("The config cannot be rendered: "+err.Error(), "")
+			return
+		}
+		// Skipped means no bird binary here — nothing was proven, so do not
+		// pretend the block was rejected.
+		if res := birdconf.Check(r.Context(), s.birdBinary, candidate); res.Skipped == "" && !res.OK {
+			fail("BIRD rejected the config with this block in place. Nothing was saved.", res.Output)
+			return
+		}
+	}
+
+	if err := s.store.SaveRawConfig(raw); err != nil {
+		s.serverError(w, "save raw config", err)
+		return
+	}
+	msg := "Raw config saved"
+	if unchecked {
+		msg = "Raw config saved, but not checked: " + reason
+	}
+	http.Redirect(w, r, "/settings?flash="+flash(msg), http.StatusSeeOther)
 }
 
 // apiSnapshotDownload always produces a fresh, consistent snapshot on demand

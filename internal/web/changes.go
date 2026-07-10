@@ -55,66 +55,44 @@ func (v changesView) Dangers() int {
 	return n
 }
 
-func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
-	v := changesView{
-		Active:   "changes",
-		ReadOnly: s.readOnly,
-		LivePath: s.birdConfPath,
-		Tab:      tabParam(r, "config", "diff"),
-	}
-
+// renderInput assembles everything the renderer needs from the model. A
+// non-empty reason means no config can be produced at all — the caller shows it
+// instead of a config. Every page that renders the whole file goes through here,
+// so /changes and the raw-config check can never disagree about what birdy
+// would write.
+func (s *Server) renderInput(mask bool) (birdconf.Input, string, error) {
 	settings, ok, err := s.store.GetSettings()
 	if err != nil {
-		s.serverError(w, "get settings", err)
-		return
+		return birdconf.Input{}, "", err
 	}
 	peers, err := s.store.ListPeers()
 	if err != nil {
-		s.serverError(w, "list peers", err)
-		return
+		return birdconf.Input{}, "", err
 	}
 	for i := range peers {
 		if err := s.loadPeerChains(&peers[i]); err != nil {
-			s.serverError(w, "peer policies", err)
-			return
+			return birdconf.Input{}, "", err
 		}
 	}
 	sets, err := s.store.ListPrefixSets()
 	if err != nil {
-		s.serverError(w, "list prefix sets", err)
-		return
+		return birdconf.Input{}, "", err
 	}
 	policies, err := s.store.ListPolicies()
 	if err != nil {
-		s.serverError(w, "list policies", err)
-		return
+		return birdconf.Input{}, "", err
 	}
 	asSets, err := s.store.ListASSets()
 	if err != nil {
-		s.serverError(w, "list AS sets", err)
-		return
+		return birdconf.Input{}, "", err
 	}
 	rpkiServers, err := s.store.ListRPKIServers()
 	if err != nil {
-		s.serverError(w, "list RPKI servers", err)
-		return
+		return birdconf.Input{}, "", err
 	}
 	bogonASNs, err := s.store.ListBogonASNs()
 	if err != nil {
-		s.serverError(w, "list bogon ASNs", err)
-		return
-	}
-	v.PeerCount, v.SetCount, v.PolicyCount = len(peers), len(sets), len(policies)
-
-	if !ok {
-		v.RenderErr = "birdy is not initialized."
-		render(w, s.log, "changes.html", v)
-		return
-	}
-	if settings.RouterID == "" || !settings.LocalASN.Valid {
-		v.RenderErr = "Set the router ID and local ASN before a config can be rendered."
-		render(w, s.log, "changes.html", v)
-		return
+		return birdconf.Input{}, "", err
 	}
 
 	in := birdconf.Input{
@@ -126,12 +104,43 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 		RPKIServers: rpkiServers,
 		Peers:       peers,
 		BogonASNs:   bogonASNs,
+		RRClusterID: settings.RRClusterID,
+		RawConfig:   settings.RawConfig,
 		Version:     buildinfo.Version,
 		Generated:   time.Now(),
-		// Everything below is bound for a browser, so secrets stay masked.
-		// The apply pipeline (M2b) will render again, unmasked, straight to disk.
-		MaskSecrets: true,
+		MaskSecrets: mask,
 	}
+	switch {
+	case !ok:
+		return in, "birdy is not initialized.", nil
+	case settings.RouterID == "" || !settings.LocalASN.Valid:
+		return in, "Set the router ID and local ASN before a config can be rendered.", nil
+	}
+	return in, "", nil
+}
+
+func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
+	v := changesView{
+		Active:   "changes",
+		ReadOnly: s.readOnly,
+		LivePath: s.birdConfPath,
+		Tab:      tabParam(r, "config", "diff"),
+	}
+
+	// Everything bound for a browser has its secrets masked. The apply pipeline
+	// (M2b) will render again, unmasked, straight to disk.
+	in, reason, err := s.renderInput(true)
+	if err != nil {
+		s.serverError(w, "build render input", err)
+		return
+	}
+	v.PeerCount, v.SetCount, v.PolicyCount = len(in.Peers), len(in.PrefixSets), len(in.Policies)
+	if reason != "" {
+		v.RenderErr = reason
+		render(w, s.log, "changes.html", v)
+		return
+	}
+
 	// Lint before rendering: a config that fails to render still has findings
 	// worth showing, and bird -p will never catch a route leak.
 	v.Warnings = birdconf.Lint(in)

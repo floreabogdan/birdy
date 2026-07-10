@@ -508,3 +508,126 @@ func TestMissingOrEmptyBogonSetIsAnError(t *testing.T) {
 		t.Errorf("bogon sets should only be required when a policy uses them: %v", err)
 	}
 }
+
+// The bug this fixes: iBGP used to render "import all; export all;" and nothing
+// else, so a route learned from an eBGP peer was readvertised carrying that
+// peer's address as its next hop. The far end has no route to it.
+func TestIBGPRendersNextHopSelf(t *testing.T) {
+	in := baseInput()
+	p := store.Peer{Name: "ibgp_core", Role: store.RoleIBGP, Enabled: true,
+		NeighborIP: "192.0.2.9", RemoteASN: in.LocalASN, NextHopSelf: true, ImportLimitAction: "restart"}
+	in.Peers = []store.Peer{p}
+
+	out, err := Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "next hop self;") {
+		t.Errorf("iBGP channel must rewrite the next hop:\n%s", out)
+	}
+	// It belongs to the channel, not the protocol: BIRD 2 moved it there.
+	if !strings.Contains(out, "\t\tnext hop self;\n") {
+		t.Error("next hop self must sit inside the channel block")
+	}
+
+	p.NextHopSelf = false
+	in.Peers = []store.Peer{p}
+	out, err = Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "next hop self") {
+		t.Error("an operator who turns it off must get BIRD's stock behaviour")
+	}
+}
+
+func TestIBGPRouteReflector(t *testing.T) {
+	in := baseInput()
+	in.RRClusterID = "192.0.2.1"
+	p := store.Peer{Name: "ibgp_client", Role: store.RoleIBGP, Enabled: true,
+		NeighborIP: "192.0.2.9", RemoteASN: in.LocalASN, NextHopSelf: true,
+		RRClient: true, ImportLimitAction: "restart"}
+	in.Peers = []store.Peer{p}
+
+	out, err := Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"\trr client;\n", "\trr cluster id 192.0.2.1;\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+
+	// An empty cluster ID lets BIRD fall back to the router ID.
+	in.RRClusterID = ""
+	out, _ = Config(in)
+	if strings.Contains(out, "rr cluster id") {
+		t.Error("no cluster id should be rendered when none is set")
+	}
+	if !strings.Contains(out, "rr client;") {
+		t.Error("rr client stands on its own")
+	}
+}
+
+// An eBGP peer must never pick up the iBGP-only options.
+func TestEBGPHasNoIBGPOptions(t *testing.T) {
+	in := baseInput()
+	p := ebgpPeer()
+	p.NextHopSelf, p.RRClient = true, true // as if a form had smuggled them in
+	p.Validate()                           // Validate is where they are normalised away
+	in.Peers = []store.Peer{p}
+
+	out, err := Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "next hop self") || strings.Contains(out, "rr client") {
+		t.Errorf("eBGP peer picked up iBGP options:\n%s", out)
+	}
+}
+
+// Without a direct protocol BIRD has no connected routes: nothing to originate
+// from, and no way to resolve a next hop on a peering subnet.
+func TestRendersDirectProtocol(t *testing.T) {
+	out, err := Config(baseInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "protocol direct direct1 {") {
+		t.Errorf("connected routes must be imported:\n%s", out)
+	}
+}
+
+func TestRawConfigIsAppendedLast(t *testing.T) {
+	in := baseInput()
+	in.RawConfig = "protocol bfd {\n\tinterface \"eno1\";\n}"
+	in.Peers = []store.Peer{ebgpPeer()}
+
+	out, err := Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := strings.Index(out, "protocol bfd")
+	peer := strings.Index(out, "protocol bgp "+ebgpPeer().Name)
+	if raw < 0 || peer < 0 || raw < peer {
+		t.Errorf("raw config must come after everything birdy generated:\n%s", out)
+	}
+	if !strings.Contains(out, "birdy does not parse") {
+		t.Error("the raw block should be labelled as unparsed")
+	}
+}
+
+// A password inside the raw block is still a password.
+func TestRawConfigIsMaskedToo(t *testing.T) {
+	in := baseInput()
+	in.MaskSecrets = true
+	in.RawConfig = "protocol bgp x {\n\tpassword \"hunter2\";\n}"
+	out, err := Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "hunter2") {
+		t.Errorf("raw block leaked a password into the browser:\n%s", out)
+	}
+}
