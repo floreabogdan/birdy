@@ -46,6 +46,40 @@ func (c *Client) ConfigureConfirm() (ConfigureResult, error) {
 	return c.configure("configure confirm")
 }
 
+// DaemonConfigPath returns the file BIRD reads its configuration from, parsed
+// from the "Reading configuration from <path>" line a `configure check` emits.
+// The check never applies anything, so this is a safe probe. birdy uses it to
+// confirm --bird-conf points at the same file the daemon loads — otherwise an
+// apply would reconfigure the wrong file.
+func (c *Client) DaemonConfigPath() (string, error) {
+	conn, err := net.DialTimeout("unix", c.path, configureTimeout)
+	if err != nil {
+		return "", fmt.Errorf("birdc: connect %s: %w", c.path, err)
+	}
+	defer conn.Close()
+	if err := conn.SetDeadline(time.Now().Add(configureTimeout)); err != nil {
+		return "", err
+	}
+	r := bufio.NewReader(conn)
+	if _, err := readFrame(r); err != nil {
+		return "", fmt.Errorf("birdc: reading banner: %w", err)
+	}
+	if _, err := fmt.Fprintf(conn, "configure check\n"); err != nil {
+		return "", fmt.Errorf("birdc: write: %w", err)
+	}
+	reply, err := readFrame(r)
+	if err != nil {
+		return "", err
+	}
+	const marker = "Reading configuration from "
+	for _, line := range append(reply.Lines(), reply.Terminal.Lines...) {
+		if _, after, found := strings.Cut(line, marker); found {
+			return strings.TrimSpace(after), nil
+		}
+	}
+	return "", fmt.Errorf("birdc: could not determine config path from BIRD")
+}
+
 // ConfigureUndo reverts the last reconfigure immediately, without waiting for
 // the timeout to elapse.
 func (c *Client) ConfigureUndo() (ConfigureResult, error) {

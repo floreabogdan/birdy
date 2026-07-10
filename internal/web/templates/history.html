@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — apply history</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Changes</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/changes">Changes</a><span class="sep">/</span><span class="current">History</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>Apply history</h1>
+					<div class="page-sub">Every config birdy has applied, newest first. Open one to see it, diff it against what is running, or put it back.</div>
+				</div>
+			</div>
+
+			{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+
+			<div class="card">
+				<div class="table-scroll">
+				<table>
+					<thead><tr><th>When</th><th>Outcome</th><th class="num">Size</th><th>Hash</th><th>Note</th></tr></thead>
+					<tbody data-search-target>
+						{{range .Versions}}
+						<tr class="row-link" onclick="location.href='/changes/history/{{.ID}}'">
+							<td>{{fmttime .CreatedAt}}<div class="rel text-muted" data-ts="{{isotime .CreatedAt}}" style="font-size:0.75rem"></div></td>
+							<td>{{versionBadge .Status}}</td>
+							<td class="num mono">{{comma .Size}}</td>
+							<td class="mono" style="font-size:0.75rem">{{shortsha .SHA256}}</td>
+							<td class="text-muted" style="font-size:0.8125rem">{{.Message}}</td>
+						</tr>
+						{{else}}
+						<tr><td colspan="5" class="empty">
+							Nothing applied yet. When you apply a config from <a href="/changes">Changes</a>, it is recorded here.
+						</td></tr>
+						{{end}}
+					</tbody>
+				</table>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

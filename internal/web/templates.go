@@ -67,6 +67,28 @@ var funcs = template.FuncMap{
 		}
 		return template.HTML(`<span class="badge ` + class + `"><span class="dot"></span>` + template.HTMLEscapeString(state) + `</span>`)
 	},
+	// versionBadge renders a config version's outcome.
+	"versionBadge": func(status string) template.HTML {
+		class, label := "badge", status
+		switch status {
+		case store.ConfigConfirmed:
+			class, label = "badge-success", "confirmed"
+		case store.ConfigPending:
+			class, label = "badge-warning", "pending"
+		case store.ConfigReverted:
+			class, label = "badge", "reverted"
+		case store.ConfigFailed:
+			class, label = "badge-danger", "failed"
+		}
+		return template.HTML(`<span class="badge ` + class + `">` + template.HTMLEscapeString(label) + `</span>`)
+	},
+	// shortsha abbreviates a config hash for a compact history row.
+	"shortsha": func(sha string) string {
+		if len(sha) > 12 {
+			return sha[:12]
+		}
+		return sha
+	},
 	"progressClass": func(pct float64) string {
 		switch {
 		case pct >= 90:

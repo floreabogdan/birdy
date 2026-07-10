@@ -174,6 +174,9 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /apply/confirm", s.requireAuth(s.handleApplyConfirm))
 	s.mux.Handle("POST /apply/rollback", s.requireAuth(s.handleApplyRollback))
 	s.mux.Handle("POST /apply/adopt", s.requireAuth(s.handleAdopt))
+	s.mux.Handle("GET /changes/history", s.requireAuth(s.handleHistory))
+	s.mux.Handle("GET /changes/history/{id}", s.requireAuth(s.handleVersion))
+	s.mux.Handle("POST /changes/history/{id}/reapply", s.requireAuth(s.handleReapply))
 
 	s.mux.Handle("GET /timeline", s.requireAuth(s.handleTimeline))
 	s.mux.Handle("GET /lg", s.requireAuth(s.handleLookingGlass))

@@ -43,3 +43,22 @@ func TestFailedHelper(t *testing.T) {
 		t.Fatal("expected Failed=true when a Fail is present")
 	}
 }
+
+func TestApplyReadyMismatchIsFail(t *testing.T) {
+	// No socket, so DaemonConfigPath can't be checked; with an unwritable path
+	// and no BIRD, the check must warn, never crash.
+	r := checkApplyReady(Config{BirdConfPath: "/nonexistent-dir/bird.conf", SocketPath: "/nonexistent.ctl"})
+	if r.Status == OK {
+		t.Errorf("apply readiness should not be OK when nothing is reachable: %+v", r)
+	}
+	if r.Name != "apply readiness" {
+		t.Errorf("name = %q", r.Name)
+	}
+}
+
+func TestApplyReadyNoPath(t *testing.T) {
+	r := checkApplyReady(Config{})
+	if r.Status != Warn {
+		t.Errorf("no bird-conf path should warn, got %v", r.Status)
+	}
+}

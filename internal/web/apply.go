@@ -167,25 +167,29 @@ func (s *Server) reconcilePending() error {
 		"Config apply auto-reverted (not confirmed in time)")
 }
 
-func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
+// canStartApply gathers the gates every apply shares: not read-only, no stale
+// pending apply, and no live one. It writes its own response and returns false
+// when the caller must stop.
+func (s *Server) canStartApply(w http.ResponseWriter, r *http.Request) bool {
 	if !s.writeGuard(w) {
-		return
+		return false
 	}
 	if err := s.reconcilePending(); err != nil {
 		s.serverError(w, "reconcile pending", err)
-		return
+		return false
 	}
 	if _, ok, err := s.store.PendingConfigVersion(); err != nil {
 		s.serverError(w, "pending check", err)
-		return
+		return false
 	} else if ok {
 		s.redirectChanges(w, r, "There is already a pending apply — confirm or roll it back first.")
-		return
+		return false
 	}
+	return true
+}
 
-	settings, _, err := s.store.GetSettings()
-	if err != nil {
-		s.serverError(w, "get settings", err)
+func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
+	if !s.canStartApply(w, r) {
 		return
 	}
 	in, reason, err := s.renderInput(false) // real passwords: this is going to disk
@@ -202,6 +206,18 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		s.redirectChanges(w, r, "The config cannot be rendered: "+err.Error())
 		return
 	}
+	s.applyConfig(w, r, cfg)
+}
+
+// applyConfig runs the write-and-arm pipeline for a specific config text, shared
+// by a fresh render and a re-apply of a stored version. The caller must have
+// passed canStartApply first.
+func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string) {
+	settings, _, err := s.store.GetSettings()
+	if err != nil {
+		s.serverError(w, "get settings", err)
+		return
+	}
 	newHash := hashBytes([]byte(cfg))
 
 	auth, onDisk, err := s.birdConfState(settings.AppliedConfigHash)
@@ -214,7 +230,7 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if onDisk == newHash {
-		s.redirectChanges(w, r, "Already applied: the running config already matches what birdy would write.")
+		s.redirectChanges(w, r, "Already applied: the running config already matches this.")
 		return
 	}
 

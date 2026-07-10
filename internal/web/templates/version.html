@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — config version {{.Version.ID}}</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Changes</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/changes">Changes</a><span class="sep">/</span><a href="/changes/history">History</a><span class="sep">/</span><span class="current mono">#{{.Version.ID}}</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>Applied {{fmttime .Version.CreatedAt}}</h1>
+					<div class="page-sub">{{versionBadge .Version.Status}} &middot; <span class="mono">{{shortsha .Version.SHA256}}</span> &middot; {{comma .Version.Size}} bytes</div>
+				</div>
+				<div class="page-header-actions">
+					{{if .OnDisk}}<span class="badge badge-success">on disk now</span>{{end}}
+				</div>
+			</div>
+
+			{{if .Version.Message}}<div class="card panel-info"><div class="card-body" style="font-size:0.8125rem">{{.Version.Message}}</div></div>{{end}}
+
+			{{if not .OnDisk}}
+			<div class="card {{if .ReadOnly}}panel-info{{else}}panel-warning{{end}}">
+				<div class="panel-head">{{template "icon-changes"}}Re-apply this version</div>
+				<div class="card-body">
+					{{if .ReadOnly}}
+					<p style="margin-top:0" class="text-muted">birdy is read-only. Re-applying is disabled.</p>
+					{{else if .Pending}}
+					<p style="margin-top:0" class="text-muted">Resolve the pending apply on <a href="/changes">Changes</a> before re-applying an older version.</p>
+					{{else}}
+					<p style="margin-top:0">
+						Writes this exact config back to BIRD with the usual <strong>safety timeout</strong> &mdash; it reverts on its own
+						unless you confirm. The emergency-rollback path: put back a config you know worked.
+					</p>
+					<form method="post" action="/changes/history/{{.Version.ID}}/reapply" onsubmit="return confirm('Re-apply this config to BIRD? It reverts automatically unless you confirm within the timeout.')">
+						<button type="submit" class="btn btn-primary">{{template "icon-bolt"}}Re-apply version #{{.Version.ID}}</button>
+					</form>
+					{{end}}
+				</div>
+			</div>
+
+			{{if .Hunks}}
+			<div class="section-head">
+				<h2 class="section-title">{{template "icon-changes"}}Difference from the running config</h2>
+				<span class="diff-stat"><span class="add">+{{.Added}}</span> <span class="del">&minus;{{.Removed}}</span></span>
+			</div>
+			<div class="card">
+				<div class="diff">
+					{{range .Hunks}}
+					<div class="diff-hunk-head">{{.Header}}</div>
+					{{range .Lines}}<div class="diff-line op-{{printf "%c" .Op}}"><span class="op">{{printf "%c" .Op}}</span>{{.Text}}</div>{{end}}
+					{{end}}
+				</div>
+				<div class="card-body preview-note">Passwords are masked on both sides.</div>
+			</div>
+			{{end}}
+			{{end}}
+
+			<div class="card">
+				<div class="card-header"><span class="card-title">{{template "icon-file"}}The config as applied</span></div>
+				<pre class="code-block code-numbered">{{range .Lines}}<span class="cl">{{.}}</span>{{end}}</pre>
+				<div class="card-body preview-note">Passwords are masked.</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

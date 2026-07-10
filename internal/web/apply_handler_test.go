@@ -253,3 +253,72 @@ func TestApplyConfirmRolledBackWhenBirdWontConfirm(t *testing.T) {
 		t.Error("a failed confirm must not advance the applied hash")
 	}
 }
+
+func TestHistoryListsAppliedVersions(t *testing.T) {
+	env := applyReady(t)
+	env.do(t, "POST", "/apply", nil)
+	env.do(t, "POST", "/apply/confirm", nil)
+
+	body := env.do(t, "GET", "/changes/history", nil).Body.String()
+	if !strings.Contains(body, "confirmed") {
+		t.Error("a confirmed apply should appear in history")
+	}
+
+	// The single version's detail page shows the config, masked.
+	versions, _ := env.store.ListConfigVersions(10)
+	if len(versions) != 1 {
+		t.Fatalf("want 1 version, got %d", len(versions))
+	}
+	body = env.do(t, "GET", "/changes/history/"+itoa(versions[0].ID), nil).Body.String()
+	if !strings.Contains(body, "define BOGON_ASNS") {
+		t.Error("the version page should show the applied config")
+	}
+	if !strings.Contains(body, "on disk now") {
+		t.Error("the just-confirmed version should be marked as on disk")
+	}
+}
+
+// Re-applying a stored version goes through the same timeout-armed pipeline.
+func TestReapplyOldVersion(t *testing.T) {
+	env := applyReady(t)
+	env.do(t, "POST", "/apply", nil)
+	env.do(t, "POST", "/apply/confirm", nil)
+	v1, _ := env.store.ListConfigVersions(10)
+	firstID := v1[0].ID
+
+	// Change the model so a fresh apply differs from version 1, then apply it.
+	f := peerForm()
+	f.Set("name", "extra_peer")
+	f.Set("neighborIp", "198.51.100.9")
+	env.do(t, "POST", "/peers/new", f)
+	env.do(t, "POST", "/apply", nil)
+	env.do(t, "POST", "/apply/confirm", nil)
+
+	// Now re-apply the ORIGINAL version 1 — emergency rollback.
+	env.fc.calls = nil
+	rec := env.do(t, "POST", "/changes/history/"+itoa(firstID)+"/reapply", nil)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("reapply: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := strings.Join(env.fc.calls, ","); got != "check,timeout" {
+		t.Fatalf("reapply should run the pipeline, calls=%q", got)
+	}
+	pending, ok, _ := env.store.PendingConfigVersion()
+	if !ok || strings.Contains(pending.ConfigText, "extra_peer") {
+		t.Error("re-apply should stage the OLD config, without the later peer")
+	}
+}
+
+func TestReapplyBlockedInReadOnly(t *testing.T) {
+	env := applyReady(t)
+	env.do(t, "POST", "/apply", nil)
+	env.do(t, "POST", "/apply/confirm", nil)
+	v, _ := env.store.ListConfigVersions(10)
+
+	ro := newTestEnv(t, true) // fresh read-only env; just needs the route to 403
+	_ = v
+	rec := ro.do(t, "POST", "/changes/history/1/reapply", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("reapply in read-only: code=%d, want 403", rec.Code)
+	}
+}

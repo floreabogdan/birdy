@@ -42,11 +42,12 @@ type Result struct {
 }
 
 type Config struct {
-	SocketPath  string // BIRD control socket, e.g. /run/bird/bird.ctl
-	ConfigDir   string // e.g. /etc/bird — only needs to be writable from M2 onward
-	BirdBinary  string // e.g. "bird" (resolved via PATH) or an absolute path
-	DBPath      string // birdy's own SQLite file
-	SystemdUnit string // e.g. "bird" — the unit name BIRD runs under
+	SocketPath   string // BIRD control socket, e.g. /run/bird/bird.ctl
+	ConfigDir    string // e.g. /etc/bird — only needs to be writable from M2 onward
+	BirdConfPath string // the bird.conf birdy reads and (unless read-only) writes
+	BirdBinary   string // e.g. "bird" (resolved via PATH) or an absolute path
+	DBPath       string // birdy's own SQLite file
+	SystemdUnit  string // e.g. "bird" — the unit name BIRD runs under
 }
 
 // Run executes every check and returns all results, regardless of individual
@@ -56,6 +57,7 @@ func Run(cfg Config) []Result {
 		checkBirdBinary(cfg),
 		checkSocket(cfg),
 		checkConfigDir(cfg),
+		checkApplyReady(cfg),
 		checkSystemd(cfg),
 		checkDBDir(cfg),
 	}
@@ -120,6 +122,48 @@ func checkConfigDir(cfg Config) Result {
 	}
 	os.Remove(probe)
 	return Result{"config directory", OK, dir + " is writable"}
+}
+
+// checkApplyReady tells the operator whether birdy could apply a config, and
+// catches the quiet footgun: if --bird-conf is not the file BIRD actually loads,
+// an apply would reconfigure the wrong file. All findings are warnings — none of
+// this matters in read-only mode.
+func checkApplyReady(cfg Config) Result {
+	path := cfg.BirdConfPath
+	if path == "" {
+		return Result{"apply readiness", Warn, "no bird.conf path configured"}
+	}
+
+	// The directory must be writable for the atomic temp-file-and-rename write.
+	dir := filepath.Dir(path)
+	probe := filepath.Join(dir, ".birdy-apply-test")
+	writable := true
+	if err := os.WriteFile(probe, []byte("ok"), 0o640); err != nil {
+		writable = false
+	} else {
+		os.Remove(probe)
+	}
+
+	c, err := birdc.Dial(cfg.SocketPath, 3*time.Second)
+	if err != nil {
+		if !writable {
+			return Result{"apply readiness", Warn, fmt.Sprintf("%s is not writable and BIRD is unreachable; apply needs both (fine in read-only mode)", path)}
+		}
+		return Result{"apply readiness", Warn, "cannot reach BIRD to confirm its config path"}
+	}
+	defer c.Close()
+
+	daemonPath, err := c.DaemonConfigPath()
+	switch {
+	case err != nil:
+		return Result{"apply readiness", Warn, "could not read BIRD's config path: " + err.Error()}
+	case daemonPath != path:
+		return Result{"apply readiness", Fail, fmt.Sprintf("--bird-conf is %s but BIRD loads %s — apply would reconfigure the wrong file", path, daemonPath)}
+	case !writable:
+		return Result{"apply readiness", Warn, fmt.Sprintf("%s matches BIRD, but is not writable by birdy; grant write access to enable apply (fine in read-only mode)", path)}
+	default:
+		return Result{"apply readiness", OK, fmt.Sprintf("%s is writable and is the file BIRD loads", path)}
+	}
 }
 
 func checkSystemd(cfg Config) Result {
