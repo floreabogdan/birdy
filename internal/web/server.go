@@ -33,7 +33,7 @@ type birdClient interface {
 	// birdy writes before calling them. ConfigureCheck never changes the running
 	// config; ConfigureTimeout applies with an armed auto-revert.
 	ConfigureCheck() (birdc.ConfigureResult, error)
-	ConfigureTimeout(seconds int) (birdc.ConfigureResult, error)
+	ConfigureTimeout(seconds int, soft bool) (birdc.ConfigureResult, error)
 	ConfigureConfirm() (birdc.ConfigureResult, error)
 	ConfigureUndo() (birdc.ConfigureResult, error)
 }

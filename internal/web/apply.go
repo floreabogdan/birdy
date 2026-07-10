@@ -192,6 +192,10 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 	if !s.canStartApply(w, r) {
 		return
 	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
 	in, reason, err := s.renderInput(false) // real passwords: this is going to disk
 	if err != nil {
 		s.serverError(w, "build render input", err)
@@ -206,13 +210,13 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		s.redirectChanges(w, r, "The config cannot be rendered: "+err.Error())
 		return
 	}
-	s.applyConfig(w, r, cfg)
+	s.applyConfig(w, r, cfg, r.FormValue("soft") == "on")
 }
 
 // applyConfig runs the write-and-arm pipeline for a specific config text, shared
 // by a fresh render and a re-apply of a stored version. The caller must have
-// passed canStartApply first.
-func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string) {
+// passed canStartApply first. soft reloads filters without bouncing sessions.
+func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string, soft bool) {
 	settings, _, err := s.store.GetSettings()
 	if err != nil {
 		s.serverError(w, "get settings", err)
@@ -270,7 +274,7 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string)
 
 	// Apply with the safety timeout armed. If this operator loses reachability,
 	// or the sessions never come up, BIRD reverts on its own.
-	res, err := s.client.ConfigureTimeout(s.applyTimeout)
+	res, err := s.client.ConfigureTimeout(s.applyTimeout, soft)
 	if err != nil {
 		_ = s.restoreFrom(backup)
 		s.serverError(w, "configure timeout", err)
@@ -291,11 +295,15 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string)
 		return
 	}
 
+	how := "hard"
+	if soft {
+		how = "soft"
+	}
 	deadline := now.Add(time.Duration(s.applyTimeout) * time.Second)
 	id, err := s.store.CreateConfigVersion(store.ConfigVersion{
 		SHA256: newHash, Size: len(cfg), ConfigText: cfg, BackupPath: backup,
 		Status: store.ConfigPending, Deadline: deadline,
-		Message: fmt.Sprintf("Applied with a %ds safety timeout.", s.applyTimeout),
+		Message: fmt.Sprintf("Applied (%s) with a %ds safety timeout.", how, s.applyTimeout),
 	})
 	if err != nil {
 		s.serverError(w, "record config version", err)

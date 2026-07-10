@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -28,6 +29,9 @@ type changesView struct {
 	PendingMessage string
 	InSync         bool // on-disk file already matches the candidate
 	ApplyTimeout   int  // the configured safety-timeout window, for the ready panel
+	// LiveSessions is the current BGP session states, shown on a pending apply so
+	// the operator can see the effect before deciding to confirm.
+	LiveSessions []protoRow
 
 	// Candidate is the config birdy would write, secrets masked.
 	Candidate string
@@ -241,6 +245,14 @@ func (s *Server) fillApplyState(v *changesView, storedHash string) string {
 			}
 			v.PendingSecs = left
 		}
+		// Show the live session states so the operator can judge the apply's
+		// effect — did the sessions stay up? — before confirming it.
+		for _, row := range s.liveStates() {
+			if row.IsBGP() {
+				v.LiveSessions = append(v.LiveSessions, row)
+			}
+		}
+		sort.Slice(v.LiveSessions, func(i, j int) bool { return v.LiveSessions[i].Name < v.LiveSessions[j].Name })
 	}
 	return onDisk
 }

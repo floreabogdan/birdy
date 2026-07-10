@@ -38,6 +38,13 @@
 						in <span id="apply-countdown" class="mono">{{.PendingSecs}}</span>s unless you confirm it.
 						Check that your sessions are up and you can still reach the router.
 					</p>
+					{{if .LiveSessions}}
+					<div class="kv" style="margin:4px 0 14px">
+						{{range .LiveSessions}}
+						<dt class="mono">{{.Name}}</dt><dd>{{sessionBadge .Up .BGPState}}</dd>
+						{{end}}
+					</div>
+					{{end}}
 					{{if .ReadOnly}}
 					<p class="text-muted" style="font-size:0.8125rem;margin-bottom:0">birdy is read-only; the timeout will let this revert.</p>
 					{{else}}
@@ -89,7 +96,10 @@
 						(so a mistake reverts itself), and waits for you to confirm. The current file is backed up first.
 					</p>
 					<form method="post" action="/apply" onsubmit="return confirm('Apply this config to BIRD? It reverts automatically unless you confirm within the timeout.')">
-						<button type="submit" class="btn btn-primary">{{template "icon-bolt"}}Apply to BIRD</button>
+						<label class="check" style="margin-bottom:12px"><input type="checkbox" name="soft" checked> Soft reload &mdash; re-run filters without restarting sessions where BIRD can avoid it</label>
+						<div class="form-actions" style="margin-top:0">
+							<button type="submit" class="btn btn-primary">{{template "icon-bolt"}}Apply to BIRD</button>
+						</div>
 					</form>
 				</div>
 			</div>

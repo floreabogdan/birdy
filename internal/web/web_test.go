@@ -34,6 +34,7 @@ type fakeClient struct {
 	cfgConfirmFail bool
 	cfgErr         error
 	calls          []string
+	lastSoft       bool // whether the last ConfigureTimeout asked for a soft reconfigure
 }
 
 func (f *fakeClient) result(ok bool, msg string) (birdc.ConfigureResult, error) {
@@ -47,8 +48,9 @@ func (f *fakeClient) ConfigureCheck() (birdc.ConfigureResult, error) {
 	}
 	return f.result(!f.cfgCheckFail, "checked")
 }
-func (f *fakeClient) ConfigureTimeout(seconds int) (birdc.ConfigureResult, error) {
+func (f *fakeClient) ConfigureTimeout(seconds int, soft bool) (birdc.ConfigureResult, error) {
 	f.calls = append(f.calls, "timeout")
+	f.lastSoft = soft
 	if f.cfgErr != nil {
 		return birdc.ConfigureResult{}, f.cfgErr
 	}

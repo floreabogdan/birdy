@@ -82,7 +82,9 @@ func (s *Server) handleReapply(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	s.applyConfig(w, r, v.ConfigText)
+	// Emergency rollback defaults to soft: putting an old config back should not
+	// bounce sessions that are currently fine.
+	s.applyConfig(w, r, v.ConfigText, true)
 }
 
 func (s *Server) versionFromPath(w http.ResponseWriter, r *http.Request) (store.ConfigVersion, error) {

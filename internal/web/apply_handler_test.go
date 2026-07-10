@@ -3,6 +3,7 @@ package web
 import (
 	"database/sql"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -320,5 +321,52 @@ func TestReapplyBlockedInReadOnly(t *testing.T) {
 	rec := ro.do(t, "POST", "/changes/history/1/reapply", nil)
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("reapply in read-only: code=%d, want 403", rec.Code)
+	}
+}
+
+func TestApplySoftByDefault(t *testing.T) {
+	env := applyReady(t)
+	// The button submits soft=on; a soft apply asks BIRD not to bounce sessions.
+	env.do(t, "POST", "/apply", url.Values{"soft": {"on"}})
+	if !env.fc.lastSoft {
+		t.Error("apply with soft=on should request a soft reconfigure")
+	}
+}
+
+func TestApplyHardWhenUnchecked(t *testing.T) {
+	env := applyReady(t)
+	env.do(t, "POST", "/apply", nil) // no soft field -> hard
+	if env.fc.lastSoft {
+		t.Error("apply without soft should be a hard reconfigure")
+	}
+}
+
+func TestReapplyIsSoft(t *testing.T) {
+	env := applyReady(t)
+	env.do(t, "POST", "/apply", nil)
+	env.do(t, "POST", "/apply/confirm", nil)
+	v, _ := env.store.ListConfigVersions(10)
+
+	// change the model and apply so the old version differs, then re-apply it
+	f := peerForm()
+	f.Set("name", "another")
+	f.Set("neighborIp", "198.51.100.7")
+	env.do(t, "POST", "/peers/new", f)
+	env.do(t, "POST", "/apply", nil)
+	env.do(t, "POST", "/apply/confirm", nil)
+
+	env.do(t, "POST", "/changes/history/"+itoa(v[0].ID)+"/reapply", nil)
+	if !env.fc.lastSoft {
+		t.Error("emergency re-apply should default to soft")
+	}
+}
+
+func TestPendingPanelShowsLiveSessions(t *testing.T) {
+	env := applyReady(t)
+	env.do(t, "POST", "/apply", nil)
+	body := env.do(t, "GET", "/changes", nil).Body.String()
+	// edge_v4 is Established in the fake client.
+	if !strings.Contains(body, "edge_v4") || !strings.Contains(body, "Established") {
+		t.Error("a pending apply should show live session states so the operator can judge it")
 	}
 }

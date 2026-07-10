@@ -37,8 +37,17 @@ func (c *Client) ConfigureCheck() (ConfigureResult, error) {
 // not confirmed within seconds, BIRD reverts to the previous config on its own.
 // This is what makes reconfiguring a remote router safe — lose the session, or
 // break your own reachability, and the router heals itself.
-func (c *Client) ConfigureTimeout(seconds int) (ConfigureResult, error) {
-	return c.configure(fmt.Sprintf("configure timeout %d", seconds))
+//
+// soft reloads filters and re-runs them against existing routes without
+// restarting protocols, so a BGP session is not bounced for a policy change.
+// BIRD still restarts a protocol whose core parameters changed; soft only avoids
+// the restart where it safely can.
+func (c *Client) ConfigureTimeout(seconds int, soft bool) (ConfigureResult, error) {
+	verb := "configure"
+	if soft {
+		verb += " soft"
+	}
+	return c.configure(fmt.Sprintf("%s timeout %d", verb, seconds))
 }
 
 // ConfigureConfirm keeps a timeout-armed reconfigure that would otherwise revert.
