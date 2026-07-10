@@ -81,6 +81,29 @@ func Lint(in Input) []Warning {
 			"This config ends with a raw block that birdy does not understand. It is checked by bird -p and by nothing else — no lint rule here applies to it.")
 	}
 
+	// Two routes to the same net, from two different protocols. BIRD picks one on
+	// preference (static beats static by nothing in particular) and never says
+	// which, so the operator's intent is lost either way.
+	originated := map[string]string{} // prefix -> set name
+	for _, ps := range in.PrefixSets {
+		if !ps.Originate {
+			continue
+		}
+		for _, e := range ps.Entries {
+			originated[e.Prefix] = ps.Name
+		}
+	}
+	for _, r := range in.StaticRoutes {
+		if !r.Enabled {
+			continue
+		}
+		if set, clash := originated[r.Prefix]; clash {
+			add(SeverityDanger, "",
+				"%s is both a static route and an anchor originated by %s. Two protocols would offer the same route; delete one.",
+				r.Prefix, set)
+		}
+	}
+
 	// The one that leaks your internal deaggregates to the internet. An export
 	// filter is "if net ~ SET then accept", so a "+" on the aggregate accepts
 	// every more-specific inside it too — including the /26s you split it into

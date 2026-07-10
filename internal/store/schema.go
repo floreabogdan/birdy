@@ -200,4 +200,22 @@ CREATE TABLE IF NOT EXISTS prefix_set_entries (
 	position INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_pse_set ON prefix_set_entries(set_id, position);
+
+-- Reachability no protocol discovers on its own: a subnet behind something that
+-- does not speak BGP, or a route to a far router's loopback so an iBGP session
+-- peering on loopbacks can resolve its next hop.
+--
+-- One route per prefix. Two routes to the same net in one static protocol is
+-- never what anyone means, and BIRD will not tell you which one won.
+CREATE TABLE IF NOT EXISTS static_routes (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	prefix      TEXT NOT NULL UNIQUE,
+	-- via | blackhole | unreachable | prohibit
+	action      TEXT NOT NULL DEFAULT 'blackhole',
+	next_hop    TEXT NOT NULL DEFAULT '',
+	description TEXT NOT NULL DEFAULT '',
+	enabled     INTEGER NOT NULL DEFAULT 1,
+	created_at  TEXT NOT NULL,
+	updated_at  TEXT NOT NULL
+);
 `

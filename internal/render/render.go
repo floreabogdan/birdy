@@ -61,6 +61,9 @@ type Input struct {
 	// ranges. Empty means "use the shipped defaults".
 	BogonASNs []store.BogonASN
 
+	// StaticRoutes is reachability no protocol discovers on its own.
+	StaticRoutes []store.StaticRoute
+
 	// RRClusterID is emitted beside "rr client". Empty lets BIRD use the router ID.
 	RRClusterID string
 	// RawConfig is appended verbatim at the end of the file. birdy neither
@@ -145,6 +148,9 @@ func Config(in Input) (string, error) {
 	if err := writeOriginators(&b, sets); err != nil {
 		return "", err
 	}
+	statics := slices.Clone(in.StaticRoutes)
+	slices.SortFunc(statics, func(a, b store.StaticRoute) int { return strings.Compare(a.Prefix, b.Prefix) })
+	writeStaticRoutes(&b, statics)
 	for _, pol := range policies {
 		if err := writePolicy(&b, in, pol, setsByID, asSetsByID); err != nil {
 			return "", fmt.Errorf("policy %q: %w", pol.Name, err)
@@ -418,6 +424,38 @@ func writeOriginators(b *strings.Builder, sets []store.PrefixSet) error {
 		b.WriteString("}\n\n")
 	}
 	return nil
+}
+
+// writeStaticRoutes emits one static protocol per address family, holding the
+// routes birdy cannot derive from anything else. A protocol with no routes is
+// not rendered at all: BIRD accepts an empty static, but an operator reading the
+// config should not have to wonder what it is for.
+func writeStaticRoutes(b *strings.Builder, routes []store.StaticRoute) {
+	for _, fam := range []family{familyV4, familyV6} {
+		var mine []store.StaticRoute
+		for _, r := range routes {
+			if r.Enabled && r.Family() == fam.channel {
+				mine = append(mine, r)
+			}
+		}
+		if len(mine) == 0 {
+			continue
+		}
+		fmt.Fprintf(b, "# Routes no protocol discovers on its own.\nprotocol static static_%s {\n\t%s;\n", fam.suffix, fam.channel)
+		for _, r := range mine {
+			if r.Description != "" {
+				fmt.Fprintf(b, "\t# %s\n", r.Description)
+			}
+			if r.Action == store.StaticVia {
+				// The route stays down until BIRD can resolve this next hop
+				// against something else in the table.
+				fmt.Fprintf(b, "\troute %s via %s;\n", r.Prefix, r.NextHop)
+				continue
+			}
+			fmt.Fprintf(b, "\troute %s %s;\n", r.Prefix, r.Action)
+		}
+		b.WriteString("}\n\n")
+	}
 }
 
 // writePolicy emits one function per address family.

@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — static routes</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Library</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">Static routes</span></div>
+			</div>
+			{{template "library-nav" "static-routes"}}
+
+			{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+
+			<div class="card panel-info">
+				<div class="panel-head">{{template "icon-info"}}You probably need fewer of these than you think</div>
+				<div class="card-body" style="font-size:0.8125rem">
+					<p style="margin-top:0">
+						An address configured on an interface already becomes a route, via the <span class="mono">direct</span> protocol,
+						and iBGP carries it to your other routers. You do not need a static route for a subnet that lives on a router
+						running birdy.
+					</p>
+					<p style="margin-bottom:0">
+						Static routes are for what is left over: a subnet behind something that does not speak BGP, or a route to a far
+						router&rsquo;s loopback so an iBGP session peering on loopbacks can resolve its next hop.
+						To announce an aggregate, use a <a href="/library/prefix-sets">prefix set</a> with <em>originate</em> instead.
+					</p>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">{{template "icon-route"}}Static routes</span>
+					<a class="btn btn-success" href="/library/static-routes/new">{{template "icon-plus"}}Add static route</a>
+				</div>
+				<div class="table-scroll">
+				<table>
+					<thead><tr><th>Prefix</th><th>AFI</th><th>Action</th><th>Next hop</th><th>Enabled</th><th class="num">Actions</th></tr></thead>
+					<tbody data-search-target>
+						{{range .Routes}}
+						<tr>
+							<td class="mono">
+								<a href="/library/static-routes/{{.ID}}/edit">{{.Prefix}}</a>
+								{{if .Description}}<div class="text-muted" style="font-size:0.75rem">{{.Description}}</div>{{end}}
+							</td>
+							<td><span class="chip chip-primary">{{if .IsV6}}IPv6{{else}}IPv4{{end}}</span></td>
+							<td>
+								{{if eq .Action "via"}}<span class="badge badge-success">via</span>
+								{{else}}<span class="badge badge-secondary">{{.Action}}</span>{{end}}
+							</td>
+							<td class="mono">{{if .NextHop}}{{.NextHop}}{{else}}<span class="text-muted">&mdash;</span>{{end}}</td>
+							<td>{{if .Enabled}}<span class="badge badge-success">enabled</span>{{else}}<span class="badge">disabled</span>{{end}}</td>
+							<td class="row-actions">
+								<a class="icon-action a-primary" href="/library/static-routes/{{.ID}}/edit" title="Edit {{.Prefix}}" aria-label="Edit {{.Prefix}}">{{template "icon-edit"}}</a>
+								<form method="post" action="/library/static-routes/{{.ID}}/delete" onsubmit="return confirm('Delete the static route for {{.Prefix}}?')">
+									<button type="submit" class="icon-action a-danger" title="Delete {{.Prefix}}" aria-label="Delete {{.Prefix}}">{{template "icon-trash"}}</button>
+								</form>
+							</td>
+						</tr>
+						{{else}}
+						<tr><td colspan="6" class="empty">
+							No static routes, which is the normal state. <a href="/library/static-routes/new">Add one</a> only when nothing else can reach a prefix.
+						</td></tr>
+						{{end}}
+					</tbody>
+				</table>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

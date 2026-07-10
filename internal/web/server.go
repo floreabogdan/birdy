@@ -133,6 +133,12 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /library/as-sets/{name}/edit", s.requireAuth(s.handleASSetEdit))
 	s.mux.Handle("POST /library/as-sets/{name}/edit", s.requireAuth(s.handleASSetSave))
 	s.mux.Handle("POST /library/as-sets/{name}/delete", s.requireAuth(s.handleASSetDelete))
+	s.mux.Handle("GET /library/static-routes", s.requireAuth(s.handleStaticRoutesList))
+	s.mux.Handle("GET /library/static-routes/new", s.requireAuth(s.handleStaticRouteNew))
+	s.mux.Handle("POST /library/static-routes/new", s.requireAuth(s.handleStaticRouteSave))
+	s.mux.Handle("GET /library/static-routes/{id}/edit", s.requireAuth(s.handleStaticRouteEdit))
+	s.mux.Handle("POST /library/static-routes/{id}/edit", s.requireAuth(s.handleStaticRouteSave))
+	s.mux.Handle("POST /library/static-routes/{id}/delete", s.requireAuth(s.handleStaticRouteDelete))
 
 	// RPKI
 	s.mux.Handle("GET /rpki", s.requireAuth(s.handleRPKIPage))

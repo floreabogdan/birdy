@@ -94,21 +94,26 @@ func (s *Server) renderInput(mask bool) (birdconf.Input, string, error) {
 	if err != nil {
 		return birdconf.Input{}, "", err
 	}
+	statics, err := s.store.ListStaticRoutes()
+	if err != nil {
+		return birdconf.Input{}, "", err
+	}
 
 	in := birdconf.Input{
-		RouterID:    settings.RouterID,
-		LocalASN:    settings.LocalASN.Int64,
-		PrefixSets:  sets,
-		ASSets:      asSets,
-		Policies:    policies,
-		RPKIServers: rpkiServers,
-		Peers:       peers,
-		BogonASNs:   bogonASNs,
-		RRClusterID: settings.RRClusterID,
-		RawConfig:   settings.RawConfig,
-		Version:     buildinfo.Version,
-		Generated:   time.Now(),
-		MaskSecrets: mask,
+		RouterID:     settings.RouterID,
+		LocalASN:     settings.LocalASN.Int64,
+		PrefixSets:   sets,
+		ASSets:       asSets,
+		Policies:     policies,
+		RPKIServers:  rpkiServers,
+		Peers:        peers,
+		BogonASNs:    bogonASNs,
+		StaticRoutes: statics,
+		RRClusterID:  settings.RRClusterID,
+		RawConfig:    settings.RawConfig,
+		Version:      buildinfo.Version,
+		Generated:    time.Now(),
+		MaskSecrets:  mask,
 	}
 	switch {
 	case !ok:

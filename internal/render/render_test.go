@@ -701,3 +701,71 @@ func TestLintFlagsWideningModifierOnExport(t *testing.T) {
 		}
 	}
 }
+
+func TestStaticRoutesRender(t *testing.T) {
+	in := baseInput()
+	in.StaticRoutes = []store.StaticRoute{
+		{Prefix: "192.0.2.128/26", Action: store.StaticVia, NextHop: "203.0.113.2", Enabled: true},
+		{Prefix: "198.51.100.0/24", Action: store.OriginateBlackhole, Enabled: true},
+		{Prefix: "2001:db8:dead::/48", Action: store.StaticVia, NextHop: "2001:db8:ffff::2", Enabled: true},
+		{Prefix: "10.9.9.0/24", Action: store.OriginateProhibit, Enabled: false},
+	}
+	out, err := Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"protocol static static_v4 {",
+		"route 192.0.2.128/26 via 203.0.113.2;",
+		"route 198.51.100.0/24 blackhole;",
+		"protocol static static_v6 {",
+		"route 2001:db8:dead::/48 via 2001:db8:ffff::2;",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	// A disabled route renders nothing.
+	if strings.Contains(out, "10.9.9.0/24") {
+		t.Error("a disabled static route should not render")
+	}
+	// v4 and v6 routes must land in the right protocol.
+	v4 := out[strings.Index(out, "static_v4"):strings.Index(out, "static_v6")]
+	if strings.Contains(v4, "2001:db8") {
+		t.Error("a v6 route rendered into the v4 static protocol")
+	}
+}
+
+// No static routes means no empty static protocol cluttering the config.
+func TestNoStaticProtocolWhenNoRoutes(t *testing.T) {
+	out, err := Config(baseInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "protocol static static_v4") {
+		t.Error("an empty static protocol should not be rendered")
+	}
+}
+
+// A static route to the same prefix an aggregate originates is two protocols
+// fighting over one net.
+func TestLintFlagsStaticVsOriginateClash(t *testing.T) {
+	in := baseInput()
+	in.PrefixSets = []store.PrefixSet{{
+		ID: 1, Name: "MY_AGGREGATES", Family: store.FamilyV4, Originate: true,
+		OriginateAction: store.OriginateBlackhole,
+		Entries:         []store.PrefixEntry{{Prefix: "192.0.2.0/24"}},
+	}}
+	in.StaticRoutes = []store.StaticRoute{
+		{Prefix: "192.0.2.0/24", Action: store.StaticVia, NextHop: "10.0.0.2", Enabled: true},
+	}
+	var found bool
+	for _, w := range Lint(in) {
+		if strings.Contains(w.Message, "both a static route and an anchor") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a static/originate clash should be flagged: %+v", Lint(in))
+	}
+}

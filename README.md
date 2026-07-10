@@ -51,7 +51,9 @@ before it is allowed to touch anything.
 - Peers with roles (upstream, IX peer, customer, iBGP), which drive automatic origin tagging
 - iBGP with next-hop-self and route reflection
 - Composable import and export policy chains, rather than one policy per session
-- A library of prefix sets and AS sets
+- A library of prefix sets, AS sets, and static routes
+- Static routes for what no protocol discovers on its own (a subnet behind a non-BGP device, a far
+  router's loopback for iBGP next-hop resolution)
 - Bogon prefixes and bogon ASNs, editable, in Settings
 - RPKI: RTR servers and per-policy validation (log-only or drop-invalid)
 - A raw config block for everything birdy does not model, checked by `bird -p` before it saves
@@ -69,7 +71,9 @@ the browser, so fill in the real MD5 secrets yourself.
 / `undo`, backup, rollback), peer templates, community manipulation and prepending, and alerting.
 
 **Not modelled, so it belongs in the raw block:** BFD, graceful restart tuning, extra routing tables,
-IGPs (OSPF, Babel), MPLS, and restricting which interfaces the `direct` protocol picks up.
+IGPs (OSPF, Babel), MPLS, and restricting which interfaces the `direct` protocol picks up. (A static
+route with a next hop *is* modelled — see the Library — so an iBGP mesh over loopbacks does not need
+the raw block for reachability.)
 
 ## Install
 
