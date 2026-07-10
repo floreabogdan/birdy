@@ -57,6 +57,23 @@ func ParseCommunities(text string) ([]Community, []string) {
 	return out, errs
 }
 
+// ParseMatchCommunity parses a single community for a policy match. Empty is a
+// valid "no match"; anything else must be exactly one community.
+func ParseMatchCommunity(text string) (c Community, set bool, errMsg string) {
+	text = strings.TrimSpace(text)
+	if text = strings.TrimSuffix(text, ","); text == "" {
+		return Community{}, false, ""
+	}
+	if strings.ContainsAny(text, ",\n") {
+		return Community{}, false, "Enter a single community, e.g. 65000:666 or 65551:1:2."
+	}
+	c, msg := parseCommunity(text)
+	if msg != "" {
+		return Community{}, false, msg
+	}
+	return c, true, ""
+}
+
 func parseCommunity(tok string) (Community, string) {
 	parts := strings.Split(tok, ":")
 	nums := make([]int64, len(parts))

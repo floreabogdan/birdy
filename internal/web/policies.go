@@ -134,6 +134,7 @@ func policyFromForm(r *http.Request) store.Policy {
 		AnnounceFromCustomer: r.FormValue("announceFromCustomer") == "on",
 
 		RejectBogonPrefixes: r.FormValue("rejectBogonPrefixes") == "on",
+		MatchCommunity:      strings.TrimSpace(r.FormValue("matchCommunity")),
 	}
 	if id, err := strconv.ParseInt(r.FormValue("acceptOnlySetId"), 10, 64); err == nil && id > 0 {
 		p.AcceptOnlySetID = sql.NullInt64{Int64: id, Valid: true}

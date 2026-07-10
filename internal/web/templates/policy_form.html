@@ -160,6 +160,12 @@
 								<div class="hint">If the peer itself uses a private AS number, "all" would reject every route it sends you.</div>
 								{{with index .Errs "bogonAsns"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
+							<div class="field">
+								<label for="matchCommunity">Reject routes carrying community</label>
+								<input type="text" id="matchCommunity" name="matchCommunity" class="mono" value="{{.Policy.MatchCommunity}}" placeholder="e.g. 65000:666 (blank = off)" autocomplete="off">
+								<div class="hint">Drop any route tagged with this community &mdash; a blocklist signal. One community: <span class="mono">ASN:value</span> or <span class="mono">ASN:x:y</span>.</div>
+								{{with index .Errs "matchCommunity"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
 						</div>
 					</div>
 					{{else}}
@@ -190,6 +196,13 @@
 									{{end}}
 								</select>
 								<div class="hint">Hold Ctrl (or Cmd) to pick more than one. A set of the other address family is simply ignored in that family's filter.</div>
+							</div>
+
+							<div class="field" style="margin-top:16px">
+								<label for="matchCommunity">Or announce routes carrying community</label>
+								<input type="text" id="matchCommunity" name="matchCommunity" class="mono" value="{{.Policy.MatchCommunity}}" placeholder="e.g. 65000:100 (blank = off)" autocomplete="off">
+								<div class="hint">Announce a route if it carries this community &mdash; how a customer signals &ldquo;announce this one&rdquo; with a community you publish. One community: <span class="mono">ASN:value</span> or <span class="mono">ASN:x:y</span>.</div>
+								{{with index .Errs "matchCommunity"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
 
 							<div class="checks" style="margin-top:14px">

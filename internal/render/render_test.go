@@ -842,3 +842,27 @@ func TestLintFlagsDrainedPeer(t *testing.T) {
 		t.Error("a drained peer should be surfaced by lint")
 	}
 }
+
+func TestPolicyCommunityMatch(t *testing.T) {
+	in := baseInput()
+	imp := store.Policy{ID: 1, Name: "BLOCK_TAGGED", Direction: store.DirImport,
+		DefaultRoute: store.DefaultReject, MatchCommunity: "65000:666"}
+	exp := store.Policy{ID: 2, Name: "ANNOUNCE_TAGGED", Direction: store.DirExport,
+		MatchCommunity: "65551:1:2"}
+	in.Policies = []store.Policy{imp, exp}
+	p := ebgpPeer()
+	p.ImportPolicies = []store.Policy{imp}
+	p.ExportPolicies = []store.Policy{exp}
+	in.Peers = []store.Peer{p}
+
+	out, err := Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `if (65000, 666) ~ bgp_community then reject`) {
+		t.Errorf("import policy should reject on the standard community:\n%s", out)
+	}
+	if !strings.Contains(out, `if (65551, 1, 2) ~ bgp_large_community then accept`) {
+		t.Errorf("export policy should accept on the large community:\n%s", out)
+	}
+}

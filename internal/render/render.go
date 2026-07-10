@@ -545,6 +545,11 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 	if pol.RejectBogonPrefixes {
 		fmt.Fprintf(b, "\tif net ~ %s then reject \"bogon prefix\";\n", fam.bogonSet)
 	}
+	// An import policy rejects routes carrying the matched community — a blocklist
+	// signal, e.g. a peer or customer tagging routes you agreed not to accept.
+	if c, ok, _ := store.ParseMatchCommunity(pol.MatchCommunity); ok {
+		fmt.Fprintf(b, "\tif %s ~ %s then reject \"matched community %s\";\n", c.BIRD(), communityVar(c), pol.MatchCommunity)
+	}
 	if pol.AcceptOnlySetID.Valid {
 		name := sets[pol.AcceptOnlySetID.Int64].Name
 		fmt.Fprintf(b, "\tif ! (net ~ %s) then reject \"not in %s\";\n", name, name)
@@ -630,7 +635,20 @@ func writeExportBody(b *strings.Builder, pol store.Policy, fam family, sets map[
 	if pol.AnnounceFromCustomer {
 		b.WriteString("\tif FROM_CUSTOMER ~ bgp_large_community then accept;\n")
 	}
+	// An export policy accepts routes carrying the matched community — how a
+	// customer signals "announce this one" with a community you publish.
+	if c, ok, _ := store.ParseMatchCommunity(pol.MatchCommunity); ok {
+		fmt.Fprintf(b, "\tif %s ~ %s then accept;\n", c.BIRD(), communityVar(c))
+	}
 	return nil
+}
+
+// communityVar is the BIRD attribute a community of this width lives in.
+func communityVar(c store.Community) string {
+	if c.Large {
+		return "bgp_large_community"
+	}
+	return "bgp_community"
 }
 
 func familyOf(ps store.PrefixSet) string {

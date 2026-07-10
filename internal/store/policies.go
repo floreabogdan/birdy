@@ -68,6 +68,10 @@ type Policy struct {
 
 	// both
 	RejectBogonPrefixes bool
+	// MatchCommunity matches a single BGP community on the route. Its action
+	// follows the direction: an import policy rejects a route that carries it, an
+	// export policy accepts one that does. Empty = no community match.
+	MatchCommunity string
 }
 
 func (p Policy) IsImport() bool { return p.Direction == DirImport }
@@ -85,6 +89,10 @@ func (p *Policy) Validate() map[string]string {
 	if p.Direction != DirImport && p.Direction != DirExport {
 		errs["direction"] = "Choose import or export."
 		return errs
+	}
+	p.MatchCommunity = strings.TrimSpace(p.MatchCommunity)
+	if _, _, msg := ParseMatchCommunity(p.MatchCommunity); msg != "" {
+		errs["matchCommunity"] = msg
 	}
 
 	if p.IsImport() {
@@ -120,7 +128,7 @@ func (p *Policy) Validate() map[string]string {
 	// An export policy that permits nothing renders a filter that rejects every
 	// route. That is a valid thing to want ("receive only"), but not by accident.
 	permits := p.AnnounceEverything || p.AnnounceDefault || p.AnnounceFromUpstream ||
-		p.AnnounceFromIX || p.AnnounceFromCustomer || len(p.SetIDs) > 0
+		p.AnnounceFromIX || p.AnnounceFromCustomer || len(p.SetIDs) > 0 || p.MatchCommunity != ""
 	if !permits {
 		errs["announce"] = "This policy announces nothing. Choose at least one source, or attach no export policy at all to make the session receive-only."
 	}
@@ -169,7 +177,7 @@ const policyCols = `id, name, description, direction, builtin,
 	default_route, min_len_v4, max_len_v4, min_len_v6, max_len_v6,
 	reject_own_asn, max_as_path_len, bogon_asns, accept_only_set_id, origin_as_set_id, rov, set_local_pref,
 	announce_everything, announce_default, announce_from_upstream, announce_from_ix,
-	announce_from_customer, reject_bogon_prefixes`
+	announce_from_customer, reject_bogon_prefixes, match_community`
 
 func scanPolicy(sc scanner) (Policy, error) {
 	var p Policy
@@ -177,7 +185,7 @@ func scanPolicy(sc scanner) (Policy, error) {
 		&p.DefaultRoute, &p.MinLenV4, &p.MaxLenV4, &p.MinLenV6, &p.MaxLenV6,
 		&p.RejectOwnASN, &p.MaxASPathLen, &p.BogonASNs, &p.AcceptOnlySetID, &p.OriginASSetID, &p.ROV, &p.SetLocalPref,
 		&p.AnnounceEverything, &p.AnnounceDefault, &p.AnnounceFromUpstream, &p.AnnounceFromIX,
-		&p.AnnounceFromCustomer, &p.RejectBogonPrefixes)
+		&p.AnnounceFromCustomer, &p.RejectBogonPrefixes, &p.MatchCommunity)
 	return p, err
 }
 
@@ -257,13 +265,13 @@ func (s *Store) CreatePolicy(p Policy) (int64, error) {
 			default_route, min_len_v4, max_len_v4, min_len_v6, max_len_v6,
 			reject_own_asn, max_as_path_len, bogon_asns, accept_only_set_id, origin_as_set_id, rov, set_local_pref,
 			announce_everything, announce_default, announce_from_upstream, announce_from_ix,
-			announce_from_customer, reject_bogon_prefixes, created_at, updated_at)
-		VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			announce_from_customer, reject_bogon_prefixes, match_community, created_at, updated_at)
+		VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Description, p.Direction,
 		p.DefaultRoute, p.MinLenV4, p.MaxLenV4, p.MinLenV6, p.MaxLenV6,
 		p.RejectOwnASN, p.MaxASPathLen, p.BogonASNs, p.AcceptOnlySetID, p.OriginASSetID, p.ROV, p.SetLocalPref,
 		p.AnnounceEverything, p.AnnounceDefault, p.AnnounceFromUpstream, p.AnnounceFromIX,
-		p.AnnounceFromCustomer, p.RejectBogonPrefixes, ts, ts)
+		p.AnnounceFromCustomer, p.RejectBogonPrefixes, p.MatchCommunity, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create policy: %w", err)
 	}
@@ -289,13 +297,13 @@ func (s *Store) UpdatePolicy(p Policy) error {
 			reject_own_asn = ?, max_as_path_len = ?, bogon_asns = ?, accept_only_set_id = ?,
 			origin_as_set_id = ?, rov = ?, set_local_pref = ?,
 			announce_everything = ?, announce_default = ?, announce_from_upstream = ?, announce_from_ix = ?,
-			announce_from_customer = ?, reject_bogon_prefixes = ?, updated_at = ?
+			announce_from_customer = ?, reject_bogon_prefixes = ?, match_community = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Description, p.Direction,
 		p.DefaultRoute, p.MinLenV4, p.MaxLenV4, p.MinLenV6, p.MaxLenV6,
 		p.RejectOwnASN, p.MaxASPathLen, p.BogonASNs, p.AcceptOnlySetID, p.OriginASSetID, p.ROV, p.SetLocalPref,
 		p.AnnounceEverything, p.AnnounceDefault, p.AnnounceFromUpstream, p.AnnounceFromIX,
-		p.AnnounceFromCustomer, p.RejectBogonPrefixes, now(), p.ID)
+		p.AnnounceFromCustomer, p.RejectBogonPrefixes, p.MatchCommunity, now(), p.ID)
 	if err != nil {
 		return fmt.Errorf("store: update policy: %w", err)
 	}
