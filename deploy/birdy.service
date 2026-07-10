@@ -1,0 +1,21 @@
+[Unit]
+Description=birdy - BIRD 2.x web manager
+After=network.target bird.service
+Wants=bird.service
+
+[Service]
+Type=simple
+User=birdy
+Group=bird
+ExecStart=/usr/local/bin/birdy server --db /var/lib/birdy/birdy.db --read-only
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/birdy
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,183 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — dashboard</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Overview</span>
+				<div class="breadcrumb"><span class="current">Dashboard</span></div>
+			</div>
+
+			<section class="hero">
+				<div class="hero-main">
+					<h1 class="hero-title mono">{{if .Status.Hostname}}{{.Status.Hostname}}{{else}}birdy{{end}}</h1>
+					<p class="hero-sub">{{if .Status.Version}}BIRD {{.Status.Version}}{{end}}{{if .LocalASN}} &middot; AS{{.LocalASN}}{{end}}{{if .Status.RouterID}} &middot; router id {{.Status.RouterID}}{{end}}</p>
+				</div>
+				<div class="hero-side">
+					<div id="hero-status" class="hero-status {{if .StatusOK}}ok{{else}}bad{{end}}">
+						<span class="dot"></span><span id="hero-status-text">{{.StatusText}}</span>
+					</div>
+					<div class="hero-updated">updated <span id="updated-at" data-ts="{{isotime .UpdatedAt}}" title="{{fmttime .UpdatedAt}}">{{fmttime .UpdatedAt}}</span></div>
+				</div>
+			</section>
+
+			{{if .PollErr}}
+			<div class="card card-danger"><div class="card-body error-text">Could not reach BIRD: {{.PollErr}}</div></div>
+			{{end}}
+
+			<div class="stat-grid">
+				<div class="stat tint-primary">
+					<div class="stat-label">Sessions</div>
+					<div class="stat-main">
+						<span class="stat-icon">{{template "icon-activity"}}</span>
+						<span class="stat-value" id="stat-total">{{len .Protocols}}</span>
+					</div>
+					<div class="stat-rule"></div>
+					<span class="stat-note">all BIRD protocols</span>
+				</div>
+				<div class="stat tint-success">
+					<div class="stat-label">Established</div>
+					<div class="stat-main">
+						<span class="stat-icon">{{template "icon-check"}}</span>
+						<span class="stat-value"><span id="stat-up">{{.UpCount}}</span><span class="stat-total"> / <span id="stat-up-total">{{len .Protocols}}</span></span></span>
+					</div>
+					<div class="stat-rule"><span class="stat-rule-fill" id="bar-up" style="width:{{printf "%.0f" (ratio .UpCount (len .Protocols))}}%"></span></div>
+					<a class="stat-link" href="/lg"><span class="arr" aria-hidden="true">&#8599;</span>Looking glass</a>
+				</div>
+				<div class="stat tint-danger">
+					<div class="stat-label">Down</div>
+					<div class="stat-main">
+						<span class="stat-icon">{{template "icon-alert"}}</span>
+						<span class="stat-value" id="stat-down">{{.DownCount}}</span>
+					</div>
+					<div class="stat-rule"><span class="stat-rule-fill" id="bar-down" style="width:{{printf "%.0f" (ratio .DownCount (len .Protocols))}}%"></span></div>
+					<a class="stat-link" href="/timeline"><span class="arr" aria-hidden="true">&#8599;</span>Timeline</a>
+				</div>
+				<div class="stat tint-secondary">
+					<div class="stat-label">Routes in RIB</div>
+					<div class="stat-main">
+						<span class="stat-icon">{{template "icon-route"}}</span>
+						<span class="stat-value" id="stat-routes">{{comma .TotalRoutes}}</span>
+					</div>
+					<div class="stat-rule"></div>
+					<span class="stat-note">across all tables</span>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="card-header"><span class="card-title">{{template "icon-activity"}}BGP sessions</span></div>
+				<div class="table-scroll">
+				<table>
+					<thead><tr><th>Name</th><th>Table</th><th>State</th><th>Since</th><th class="num">Imported</th><th class="num">Rejected</th><th class="num">Exported</th><th style="min-width:130px">Import limit</th><th>In birdy</th></tr></thead>
+					<tbody id="proto-table-body" data-search-target>
+						{{range .Sessions}}
+						<tr class="row-link" onclick="location.href='/peers/{{.Name}}'">
+							<td class="mono">{{.Name}}</td>
+							<td class="mono">{{.Table}}</td>
+							<td>{{sessionBadge .Up .BGPState}}</td>
+							<td class="mono">{{.Since}}</td>
+							{{if .HasCounts}}
+							<td class="num mono">{{comma .Imported}}</td>
+							<td class="num mono">{{if .Filtered}}{{comma .Filtered}}{{else}}<span class="text-muted">0</span>{{end}}</td>
+							<td class="num mono">{{comma .Exported}}</td>
+							<td>
+								{{if ge .LimitPct 0.0}}
+								<div class="progress-track"><div class="progress-fill {{progressClass .LimitPct}}" style="width:{{printf "%.0f" .LimitPct}}%"></div></div>
+								<div class="progress-label">{{.LimitText}}</div>
+								{{else}}
+								<span class="text-muted">no limit</span>
+								{{end}}
+							</td>
+							{{else}}
+							<td class="num text-muted">&mdash;</td>
+							<td class="num text-muted">&mdash;</td>
+							<td class="num text-muted">&mdash;</td>
+							<td class="text-muted">&mdash;</td>
+							{{end}}
+							<td>{{if .Configured}}<span class="badge badge-success">configured</span>{{else}}<span class="badge badge-warning">unmanaged</span>{{end}}</td>
+						</tr>
+						{{else}}
+						<tr><td colspan="9" class="empty">BIRD is running no BGP sessions.</td></tr>
+						{{end}}
+					</tbody>
+				</table>
+				</div>
+			</div>
+
+			{{if .Infra}}
+			<details class="card collapse-card">
+				<summary class="card-header">
+					<span class="card-title">{{template "icon-settings"}}Infrastructure protocols <span class="chip">{{len .Infra}}</span></span>
+					<span class="collapse-hint"></span>
+				</summary>
+				<div class="table-scroll">
+				<table>
+					<thead><tr><th>Name</th><th>Proto</th><th>Table</th><th>State</th><th>Since</th><th>Info</th></tr></thead>
+					<tbody>
+						{{range .Infra}}
+						<tr>
+							<td class="mono">{{.Name}}</td>
+							<td>{{.Proto}}</td>
+							<td class="mono">{{.Table}}</td>
+							<td>{{sessionBadge .Up .State}}</td>
+							<td class="mono">{{.Since}}</td>
+							<td class="mono">{{.Info}}</td>
+						</tr>
+						{{end}}
+					</tbody>
+				</table>
+				</div>
+				<div class="card-body preview-note">
+					Device, kernel, static and direct protocols &mdash; the plumbing BIRD needs to talk to the machine.
+					Not BGP sessions, and not something birdy asks you to configure.
+				</div>
+			</details>
+			{{end}}
+
+			<div class="section-head">
+				<h2 class="section-title">{{template "icon-bolt"}}Quick actions</h2>
+			</div>
+			<div class="quick-actions">
+				<a class="quick-action" href="/lg">
+					<span class="quick-action-icon">{{template "icon-search"}}</span>
+					Looking glass
+				</a>
+				<a class="quick-action" href="/timeline">
+					<span class="quick-action-icon">{{template "icon-clock"}}</span>
+					Timeline
+				</a>
+				<a class="quick-action" href="/api/snapshot/download">
+					<span class="quick-action-icon">{{template "icon-download"}}</span>
+					Download snapshot
+				</a>
+			</div>
+
+			<div class="section-head">
+				<h2 class="section-title">{{template "icon-clock"}}Recent activity</h2>
+				<a href="/timeline" class="section-link"><span class="arr" aria-hidden="true">&#8599;</span>View all</a>
+			</div>
+			<div class="card">
+				<div id="recent-events" data-search-target>
+					{{range .RecentEvents}}
+					<div class="timeline-item">
+						<div class="timeline-time" data-ts="{{isotime .Ts}}" title="{{fmttime .Ts}}">{{fmttime .Ts}}</div>
+						<div>{{eventBadge .Kind}} <span class="mono">{{.Protocol}}</span> — {{.Message}}</div>
+					</div>
+					{{else}}
+					<div class="empty">No events yet.</div>
+					{{end}}
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+<script src="/static/dashboard.js"></script>
+</body>
+</html>

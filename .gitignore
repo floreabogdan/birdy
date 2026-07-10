@@ -1,0 +1,19 @@
+# Build output
+/birdy
+/birdy.exe
+/birdy-linux-amd64
+/dist/
+
+# Runtime state — a birdy database holds BGP session passwords in the clear,
+# because BIRD needs them that way. It must never be committed.
+*.db
+*.db-shm
+*.db-wal
+/snapshots/
+
+# Design references: third-party screenshots, not ours to redistribute.
+/route64.png
+/r64-design-2.png
+
+# Screenshots from the BIRDY_PREVIEW harness
+/preview/

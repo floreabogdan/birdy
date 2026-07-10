@@ -1,0 +1,249 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — {{if .IsNew}}new peer{{else}}{{.Peer.Name}}{{end}}</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">{{if .IsNew}}New peer{{else}}Edit peer{{end}}</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/peers">Peers</a><span class="sep">/</span><span class="current mono">{{if .IsNew}}new{{else}}{{.Peer.Name}}{{end}}</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>{{if .IsNew}}Add peer{{else}}Edit {{.Peer.Name}}{{end}}</h1>
+					<div class="page-sub">Saved to birdy's model. The router is not touched until you apply a config.</div>
+				</div>
+			</div>
+
+			{{if .Warnings}}
+			<div class="card panel-danger">
+				<div class="panel-head">{{template "icon-alert"}}This session may not do what it looks like it does</div>
+				<div class="card-body">
+					<ul class="lint-list">
+						{{range .Warnings}}<li class="lint-{{.Severity}}">{{.Message}}</li>{{end}}
+					</ul>
+				</div>
+			</div>
+			{{end}}
+
+			<form method="post" action="{{if .IsNew}}/peers/new{{else}}/peers/{{.Peer.Name}}/edit{{end}}">
+			<div class="split">
+				<div>
+					<div class="card">
+						<div class="card-header"><span class="card-title">{{template "icon-activity"}}Session</span></div>
+						<div class="card-body">
+							<div class="field">
+								<label for="name">Name</label>
+								<input type="text" id="name" name="name" class="mono" value="{{.Peer.Name}}" autocomplete="off" required>
+								<div class="hint">Becomes the BIRD protocol name. Letters, digits, underscore.</div>
+								{{with index .Errs "name"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="field">
+								<label for="description">Description</label>
+								<input type="text" id="description" name="description" value="{{.Peer.Description}}" autocomplete="off">
+								{{with index .Errs "description"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="field-row">
+								<div class="field">
+									<label for="role">Role</label>
+									<select id="role" name="role">
+										<option value="upstream" {{if eq .Peer.Role "upstream"}}selected{{end}}>Upstream — sells us transit</option>
+										<option value="ix_peer" {{if eq .Peer.Role "ix_peer"}}selected{{end}}>IX peer — settlement-free peering</option>
+										<option value="customer" {{if eq .Peer.Role "customer"}}selected{{end}}>Customer — buys transit from us</option>
+										<option value="ibgp" {{if eq .Peer.Role "ibgp"}}selected{{end}}>iBGP — inside our own AS</option>
+									</select>
+									<div class="hint">Routes from this peer are tagged with its role, so export policies can say "announce what my customers sent me".</div>
+									{{with index .Errs "role"}}<div class="field-error">{{.}}</div>{{end}}
+									{{/* The policies card is hidden for iBGP, so its error has to live here. */}}
+									{{with index .Errs "policies"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field">
+									<label for="remoteAsn">Remote AS</label>
+									<input type="number" id="remoteAsn" name="remoteAsn" class="mono" value="{{.Peer.RemoteASN}}" min="1" max="4294967295" required>
+									{{with index .Errs "remoteAsn"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+							</div>
+							<div class="field-row">
+								<div class="field">
+									<label for="neighborIp">Neighbor address</label>
+									<input type="text" id="neighborIp" name="neighborIp" class="mono" value="{{.Peer.NeighborIP}}" placeholder="198.51.100.1 or 2001:db8::1" autocomplete="off" required>
+									<div class="hint">The address family decides whether the session carries an ipv4 or ipv6 channel.</div>
+									{{with index .Errs "neighborIp"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field">
+									<label for="localIp">Local address</label>
+									<input type="text" id="localIp" name="localIp" class="mono" value="{{.Peer.LocalIP}}" placeholder="optional" autocomplete="off">
+									<div class="hint">Leave blank to let BIRD choose.</div>
+									{{with index .Errs "localIp"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+							</div>
+						</div>
+					</div>
+
+					{{if ne .Peer.Role "ibgp"}}
+					<div class="card">
+						<div class="card-header"><span class="card-title">{{template "icon-filter"}}Policies</span></div>
+						<div class="card-body">
+							<label>Import chain — what we accept from this peer</label>
+							<div class="hint" style="margin-bottom:8px">Applied in order. Each policy can only reject, so a route must survive all of them.</div>
+							<div class="chain" data-name="importPolicyIds">
+								<div class="chain-rows">
+									{{range .Peer.ImportPolicies}}
+									<div class="chain-row">
+										<span class="chain-pos"></span>
+										<select name="importPolicyIds">
+											{{$cur := .ID}}
+											{{range $.Imports}}<option value="{{.ID}}" {{if eq .ID $cur}}selected{{end}}>{{.Name}}</option>{{end}}
+										</select>
+										<button type="button" class="icon-action" data-move="up" title="Move up" aria-label="Move up">&uarr;</button>
+										<button type="button" class="icon-action" data-move="down" title="Move down" aria-label="Move down">&darr;</button>
+										<button type="button" class="icon-action a-danger" data-remove title="Remove" aria-label="Remove">&times;</button>
+									</div>
+									{{end}}
+								</div>
+								<div class="chain-empty{{if .Peer.ImportPolicies}} is-hidden{{end}}">No import policy: everything this peer sends would be accepted.</div>
+								<button type="button" class="btn btn-sm" data-add>{{template "icon-plus"}}Add import policy</button>
+								<template>
+									<div class="chain-row">
+										<span class="chain-pos"></span>
+										<select name="importPolicyIds">
+											{{range .Imports}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+										</select>
+										<button type="button" class="icon-action" data-move="up" title="Move up" aria-label="Move up">&uarr;</button>
+										<button type="button" class="icon-action" data-move="down" title="Move down" aria-label="Move down">&darr;</button>
+										<button type="button" class="icon-action a-danger" data-remove title="Remove" aria-label="Remove">&times;</button>
+									</div>
+								</template>
+							</div>
+
+							<hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
+
+							<label>Export chain — what we announce to this peer</label>
+							<div class="hint" style="margin-bottom:8px">A route is announced if any policy permits it. With no export policy the session is receive-only.</div>
+							<div class="chain" data-name="exportPolicyIds">
+								<div class="chain-rows">
+									{{range .Peer.ExportPolicies}}
+									<div class="chain-row">
+										<span class="chain-pos"></span>
+										<select name="exportPolicyIds">
+											{{$cur := .ID}}
+											{{range $.Exports}}<option value="{{.ID}}" {{if eq .ID $cur}}selected{{end}}>{{.Name}}</option>{{end}}
+										</select>
+										<button type="button" class="icon-action" data-move="up" title="Move up" aria-label="Move up">&uarr;</button>
+										<button type="button" class="icon-action" data-move="down" title="Move down" aria-label="Move down">&darr;</button>
+										<button type="button" class="icon-action a-danger" data-remove title="Remove" aria-label="Remove">&times;</button>
+									</div>
+									{{end}}
+								</div>
+								<div class="chain-empty{{if .Peer.ExportPolicies}} is-hidden{{end}}">No export policy: this session is receive-only.</div>
+								<button type="button" class="btn btn-sm" data-add>{{template "icon-plus"}}Add export policy</button>
+								<template>
+									<div class="chain-row">
+										<span class="chain-pos"></span>
+										<select name="exportPolicyIds">
+											{{range .Exports}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+										</select>
+										<button type="button" class="icon-action" data-move="up" title="Move up" aria-label="Move up">&uarr;</button>
+										<button type="button" class="icon-action" data-move="down" title="Move down" aria-label="Move down">&darr;</button>
+										<button type="button" class="icon-action a-danger" data-remove title="Remove" aria-label="Remove">&times;</button>
+									</div>
+								</template>
+							</div>
+						</div>
+					</div>
+					{{end}}
+
+					<div class="card">
+						<div class="card-header"><span class="card-title">{{template "icon-shield"}}Transport &amp; limits</span></div>
+						<div class="card-body">
+							<div class="field-row">
+								<div class="field">
+									<label for="multihop">Multihop TTL</label>
+									<input type="number" id="multihop" name="multihop" class="mono" value="{{.Peer.Multihop}}" min="0" max="255">
+									<div class="hint">0 for a directly connected peer.</div>
+									{{with index .Errs "multihop"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field">
+									<label for="password">MD5 password</label>
+									<input type="password" id="password" name="password" value="" autocomplete="new-password" placeholder="{{if and (not .IsNew) .Peer.Password}}unchanged{{else}}none{{end}}">
+									<div class="hint">{{if and (not .IsNew) .Peer.Password}}A password is set. Leave blank to keep it.{{else}}Optional. Never shown again once saved.{{end}}</div>
+									{{with index .Errs "password"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+							</div>
+							<div class="field-row">
+								<div class="field">
+									<label for="importLimit">Import limit</label>
+									<input type="number" id="importLimit" name="importLimit" class="mono" value="{{.Peer.ImportLimit}}" min="0">
+									<div class="hint">0 for no limit.</div>
+									{{with index .Errs "importLimit"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field">
+									<label for="importLimitAction">When exceeded</label>
+									<select id="importLimitAction" name="importLimitAction">
+										{{$a := .Peer.ImportLimitAction}}
+										<option value="restart" {{if eq $a "restart"}}selected{{end}}>restart the session</option>
+										<option value="block" {{if eq $a "block"}}selected{{end}}>block further routes</option>
+										<option value="disable" {{if eq $a "disable"}}selected{{end}}>disable the session</option>
+										<option value="warn" {{if eq $a "warn"}}selected{{end}}>warn only</option>
+									</select>
+									{{with index .Errs "importLimitAction"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+							</div>
+							<div class="checks">
+								<label class="check"><input type="checkbox" name="enabled" {{if .Peer.Enabled}}checked{{end}}> Enabled</label>
+								<label class="check"><input type="checkbox" name="passive" {{if .Peer.Passive}}checked{{end}}> Passive — wait for the peer to connect</label>
+								{{if ne .Peer.Role "ibgp"}}
+								<label class="check"><input type="checkbox" name="enforceFirstAs" {{if .Peer.EnforceFirstAS}}checked{{end}}> Require the peer to be the first AS in the path</label>
+								<label class="check"><input type="checkbox" name="originPeerOnly" {{if .Peer.OriginPeerOnly}}checked{{end}}> Accept only prefixes this peer originates &mdash; no downstreams</label>
+								{{end}}
+							</div>
+							{{if ne .Peer.Role "ibgp"}}
+							<div class="hint">
+								BGP makes a peer prepend its own AS number before it announces a route, so every path this peer sends should start with
+								AS{{if .Peer.RemoteASN}}{{.Peer.RemoteASN}}{{else}}&hellip;{{end}}. If it does not, they are misconfigured or leaking someone else's routes.
+								<strong>Turn this off for an IXP route server</strong>: a route server forwards routes without prepending itself, so leaving this on would reject everything it sends.
+							</div>
+							<div class="hint">
+								The second switch checks the <strong>origin</strong> AS instead: it accepts a prefix only if this peer announced it as their own.
+								Use it when you sell someone transit but do not carry their downstreams. Their own prepending still works.
+								To carry their downstreams too, leave it off and point an import policy at an
+								<a href="/library/as-sets">AS set</a> holding their expanded AS-SET.
+							</div>
+							{{end}}
+						</div>
+					</div>
+
+					<div class="form-actions">
+						{{if .IsNew}}<button type="submit" class="btn btn-success">{{template "icon-plus"}}Create peer</button>
+						{{else}}<button type="submit" class="btn btn-primary">Save changes</button>{{end}}
+						<a class="btn" href="/peers">Cancel</a>
+					</div>
+				</div>
+
+				<div>
+					<div class="card sticky-preview">
+						<div class="card-header"><span class="card-title">{{template "icon-changes"}}Generated BIRD code</span></div>
+						{{if .Preview}}
+						<pre class="code-block">{{.Preview}}</pre>
+						{{else}}
+						<div class="card-body text-muted">{{.PreviewErr}}</div>
+						{{end}}
+						<div class="card-body preview-note">
+							The filter calls each policy in turn. Our own large communities are stripped before the role tag is added, so a peer cannot forge one. Passwords are masked here.
+						</div>
+					</div>
+				</div>
+			</div>
+			</form>
+		</div>
+	</div>
+</div>
+<script src="/static/policy-chain.js"></script>
+</body>
+</html>

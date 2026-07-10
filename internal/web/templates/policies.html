@@ -1,0 +1,126 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — policies</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Policies</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">Policies</span></div>
+			</div>
+
+			{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+
+			<div class="card panel-info">
+				<div class="panel-head">{{template "icon-info"}}How policies compose</div>
+				<div class="card-body" style="font-size:0.8125rem">
+					A peer applies its policies <strong>in order</strong>.
+					<strong>Import policies only reject</strong>, so any one of them can veto a route — they add up to "everything must pass".
+					<strong>Export policies only accept</strong>, so a route is announced if any one of them permits it, and dropped if none do.
+					Each policy becomes a BIRD function; a peer's filter simply calls them.
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">{{template "icon-filter"}}Import policies</span>
+					<a class="btn btn-success" href="/policies/new?direction=import">{{template "icon-plus"}}Add import policy</a>
+				</div>
+				<p class="card-intro">What this router will accept from a peer. Applied top to bottom; the first rejection wins.</p>
+				<div class="table-scroll">
+				<table>
+					<thead><tr><th>Name</th><th>Default route</th><th>Prefix guards</th><th>AS path</th><th>Used by</th><th class="num">Actions</th></tr></thead>
+					<tbody data-search-target>
+						{{range .Imports}}
+						<tr>
+							<td class="mono">
+								<a href="/policies/{{.Name}}/edit">{{.Name}}</a>
+								{{if .Builtin}}<span class="badge">built-in</span>{{end}}
+								{{if .Description}}<div class="text-muted" style="font-size:0.75rem">{{.Description}}</div>{{end}}
+							</td>
+							<td>
+								{{if eq .DefaultRoute "reject"}}<span class="badge badge-danger">reject</span>
+								{{else if eq .DefaultRoute "accept"}}<span class="badge badge-success">accept</span>
+								{{else}}<span class="badge badge-warning">only the default</span>{{end}}
+							</td>
+							<td>
+								{{if .RejectBogonPrefixes}}<span class="chip">no bogons</span>{{end}}
+								{{if .MaxLenV4}}<span class="chip">v4 /{{.MinLenV4}}–/{{.MaxLenV4}}</span>{{end}}
+								{{if .MaxLenV6}}<span class="chip">v6 /{{.MinLenV6}}–/{{.MaxLenV6}}</span>{{end}}
+								{{if .AcceptOnlySetID.Valid}}<span class="chip chip-secondary">only {{index $.SetNames .AcceptOnlySetID.Int64}}</span>{{end}}
+							</td>
+							<td>
+								{{if .RejectOwnASN}}<span class="chip">no loops</span>{{end}}
+								{{if .MaxASPathLen}}<span class="chip">max {{.MaxASPathLen}}</span>{{end}}
+								{{if eq .BogonASNs "all"}}<span class="chip">no bogon ASNs</span>
+								{{else if eq .BogonASNs "except_private"}}<span class="chip chip-info">private ASNs ok</span>{{end}}
+							</td>
+							<td>{{$n := index $.InUse .ID}}{{if $n}}<span class="badge badge-warning">{{$n}} peer{{if ne $n 1}}s{{end}}</span>{{else}}<span class="text-muted">nothing</span>{{end}}</td>
+							<td class="row-actions">
+								<a class="icon-action a-primary" href="/policies/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
+								<form method="post" action="/policies/{{.Name}}/delete" onsubmit="return confirm('Delete policy {{.Name}}?')">
+									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
+								</form>
+							</td>
+						</tr>
+						{{else}}
+						<tr><td colspan="6" class="empty">No import policies.</td></tr>
+						{{end}}
+					</tbody>
+				</table>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">{{template "icon-filter"}}Export policies</span>
+					<a class="btn btn-success" href="/policies/new?direction=export">{{template "icon-plus"}}Add export policy</a>
+				</div>
+				<p class="card-intro">What this router will announce to a peer. A route is announced if any policy in the chain permits it; otherwise it is dropped.</p>
+				<div class="table-scroll">
+				<table>
+					<thead><tr><th>Name</th><th>Announces</th><th>Used by</th><th class="num">Actions</th></tr></thead>
+					<tbody data-search-target>
+						{{range .Exports}}
+						<tr>
+							<td class="mono">
+								<a href="/policies/{{.Name}}/edit">{{.Name}}</a>
+								{{if .Builtin}}<span class="badge">built-in</span>{{end}}
+								{{if .Description}}<div class="text-muted" style="font-size:0.75rem">{{.Description}}</div>{{end}}
+							</td>
+							<td>
+								{{if .AnnounceEverything}}<span class="badge badge-danger">the full table</span>
+								{{else}}
+									{{if .AnnounceDefault}}<span class="chip chip-primary">default route</span>{{end}}
+									{{range .SetIDs}}<span class="chip chip-secondary">{{index $.SetNames .}}</span>{{end}}
+									{{if .AnnounceFromUpstream}}<span class="chip">from upstreams</span>{{end}}
+									{{if .AnnounceFromIX}}<span class="chip">from IX peers</span>{{end}}
+									{{if .AnnounceFromCustomer}}<span class="chip">from customers</span>{{end}}
+								{{end}}
+							</td>
+							<td>{{$n := index $.InUse .ID}}{{if $n}}<span class="badge badge-warning">{{$n}} peer{{if ne $n 1}}s{{end}}</span>{{else}}<span class="text-muted">nothing</span>{{end}}</td>
+							<td class="row-actions">
+								<a class="icon-action a-primary" href="/policies/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
+								<form method="post" action="/policies/{{.Name}}/delete" onsubmit="return confirm('Delete policy {{.Name}}?')">
+									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
+								</form>
+							</td>
+						</tr>
+						{{else}}
+						<tr><td colspan="4" class="empty">No export policies.</td></tr>
+						{{end}}
+					</tbody>
+				</table>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

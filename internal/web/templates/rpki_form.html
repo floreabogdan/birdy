@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — {{if .IsNew}}new RTR server{{else}}{{.Server.Name}}{{end}}</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">{{if .IsNew}}New RTR server{{else}}Edit RTR server{{end}}</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/rpki">RPKI</a><span class="sep">/</span><span class="current mono">{{if .IsNew}}new{{else}}{{.Server.Name}}{{end}}</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>{{if .IsNew}}Add RTR server{{else}}Edit {{.Server.Name}}{{end}}</h1>
+					<div class="page-sub">Where BIRD fetches the ROA data that <span class="mono">roa_check</span> reads.</div>
+				</div>
+			</div>
+
+			<form method="post" action="{{if .IsNew}}/rpki/new{{else}}/rpki/{{.Server.Name}}/edit{{end}}">
+			<div class="card">
+				<div class="card-header"><span class="card-title">{{template "icon-shield"}}RTR endpoint</span></div>
+				<div class="card-body">
+					<div class="field">
+						<label for="name">Name</label>
+						<input type="text" id="name" name="name" class="mono" value="{{.Server.Name}}" autocomplete="off" required>
+						<div class="hint">Becomes the BIRD protocol name, e.g. <code class="mono">rpki_local</code>.</div>
+						{{with index .Errs "name"}}<div class="field-error">{{.}}</div>{{end}}
+					</div>
+					<div class="field">
+						<label for="description">Description</label>
+						<input type="text" id="description" name="description" value="{{.Server.Description}}" autocomplete="off">
+						{{with index .Errs "description"}}<div class="field-error">{{.}}</div>{{end}}
+					</div>
+					<div class="field-row">
+						<div class="field">
+							<label for="host">Host</label>
+							<input type="text" id="host" name="host" class="mono" value="{{.Server.Host}}" placeholder="rtr.rpki.cloudflare.com" autocomplete="off" required>
+							<div class="hint">
+								A local validator is the production answer &mdash; <code class="mono">127.0.0.1</code> with Routinator, StayRTR or
+								rpki-client. Public endpoints work to start: <code class="mono">rtr.rpki.cloudflare.com</code> on port 8282.
+							</div>
+							{{with index .Errs "host"}}<div class="field-error">{{.}}</div>{{end}}
+						</div>
+						<div class="field">
+							<label for="port">Port</label>
+							<input type="number" id="port" name="port" class="mono" value="{{.Server.Port}}" min="1" max="65535" required>
+							<div class="hint">RTR over plain TCP is 323 by convention.</div>
+							{{with index .Errs "port"}}<div class="field-error">{{.}}</div>{{end}}
+						</div>
+					</div>
+
+					<div class="field-row">
+						<div class="field">
+							<label for="refresh">Refresh (seconds)</label>
+							<input type="number" id="refresh" name="refresh" class="mono" value="{{.Server.Refresh}}" min="0" max="172800">
+							<div class="hint">How often to pull new ROAs. 0 uses BIRD's default.</div>
+							{{with index .Errs "refresh"}}<div class="field-error">{{.}}</div>{{end}}
+						</div>
+						<div class="field">
+							<label for="retry">Retry (seconds)</label>
+							<input type="number" id="retry" name="retry" class="mono" value="{{.Server.Retry}}" min="0" max="172800">
+							<div class="hint">How soon to reconnect after the session drops.</div>
+							{{with index .Errs "retry"}}<div class="field-error">{{.}}</div>{{end}}
+						</div>
+					</div>
+					<div class="field">
+						<label for="expire">Expire (seconds)</label>
+						<input type="number" id="expire" name="expire" class="mono" value="{{.Server.Expire}}" min="0" max="172800">
+						<div class="hint">
+							How long the ROA table stays usable once the server is unreachable. Must outlast refresh,
+							or the table times out between updates and every route quietly becomes <em>unknown</em>.
+						</div>
+						{{with index .Errs "expire"}}<div class="field-error">{{.}}</div>{{end}}
+					</div>
+
+					<div class="checks">
+						<label class="check"><input type="checkbox" name="enabled" {{if .Server.Enabled}}checked{{end}}> Enabled</label>
+					</div>
+					<div class="hint">A disabled server is not rendered into the config at all.</div>
+					{{with index .Errs "enabled"}}<div class="field-error">{{.}}</div>{{end}}
+				</div>
+			</div>
+
+			<div class="form-actions">
+				{{if .IsNew}}<button type="submit" class="btn btn-success">{{template "icon-plus"}}Create RTR server</button>
+				{{else}}<button type="submit" class="btn btn-primary">Save changes</button>{{end}}
+				<a class="btn" href="/rpki">Cancel</a>
+			</div>
+			</form>
+		</div>
+	</div>
+</div>
+</body>
+</html>

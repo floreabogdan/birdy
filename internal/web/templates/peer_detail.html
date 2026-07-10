@@ -1,0 +1,155 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — peer {{.Name}}</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Peer</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/peers">Peers</a><span class="sep">/</span><span class="current mono">{{.Name}}</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1 class="mono">{{.Name}}</h1>
+					<div class="page-sub">
+						{{if .Err}}Configured in birdy. BIRD is not running it.
+						{{else}}Live state, read from BIRD. {{.Detail.Summary.Proto}} &middot; {{.Detail.Summary.State}}{{end}}
+					</div>
+				</div>
+				<div class="page-header-actions">
+					{{if .Configured}}<a class="btn" href="/peers/{{.Name}}/edit">{{template "icon-edit"}}Edit configuration</a>
+					{{else}}<span class="badge badge-warning">not managed by birdy</span>{{end}}
+				</div>
+			</div>
+
+			{{if .Err}}
+			{{if .Configured}}
+			<div class="card panel-warning">
+				<div class="panel-head">{{template "icon-alert"}}Not applied</div>
+				<div class="card-body">
+					BIRD has no protocol named <span class="mono">{{.Name}}</span>. birdy holds this peer in its model but has never
+					written <span class="mono">/etc/bird/bird.conf</span> &mdash; it is read-only. Take the config from
+					<a href="/changes">Changes</a> across yourself, and this page fills with live state.
+					<div class="text-muted" style="margin-top:10px;font-size:0.75rem">BIRD said: {{.Err}}</div>
+				</div>
+			</div>
+			{{else}}
+			<div class="card card-danger"><div class="card-body error-text">{{.Err}}</div></div>
+			{{end}}
+			{{else}}
+
+			<nav class="page-tabs" data-tabs role="tablist">
+				<a href="?tab=general" data-tab="general" role="tab" aria-selected="{{if eq .Tab "general"}}true{{else}}false{{end}}">
+					{{template "icon-activity"}}General
+				</a>
+				<a href="?tab=bird" data-tab="bird" role="tab" aria-selected="{{if eq .Tab "bird"}}true{{else}}false{{end}}">
+					{{template "icon-terminal"}}BIRD output
+				</a>
+			</nav>
+
+			<section data-tab-panel="general" {{if ne .Tab "general"}}hidden{{end}} class="tab-panel">
+				{{if .Detail.BGPState}}
+				<div class="card">
+					<div class="card-header"><span class="card-title">{{template "icon-activity"}}BGP session</span></div>
+					<div class="card-body">
+						<dl class="kv">
+							<dt>State</dt><dd>{{sessionBadge (eq .Detail.BGPState "Established") .Detail.BGPState}}</dd>
+							<dt>Neighbor address</dt><dd>{{.Detail.NeighborAddress}}</dd>
+							<dt>Neighbor AS</dt><dd>{{.Detail.NeighborAS}}</dd>
+							<dt>Local AS</dt><dd>{{.Detail.LocalAS}}</dd>
+							<dt>Neighbor ID</dt><dd>{{.Detail.NeighborID}}</dd>
+							<dt>Session</dt><dd>{{.Detail.SessionType}}</dd>
+							<dt>Source address</dt><dd>{{.Detail.SourceAddress}}</dd>
+							<dt>Hold timer</dt><dd>{{.Detail.HoldTimer}}</dd>
+							<dt>Keepalive timer</dt><dd>{{.Detail.KeepaliveTimer}}</dd>
+						</dl>
+					</div>
+				</div>
+				{{end}}
+
+				{{if .Detail.Channels}}
+				<div class="card">
+					<div class="card-header"><span class="card-title">{{template "icon-route"}}Channels</span></div>
+					<div class="table-scroll">
+					<table>
+						<thead><tr><th>AFI</th><th>State</th><th>Table</th><th>Pref</th><th>Import filter</th><th>Export filter</th><th style="min-width:120px">Import limit</th><th class="num">Imported</th><th class="num">Exported</th><th class="num">Preferred</th></tr></thead>
+						<tbody>
+							{{range .Detail.Channels}}
+							{{$pct := importLimitPct .RoutesImported .ImportLimit}}
+							<tr>
+								<td class="mono">{{.AFI}}</td>
+								<td>{{.State}}</td>
+								<td class="mono">{{.Table}}</td>
+								<td>{{.Preference}}</td>
+								<td class="mono">{{.ImportFilter}}</td>
+								<td class="mono">{{.ExportFilter}}</td>
+								<td>
+									{{if ge $pct 0.0}}
+									<div class="progress-track"><div class="progress-fill {{progressClass $pct}}" style="width:{{printf "%.0f" $pct}}%"></div></div>
+									<div class="progress-label">{{printf "%.0f" $pct}}% of {{comma .ImportLimit}}{{if .ImportLimitAction}} ({{.ImportLimitAction}}){{end}}</div>
+									{{else}}
+									<span class="text-muted">no limit</span>
+									{{end}}
+								</td>
+								<td class="num mono">{{comma .RoutesImported}}</td>
+								<td class="num mono">{{comma .RoutesExported}}</td>
+								<td class="num mono">{{comma .RoutesPreferred}}</td>
+							</tr>
+							{{end}}
+						</tbody>
+					</table>
+					</div>
+				</div>
+				{{end}}
+
+				<div class="card" id="routes-card" data-peer="{{.Name}}">
+					<div class="card-header">
+						Routes
+						<div class="tabs">
+							<button type="button" class="btn btn-sm tab-btn active" data-dir="protocol">Imports</button>
+							<button type="button" class="btn btn-sm tab-btn" data-dir="export">Exports</button>
+							<button type="button" class="btn btn-sm tab-btn" data-dir="noexport">Rejected on export</button>
+						</div>
+					</div>
+					<div class="table-scroll">
+					<table>
+						<thead><tr><th>Network</th><th>Type</th><th>Protocol</th><th>Since</th><th>Best</th><th class="num">Pref</th><th>AS path</th><th>Next hop</th></tr></thead>
+						<tbody id="routes-body" data-search-target>
+							<tr><td colspan="8" class="empty">Loading&hellip;</td></tr>
+						</tbody>
+					</table>
+					</div>
+					<div class="card-body" style="display:flex;justify-content:space-between;align-items:center;padding-top:12px;padding-bottom:12px">
+						<button type="button" id="routes-prev" class="btn btn-sm" disabled>&larr; Previous</button>
+						<span id="routes-status" class="text-muted" style="font-size:0.75rem"></span>
+						<button type="button" id="routes-next" class="btn btn-sm" disabled>Next &rarr;</button>
+					</div>
+				</div>
+			</section>
+
+			<section data-tab-panel="bird" {{if ne .Tab "bird"}}hidden{{end}} class="tab-panel">
+				<div class="card">
+					<div class="card-header">
+						<span class="card-title">{{template "icon-terminal"}}<span class="mono">show protocols all {{.Name}}</span></span>
+					</div>
+					<pre class="code-block">{{range .Detail.RawLines}}{{.}}
+{{end}}</pre>
+					<div class="card-body preview-note">
+						Exactly what BIRD's control socket returned, unparsed. Everything on the General tab is read from these lines.
+					</div>
+				</div>
+			</section>
+			{{end}}
+		</div>
+	</div>
+</div>
+<script src="/static/tabs.js"></script>
+<script src="/static/peer-routes.js"></script>
+</body>
+</html>

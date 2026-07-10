@@ -1,0 +1,335 @@
+package web
+
+import (
+	"net/http"
+	"strconv"
+	"strings"
+
+	// Aliased: this package already has a render() helper for templates.
+	birdconf "github.com/floreabogdan/birdy/internal/render"
+	"github.com/floreabogdan/birdy/internal/store"
+)
+
+type peersView struct {
+	Active   string
+	ReadOnly bool
+	Peers    []store.Peer
+	// Live indexes the running BIRD protocols by name, so each configured peer
+	// can say whether it is actually up — and link to its live session.
+	Live  map[string]protoRow
+	Flash string
+}
+
+type peerFormView struct {
+	Active   string
+	ReadOnly bool
+	IsNew    bool
+	Peer     store.Peer
+	Imports  []store.Policy // every import policy, for the picker
+	Exports  []store.Policy
+	Errs     map[string]string
+	// Preview is the BIRD code this peer alone would contribute, rendered with
+	// secrets masked. Empty when the form does not yet validate.
+	Preview    string
+	PreviewErr string
+	Warnings   []birdconf.Warning
+}
+
+// loadPeerChains fills in a peer's ordered import and export policy lists.
+func (s *Server) loadPeerChains(p *store.Peer) error {
+	imports, exports, err := s.store.PeerPolicies(p.ID)
+	if err != nil {
+		return err
+	}
+	p.ImportPolicies, p.ExportPolicies = imports, exports
+	return nil
+}
+
+func (s *Server) handlePeersList(w http.ResponseWriter, r *http.Request) {
+	peers, err := s.store.ListPeers()
+	if err != nil {
+		s.serverError(w, "list peers", err)
+		return
+	}
+	for i := range peers {
+		if err := s.loadPeerChains(&peers[i]); err != nil {
+			s.serverError(w, "peer policies", err)
+			return
+		}
+	}
+	render(w, s.log, "peers.html", peersView{
+		Active: "peers", ReadOnly: s.readOnly, Peers: peers, Live: s.liveStates(),
+		Flash: r.URL.Query().Get("flash"),
+	})
+}
+
+func (s *Server) handlePeerNew(w http.ResponseWriter, r *http.Request) {
+	// A new session is an eBGP upstream, enabled, with the first-AS check on
+	// and BIRD restarting it if the peer floods us past the import limit.
+	p := store.Peer{Role: store.RoleUpstream, Enabled: true, EnforceFirstAS: true, ImportLimitAction: "restart"}
+	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: true, Peer: p})
+}
+
+func (s *Server) handlePeerEdit(w http.ResponseWriter, r *http.Request) {
+	p, err := s.store.GetPeerByName(r.PathValue("name"))
+	if err == store.ErrNotFound {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		s.serverError(w, "get peer", err)
+		return
+	}
+	if err := s.loadPeerChains(&p); err != nil {
+		s.serverError(w, "peer policies", err)
+		return
+	}
+	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, Peer: p})
+}
+
+// peerFromForm reads a peer out of the posted form. It never trusts anything:
+// the result goes straight to Validate before it can reach the database.
+func peerFromForm(r *http.Request) store.Peer {
+	atoi := func(k string) int {
+		n, _ := strconv.Atoi(strings.TrimSpace(r.FormValue(k)))
+		return n
+	}
+	return store.Peer{
+		Name:              r.FormValue("name"),
+		Description:       strings.TrimSpace(r.FormValue("description")),
+		Role:              r.FormValue("role"),
+		Enabled:           r.FormValue("enabled") == "on",
+		NeighborIP:        r.FormValue("neighborIp"),
+		RemoteASN:         int64(atoi("remoteAsn")),
+		LocalIP:           r.FormValue("localIp"),
+		Multihop:          atoi("multihop"),
+		Passive:           r.FormValue("passive") == "on",
+		Password:          r.FormValue("password"),
+		ImportLimit:       atoi("importLimit"),
+		ImportLimitAction: r.FormValue("importLimitAction"),
+		EnforceFirstAS:    r.FormValue("enforceFirstAs") == "on",
+		OriginPeerOnly:    r.FormValue("originPeerOnly") == "on",
+	}
+}
+
+func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	isNew := r.PathValue("name") == ""
+	p := peerFromForm(r)
+	// Document order of the repeated selects is the chain order.
+	importIDs := idList(r.Form["importPolicyIds"])
+	exportIDs := idList(r.Form["exportPolicyIds"])
+
+	if !isNew {
+		existing, err := s.store.GetPeerByName(r.PathValue("name"))
+		if err == store.ErrNotFound {
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			s.serverError(w, "get peer", err)
+			return
+		}
+		p.ID = existing.ID
+		// A blank password field means "leave it alone", not "clear it": the
+		// edit form never renders the stored secret back to the browser.
+		if p.Password == "" {
+			p.Password = existing.Password
+		}
+	}
+
+	errs := p.Validate()
+	s.checkChains(p, importIDs, exportIDs, errs)
+
+	if len(errs) == 0 {
+		var err error
+		if isNew {
+			p.ID, err = s.store.CreatePeer(p)
+		} else {
+			err = s.store.UpdatePeer(p)
+		}
+		if err != nil {
+			if isUniqueViolation(err) {
+				errs["name"] = "A peer with this name already exists."
+			} else {
+				s.serverError(w, "save peer", err)
+				return
+			}
+		}
+	}
+	if len(errs) == 0 {
+		if err := s.store.SetPeerPolicies(p.ID, importIDs, exportIDs); err != nil {
+			s.serverError(w, "attach policies", err)
+			return
+		}
+		http.Redirect(w, r, "/peers?flash="+flash("Saved "+p.Name), http.StatusSeeOther)
+		return
+	}
+
+	// Re-render with what the user typed, chains included.
+	p.ImportPolicies, p.ExportPolicies = s.policiesByID(importIDs), s.policiesByID(exportIDs)
+	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: isNew, Peer: p, Errs: errs})
+}
+
+// checkChains rejects a chain that names a policy of the wrong direction, or a
+// policy that no longer exists. iBGP sessions take no policies yet.
+func (s *Server) checkChains(p store.Peer, importIDs, exportIDs []int64, errs map[string]string) {
+	if p.IsIBGP() && (len(importIDs) > 0 || len(exportIDs) > 0) {
+		errs["policies"] = "iBGP sessions import and export everything and do not take policies yet."
+		return
+	}
+	for dir, ids := range map[string][]int64{store.DirImport: importIDs, store.DirExport: exportIDs} {
+		for _, id := range ids {
+			pol, err := s.policyByID(id)
+			if err != nil {
+				errs["policies"] = "One of the selected policies no longer exists."
+				return
+			}
+			if pol.Direction != dir {
+				errs["policies"] = pol.Name + " is an " + pol.Direction + " policy and cannot be used as an " + dir + " policy."
+				return
+			}
+		}
+	}
+}
+
+func (s *Server) policyByID(id int64) (store.Policy, error) {
+	all, err := s.store.ListPolicies()
+	if err != nil {
+		return store.Policy{}, err
+	}
+	for _, p := range all {
+		if p.ID == id {
+			return p, nil
+		}
+	}
+	return store.Policy{}, store.ErrNotFound
+}
+
+func (s *Server) policiesByID(ids []int64) []store.Policy {
+	all, err := s.store.ListPolicies()
+	if err != nil {
+		return nil
+	}
+	byID := map[int64]store.Policy{}
+	for _, p := range all {
+		byID[p.ID] = p
+	}
+	var out []store.Policy
+	for _, id := range ids {
+		if p, ok := byID[id]; ok {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (s *Server) handlePeerDelete(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	p, err := s.store.GetPeerByName(name)
+	if err == store.ErrNotFound {
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		s.serverError(w, "get peer", err)
+		return
+	}
+	if err := s.store.DeletePeer(p.ID); err != nil {
+		s.serverError(w, "delete peer", err)
+		return
+	}
+	http.Redirect(w, r, "/peers?flash="+flash("Deleted "+name), http.StatusSeeOther)
+}
+
+// renderPeerForm fills in the live BIRD-code preview and the lint findings
+// before rendering. The preview always masks secrets: it goes to a browser.
+func (s *Server) renderPeerForm(w http.ResponseWriter, v peerFormView) {
+	policies, err := s.store.ListPolicies()
+	if err != nil {
+		s.serverError(w, "list policies", err)
+		return
+	}
+	for _, p := range policies {
+		if p.IsImport() {
+			v.Imports = append(v.Imports, p)
+		} else {
+			v.Exports = append(v.Exports, p)
+		}
+	}
+	sets, err := s.store.ListPrefixSets()
+	if err != nil {
+		s.serverError(w, "list prefix sets", err)
+		return
+	}
+	asSets, err := s.store.ListASSets()
+	if err != nil {
+		s.serverError(w, "list AS sets", err)
+		return
+	}
+	rpkiServers, err := s.store.ListRPKIServers()
+	if err != nil {
+		s.serverError(w, "list RPKI servers", err)
+		return
+	}
+	bogonASNs, err := s.store.ListBogonASNs()
+	if err != nil {
+		s.serverError(w, "list bogon ASNs", err)
+		return
+	}
+
+	var localASN int64
+	if settings, ok, err := s.store.GetSettings(); err == nil && ok && settings.LocalASN.Valid {
+		localASN = settings.LocalASN.Int64
+	}
+	v.Preview, v.PreviewErr, v.Warnings = previewPeer(v.Peer, sets, asSets, policies, rpkiServers, bogonASNs, localASN)
+	render(w, s.log, "peer_form.html", v)
+}
+
+// previewPeer renders just this peer's contribution to bird.conf, plus any lint
+// findings about the session.
+//
+// The real local ASN is required, not a placeholder: it appears verbatim in the
+// AS-path loop guard and in the large communities, and showing the wrong number
+// there would teach the operator to distrust the preview.
+func previewPeer(p store.Peer, sets []store.PrefixSet, asSets []store.ASSet, policies []store.Policy, rpkiServers []store.RPKIServer, bogonASNs []store.BogonASN, localASN int64) (string, string, []birdconf.Warning) {
+	if localASN == 0 {
+		return "", "Set the local ASN under Settings to preview the generated BIRD code.", nil
+	}
+	// Validate on a copy: Validate normalises in place and we do not want the
+	// form to silently rewrite what the user typed while they are still typing.
+	probe := p
+	if errs := probe.Validate(); len(errs) > 0 {
+		return "", "Fix the errors above to see the generated BIRD code.", nil
+	}
+	in := birdconf.Input{
+		RouterID: "0.0.0.1", LocalASN: localASN, // the router id never appears in a peer block
+		PrefixSets: sets, ASSets: asSets, Policies: policies, Peers: []store.Peer{probe},
+		RPKIServers: rpkiServers, BogonASNs: bogonASNs, MaskSecrets: true,
+	}
+	full, err := birdconf.Config(in)
+	if err != nil {
+		return "", err.Error(), nil
+	}
+	return peerSection(full, probe.Name), "", birdconf.Lint(in)
+}
+
+// peerSection slices the generated config down to the filters and protocol
+// block belonging to one peer, so the form preview is not swamped by globals
+// and by every policy function in the library.
+func peerSection(cfg, name string) string {
+	markers := []string{"filter ebgp_in_" + name, "filter ebgp_out_" + name, "protocol bgp " + name + " {"}
+	start := -1
+	for _, m := range markers {
+		if i := strings.Index(cfg, m); i >= 0 && (start < 0 || i < start) {
+			start = i
+		}
+	}
+	if start < 0 {
+		return ""
+	}
+	return strings.TrimRight(cfg[start:], "\n")
+}

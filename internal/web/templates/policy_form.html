@@ -1,0 +1,231 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — {{if .IsNew}}new policy{{else}}{{.Policy.Name}}{{end}}</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">{{if .IsNew}}New{{else}}Edit{{end}} {{.Policy.Direction}} policy</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/policies">Policies</a><span class="sep">/</span><span class="current mono">{{if .IsNew}}new{{else}}{{.Policy.Name}}{{end}}</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>{{if .IsNew}}New {{.Policy.Direction}} policy{{else}}Edit {{.Policy.Name}}{{end}}</h1>
+					<div class="page-sub">
+						{{if .Policy.IsImport}}Rules that reject routes a peer sends us. Attach it to any number of peers.
+						{{else}}Rules that permit routes to be announced to a peer. Anything no policy permits is dropped.{{end}}
+					</div>
+				</div>
+			</div>
+
+			<form method="post" action="{{if .IsNew}}/policies/new{{else}}/policies/{{.Policy.Name}}/edit{{end}}">
+			<input type="hidden" name="direction" value="{{.Policy.Direction}}">
+			<div class="split">
+				<div>
+					<div class="card">
+						<div class="card-body">
+							<div class="field">
+								<label for="name">Name</label>
+								<input type="text" id="name" name="name" class="mono" value="{{.Policy.Name}}" autocomplete="off" required>
+								<div class="hint">Becomes a BIRD function. Convention is upper case, e.g. IMPORT_TRANSIT.</div>
+								{{with index .Errs "name"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="field">
+								<label for="description">Description</label>
+								<input type="text" id="description" name="description" value="{{.Policy.Description}}" autocomplete="off">
+								{{with index .Errs "description"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+						</div>
+					</div>
+
+					{{if .Policy.IsImport}}
+					<div class="card">
+						<div class="card-header"><span class="card-title">{{template "icon-route"}}Prefixes</span></div>
+						<div class="card-body">
+							<div class="field">
+								<label for="defaultRoute">The default route</label>
+								<select id="defaultRoute" name="defaultRoute">
+									<option value="reject" {{if eq .Policy.DefaultRoute "reject"}}selected{{end}}>Reject it — normal for a peer sending a full table</option>
+									<option value="accept" {{if eq .Policy.DefaultRoute "accept"}}selected{{end}}>Accept it, alongside everything else</option>
+									<option value="only" {{if eq .Policy.DefaultRoute "only"}}selected{{end}}>Accept only the default route, nothing else</option>
+								</select>
+								<div class="hint">Some upstreams send you nothing but <code class="mono">0.0.0.0/0</code>. That is the third option.</div>
+								{{with index .Errs "defaultRoute"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="checks">
+								<label class="check"><input type="checkbox" name="rejectBogonPrefixes" {{if .Policy.RejectBogonPrefixes}}checked{{end}}> Reject bogon prefixes (BOGONS_V4 / BOGONS_V6)</label>
+							</div>
+							<div class="field-row" style="margin-top:14px">
+								<div class="field">
+									<label for="minLenV4">IPv4 prefix length</label>
+									<div style="display:flex;gap:8px;align-items:center">
+										<input type="number" id="minLenV4" name="minLenV4" class="mono" value="{{.Policy.MinLenV4}}" min="0" max="32" aria-label="shortest IPv4 prefix">
+										<span class="text-muted">to</span>
+										<input type="number" name="maxLenV4" class="mono" value="{{.Policy.MaxLenV4}}" min="0" max="32" aria-label="longest IPv4 prefix">
+									</div>
+									<div class="hint">0 and 0 to not check. The usual window is /8 to /24.</div>
+									{{with index .Errs "lenV4"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field">
+									<label for="minLenV6">IPv6 prefix length</label>
+									<div style="display:flex;gap:8px;align-items:center">
+										<input type="number" id="minLenV6" name="minLenV6" class="mono" value="{{.Policy.MinLenV6}}" min="0" max="128" aria-label="shortest IPv6 prefix">
+										<span class="text-muted">to</span>
+										<input type="number" name="maxLenV6" class="mono" value="{{.Policy.MaxLenV6}}" min="0" max="128" aria-label="longest IPv6 prefix">
+									</div>
+									<div class="hint">The usual window is /12 to /48.</div>
+									{{with index .Errs "lenV6"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+							</div>
+							<div class="field">
+								<label for="acceptOnlySetId">Accept only prefixes in</label>
+								<select id="acceptOnlySetId" name="acceptOnlySetId">
+									<option value="0">Anything not rejected above</option>
+									{{range .Sets}}
+									<option value="{{.ID}}" {{if and $.Policy.AcceptOnlySetID.Valid (eq $.Policy.AcceptOnlySetID.Int64 .ID)}}selected{{end}}>{{.Name}} ({{.Family}})</option>
+									{{end}}
+								</select>
+								<div class="hint">For a customer: accept only the prefixes they are allowed to announce. A set of one family means the policy permits nothing on the other.</div>
+							</div>
+							<div class="field">
+								<label for="originAsSetId">Accept only prefixes originated by</label>
+								<select id="originAsSetId" name="originAsSetId">
+									<option value="0">Any AS</option>
+									{{range .ASSets}}
+									<option value="{{.ID}}" {{if and $.Policy.OriginASSetID.Valid (eq $.Policy.OriginASSetID.Int64 .ID)}}selected{{end}}>{{.Name}}{{if .Source}} (from {{.Source}}){{end}}</option>
+									{{end}}
+								</select>
+								<div class="hint">
+									Checks each route&rsquo;s <strong>origin AS</strong> &mdash; the last AS in its path &mdash; against an
+									<a href="/library/as-sets">AS set</a>. This is how an expanded IRR AS-SET is enforced: the customer may
+									announce their own prefixes and their downstreams&rsquo;, and nobody else&rsquo;s.
+								</div>
+							</div>
+						</div>
+					</div>
+
+					<div class="card">
+						<div class="card-header"><span class="card-title">{{template "icon-shield"}}RPKI</span></div>
+						<div class="card-body">
+							<div class="field">
+								<label for="rov">Route-origin validation</label>
+								<select id="rov" name="rov">
+									<option value="off" {{if eq .Policy.ROV "off"}}selected{{end}}>Off &mdash; do not check ROAs</option>
+									<option value="log" {{if eq .Policy.ROV "log"}}selected{{end}}>Log only &mdash; tag invalid routes, keep using them</option>
+									<option value="reject" {{if eq .Policy.ROV "reject"}}selected{{end}}>Reject invalid &mdash; drop routes a ROA contradicts</option>
+								</select>
+								<div class="hint">
+									Compares each route&rsquo;s origin AS against the ROAs its prefix holder published.
+									Only <strong>invalid</strong> means a ROA exists and disagrees; <strong>unknown</strong> is most of the internet and is never dropped.
+									Start in log only, count the invalids, then reject. Needs an <a href="/rpki">RTR server</a>.
+								</div>
+								{{with index .Errs "rov"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+						</div>
+					</div>
+
+					<div class="card">
+						<div class="card-header"><span class="card-title">{{template "icon-shield"}}AS path</span></div>
+						<div class="card-body">
+							<div class="checks">
+								<label class="check"><input type="checkbox" name="rejectOwnAsn" {{if .Policy.RejectOwnASN}}checked{{end}}> Reject routes with our own ASN in the path (a routing loop)</label>
+							</div>
+							<div class="field-row" style="margin-top:14px">
+								<div class="field">
+									<label for="maxAsPathLen">Maximum AS path length</label>
+									<input type="number" id="maxAsPathLen" name="maxAsPathLen" class="mono" value="{{.Policy.MaxASPathLen}}" min="0" max="255">
+									<div class="hint">0 to not check. 64 is a common ceiling.</div>
+									{{with index .Errs "maxAsPathLen"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field">
+									<label for="setLocalPref">Set local preference</label>
+									<input type="number" id="setLocalPref" name="setLocalPref" class="mono" value="{{.Policy.SetLocalPref}}" min="0">
+									<div class="hint">0 to leave it alone. Higher wins: customers above IX peers above upstreams.</div>
+									{{with index .Errs "setLocalPref"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+							</div>
+							<div class="field">
+								<label for="bogonAsns">Reserved AS numbers in the path</label>
+								<select id="bogonAsns" name="bogonAsns">
+									<option value="all" {{if eq .Policy.BogonASNs "all"}}selected{{end}}>Reject all reserved ASNs, private ones included</option>
+									<option value="except_private" {{if eq .Policy.BogonASNs "except_private"}}selected{{end}}>Reject reserved ASNs, but allow private ones</option>
+									<option value="off" {{if eq .Policy.BogonASNs "off"}}selected{{end}}>Do not check the path for reserved ASNs</option>
+								</select>
+								<div class="hint">If the peer itself uses a private AS number, "all" would reject every route it sends you.</div>
+								{{with index .Errs "bogonAsns"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+						</div>
+					</div>
+					{{else}}
+					<div class="card">
+						<div class="card-header"><span class="card-title">{{template "icon-route"}}Announce</span></div>
+						<div class="card-body">
+							<div class="checks">
+								<label class="check"><input type="checkbox" name="announceEverything" {{if .Policy.AnnounceEverything}}checked{{end}}> <strong>The full table</strong> — everything we know</label>
+							</div>
+							<div class="hint">Only ever right towards a customer buying transit. Announcing the full table to an upstream or an IX peer is a route leak.</div>
+
+							<hr style="border:none;border-top:1px solid var(--border);margin:18px 0">
+							<label>Or pick what to announce</label>
+							<div class="checks">
+								<label class="check"><input type="checkbox" name="announceDefault" {{if .Policy.AnnounceDefault}}checked{{end}}> The default route</label>
+								<label class="check"><input type="checkbox" name="announceFromCustomer" {{if .Policy.AnnounceFromCustomer}}checked{{end}}> Routes learned from our customers</label>
+								<label class="check"><input type="checkbox" name="announceFromIx" {{if .Policy.AnnounceFromIX}}checked{{end}}> Routes learned from our IX peers</label>
+								<label class="check"><input type="checkbox" name="announceFromUpstream" {{if .Policy.AnnounceFromUpstream}}checked{{end}}> Routes learned from our upstreams</label>
+							</div>
+							<div class="hint">birdy tags every route on import with the role of the peer it came from, so these work without knowing anyone's prefixes in advance.</div>
+
+							<div class="field" style="margin-top:16px">
+								<label for="announceSetIds">Our own prefixes</label>
+								<select id="announceSetIds" name="announceSetIds" multiple size="5">
+									{{$sel := .Policy.SetIDs}}
+									{{range .Sets}}
+									<option value="{{.ID}}" {{if has $sel .ID}}selected{{end}}>{{.Name}} ({{.Family}})</option>
+									{{end}}
+								</select>
+								<div class="hint">Hold Ctrl (or Cmd) to pick more than one. A set of the other address family is simply ignored in that family's filter.</div>
+							</div>
+
+							<div class="checks" style="margin-top:14px">
+								<label class="check"><input type="checkbox" name="rejectBogonPrefixes" {{if .Policy.RejectBogonPrefixes}}checked{{end}}> Never announce bogon prefixes</label>
+							</div>
+							{{with index .Errs "announce"}}<div class="field-error">{{.}}</div>{{end}}
+						</div>
+					</div>
+					{{end}}
+
+					<div class="form-actions">
+						{{if .IsNew}}<button type="submit" class="btn btn-success">{{template "icon-plus"}}Create policy</button>
+						{{else}}<button type="submit" class="btn btn-primary">Save changes</button>{{end}}
+						<a class="btn" href="/policies">Cancel</a>
+					</div>
+				</div>
+
+				<div>
+					<div class="card sticky-preview">
+						<div class="card-header"><span class="card-title">{{template "icon-changes"}}Generated BIRD code</span></div>
+						{{if .Preview}}
+						<pre class="code-block">{{.Preview}}</pre>
+						{{else}}
+						<div class="card-body text-muted">{{.PreviewErr}}</div>
+						{{end}}
+						<div class="card-body preview-note">
+							One function per address family, so an IPv4 filter never compares against an IPv6 set.
+							{{if .Policy.IsImport}}An import policy only rejects; falling off the end means "no objection".
+							{{else}}An export policy only accepts; falling off the end means "not permitted by me".{{end}}
+						</div>
+					</div>
+				</div>
+			</div>
+			</form>
+		</div>
+	</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — prefix sets</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Prefix sets</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">Library</span></div>
+			</div>
+
+			{{template "library-nav" "prefix-sets"}}
+
+			{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">{{template "icon-library"}}Prefix sets</span>
+					<a class="btn btn-success" href="/library/prefix-sets/new">{{template "icon-plus"}}Add prefix set</a>
+				</div>
+				<p class="card-intro">
+					Named lists of prefixes, used to filter what a peer may send you and to decide what you announce.
+				</p>
+				<div class="table-scroll">
+				<table>
+					<thead><tr><th>Name</th><th>Family</th><th class="num">Prefixes</th><th>Originated</th><th>Used by</th><th class="num">Actions</th></tr></thead>
+					<tbody data-search-target>
+						{{range .Sets}}
+						<tr>
+							<td class="mono">
+								<a href="/library/prefix-sets/{{.Name}}/edit">{{.Name}}</a>
+								{{if .Builtin}}<span class="badge">built-in</span>{{end}}
+								{{if .Description}}<div class="text-muted" style="font-size:0.75rem">{{.Description}}</div>{{end}}
+							</td>
+							<td><span class="chip chip-primary">{{if eq .Family "ipv4"}}IPv4{{else}}IPv6{{end}}</span></td>
+							<td class="num mono">{{len .Entries}}</td>
+							<td>{{if .Originate}}<span class="badge badge-success">yes</span>{{else}}<span class="text-muted">&mdash;</span>{{end}}</td>
+							<td>
+								{{$n := index $.InUse .ID}}
+								{{if $n}}<span class="badge badge-warning">{{$n}} polic{{if ne $n 1}}ies{{else}}y{{end}}</span>{{else}}<span class="text-muted">nothing</span>{{end}}
+							</td>
+							<td class="row-actions">
+								<a class="icon-action a-primary" href="/library/prefix-sets/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
+								<form method="post" action="/library/prefix-sets/{{.Name}}/delete" onsubmit="return confirm('Delete prefix set {{.Name}}?')">
+									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
+								</form>
+							</td>
+						</tr>
+						{{else}}
+						<tr><td colspan="6" class="empty">No prefix sets.</td></tr>
+						{{end}}
+					</tbody>
+				</table>
+				</div>
+			</div>
+
+			<div class="card panel-info">
+				<div class="panel-head">{{template "icon-info"}}About the starter pack</div>
+				<div class="card-body text-muted" style="font-size:0.8125rem">
+					The bogon lists are not here. <span class="chip">BOGONS_V4</span>, <span class="chip">BOGONS_V6</span> and the
+					bogon AS numbers are router-wide settings, named directly by every generated filter — so they cannot be
+					deleted, renamed, or announced to a peer by accident. Edit them under
+					<a href="/settings">Settings &rarr; Bogons</a>.
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

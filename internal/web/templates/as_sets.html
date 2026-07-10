@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — AS sets</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">AS sets</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">Library</span></div>
+			</div>
+			{{template "library-nav" "as-sets"}}
+
+			{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+
+			<div class="card panel-info">
+				<div class="panel-head">{{template "icon-info"}}What an AS set is for</div>
+				<div class="card-body" style="font-size:0.8125rem">
+					<p style="margin-top:0">
+						BIRD has no idea what an IRR <strong>AS-SET</strong> is. When a customer hands you <span class="chip">AS-CUSTOMER</span>,
+						the usual practice is to <strong>expand it offline</strong> — with <span class="chip">bgpq4</span> or similar — into the
+						list of member AS numbers, and drop that list into the router config.
+					</p>
+					<p style="margin-bottom:0">
+						That list is what lives here. An import policy can then require that every route&rsquo;s <strong>origin AS</strong>
+						be a member, which is how you say &ldquo;announce your own prefixes and your downstreams&rsquo;, and nobody else&rsquo;s&rdquo;.
+						Record the AS-SET name under <em>Source</em> so the expansion can be re-run later.
+					</p>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">{{template "icon-library"}}AS sets</span>
+					<a class="btn btn-success" href="/library/as-sets/new">{{template "icon-plus"}}Add AS set</a>
+				</div>
+				<div class="table-scroll">
+				<table>
+					<thead><tr><th>Name</th><th>Source</th><th class="num">Members</th><th>Used by</th><th class="num">Actions</th></tr></thead>
+					<tbody data-search-target>
+						{{range .Sets}}
+						<tr>
+							<td class="mono">
+								<a href="/library/as-sets/{{.Name}}/edit">{{.Name}}</a>
+								{{if .Description}}<div class="text-muted" style="font-size:0.75rem">{{.Description}}</div>{{end}}
+							</td>
+							<td>{{if .Source}}<span class="chip">{{.Source}}</span>{{else}}<span class="text-muted">entered by hand</span>{{end}}</td>
+							<td class="num mono">{{len .Entries}}</td>
+							<td>{{$n := index $.InUse .ID}}{{if $n}}<span class="badge badge-warning">{{$n}} polic{{if ne $n 1}}ies{{else}}y{{end}}</span>{{else}}<span class="text-muted">nothing</span>{{end}}</td>
+							<td class="row-actions">
+								<a class="icon-action a-primary" href="/library/as-sets/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
+								<form method="post" action="/library/as-sets/{{.Name}}/delete" onsubmit="return confirm('Delete AS set {{.Name}}?')">
+									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
+								</form>
+							</td>
+						</tr>
+						{{else}}
+						<tr><td colspan="5" class="empty">No AS sets. <a href="/library/as-sets/new">Add one</a> to filter a customer&rsquo;s origins.</td></tr>
+						{{end}}
+					</tbody>
+				</table>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

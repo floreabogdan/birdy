@@ -1,0 +1,89 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — peers</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Peers</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">Peers</span></div>
+			</div>
+
+			{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">{{template "icon-peers"}}Configured peers</span>
+					<a class="btn btn-success" href="/peers/new">{{template "icon-plus"}}Add peer</a>
+				</div>
+				<p class="card-intro">
+					The BGP sessions birdy <strong>would configure</strong>. Nothing here is applied to the router yet &mdash;
+					review the generated config under <a href="/changes">Changes</a>.
+					Click a name for its live session; use the pencil to edit its configuration.
+					A peer BIRD has never seen reads <span class="badge badge-warning">not applied</span>.
+				</p>
+				<div class="table-scroll">
+				<table>
+					<thead><tr>
+						<th>Name</th><th>Role</th><th>AFI</th><th>Neighbor</th><th>Remote AS</th>
+						<th class="num">Imported</th><th class="num">Rejected</th><th class="num">Exported</th>
+						<th>State</th><th class="num">Actions</th>
+					</tr></thead>
+					<tbody data-search-target>
+						{{range .Peers}}
+						{{$live := index $.Live .Name}}
+						<tr>
+							<td class="mono">
+								<a href="/peers/{{.Name}}">{{.Name}}</a>
+								{{if .Description}}<div class="text-muted" style="font-size:0.75rem">{{.Description}}</div>{{end}}
+							</td>
+							<td>
+								{{if eq .Role "upstream"}}<span class="badge badge-secondary">upstream</span>
+								{{else if eq .Role "ix_peer"}}<span class="badge badge-primary">IX peer</span>
+								{{else if eq .Role "customer"}}<span class="badge badge-success">customer</span>
+								{{else}}<span class="badge badge-info">iBGP</span>{{end}}
+							</td>
+							<td><span class="chip chip-primary">{{if .IsV6}}IPv6{{else}}IPv4{{end}}</span></td>
+							<td class="mono">{{.NeighborIP}}{{if .Multihop}}<div class="text-muted" style="font-size:0.75rem">multihop {{.Multihop}}</div>{{end}}</td>
+							<td><span class="chip">AS{{.RemoteASN}}</span></td>
+							{{if $live.HasCounts}}
+							<td class="num mono">{{comma $live.Imported}}</td>
+							<td class="num mono">{{if $live.Filtered}}{{comma $live.Filtered}}{{else}}<span class="text-muted">0</span>{{end}}</td>
+							<td class="num mono">{{comma $live.Exported}}</td>
+							{{else}}
+							<td class="num text-muted">&mdash;</td>
+							<td class="num text-muted">&mdash;</td>
+							<td class="num text-muted">&mdash;</td>
+							{{end}}
+							<td>
+								{{if $live.Name}}<a href="/peers/{{.Name}}">{{sessionBadge $live.Up $live.BGPState}}</a>
+								{{else if not .Enabled}}<span class="badge">disabled</span>
+								{{else}}<span class="badge badge-warning" title="BIRD has no protocol by this name. birdy has not applied a config.">not applied</span>{{end}}
+							</td>
+							<td class="row-actions">
+								<a class="icon-action a-primary" href="/peers/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
+								<form method="post" action="/peers/{{.Name}}/delete" onsubmit="return confirm('Delete peer {{.Name}}? This only changes birdy\'s model — the running session is untouched.')">
+									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
+								</form>
+							</td>
+						</tr>
+						{{else}}
+						<tr><td colspan="10" class="empty">
+							No peers configured yet. <a href="/peers/new">Add one</a> to start describing what this router should be running.
+						</td></tr>
+						{{end}}
+					</tbody>
+				</table>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

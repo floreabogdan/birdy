@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — login</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="login-wrap">
+	<div class="card login-card">
+		<div class="card-body">
+			<span class="brand">birdy</span>
+			<div class="login-sub">single-router BIRD manager</div>
+			{{if .Error}}<div class="error-text">Invalid username or password.</div>{{end}}
+			<form method="post" action="/login">
+				<div class="field">
+					<label for="username">Username</label>
+					<input type="text" id="username" name="username" autocomplete="username" autofocus required>
+				</div>
+				<div class="field">
+					<label for="password">Password</label>
+					<input type="password" id="password" name="password" autocomplete="current-password" required>
+				</div>
+				<button type="submit" class="btn btn-primary" style="width:100%">Sign in</button>
+			</form>
+		</div>
+	</div>
+</div>
+</body>
+</html>

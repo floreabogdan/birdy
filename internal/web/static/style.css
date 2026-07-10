@@ -1,0 +1,832 @@
+/* ---------- fonts (self-hosted, no external CDN) ---------- */
+@font-face {
+	font-family: "IBM Plex Sans";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/static/fonts/plex-sans-400.woff2") format("woff2");
+}
+@font-face {
+	font-family: "IBM Plex Sans";
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url("/static/fonts/plex-sans-500.woff2") format("woff2");
+}
+@font-face {
+	font-family: "IBM Plex Sans";
+	font-style: normal;
+	font-weight: 600;
+	font-display: swap;
+	src: url("/static/fonts/plex-sans-600.woff2") format("woff2");
+}
+@font-face {
+	font-family: "IBM Plex Sans";
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url("/static/fonts/plex-sans-700.woff2") format("woff2");
+}
+@font-face {
+	font-family: "IBM Plex Mono";
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url("/static/fonts/plex-mono-400.woff2") format("woff2");
+}
+@font-face {
+	font-family: "IBM Plex Mono";
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url("/static/fonts/plex-mono-500.woff2") format("woff2");
+}
+
+/* ---------- tokens ---------- */
+:root {
+	--bg: #f1f1f1;
+	--surface: #ffffff;
+	--surface-alt: #f6f7f8;
+	--border: #e9ebec;
+	--text: #212529;
+	--text-muted: #878a99;
+
+	--primary: #5ea3cb;
+	--primary-deep: #2c6690;
+	--secondary: #7084c7;
+	--secondary-deep: #414f8f;
+	--success: #6ada7d;
+	--success-deep: #2f8f47;
+	--info: #58caea;
+	--info-deep: #12799c;
+	--warning: #f7b84b;
+	--warning-deep: #a86a0a;
+	--danger: #fa896b;
+	--danger-deep: #c8432a;
+
+	--sidebar-bg: #2e3230;
+	--sidebar-text: #a9b0ad;
+	--sidebar-text-active: #ffffff;
+	--sidebar-active-bg: rgba(255, 255, 255, 0.08);
+
+	/* Table headers are a filled indigo band, not a tinted row. Kept as its own
+	   token because it must stay dark in both themes — white-on-indigo is the
+	   identity of the table, and flipping it in dark mode would lose that. */
+	--thead-bg: #414f8f;
+	--thead-text: #ffffff;
+
+	/* Solid button fills. Fixed hex rather than the --primary/--success tints,
+	   which are pale enough that white label text fails contrast on them. */
+	--btn-primary-bg: #3f86b3;
+	--btn-primary-hover: #35789f;
+	--btn-success-bg: #2f8f47;
+	--btn-success-hover: #287c3d;
+
+	--radius-card: 12px;
+	--radius-control: 8px;
+	--radius-badge: 6px;
+	--radius-nav: 5px;
+	--shadow-card: 0 2px 8px rgba(0, 0, 0, 0.08);
+	--shadow-topbar: 0 1px 2px rgba(56, 65, 74, 0.15);
+	--shadow-sidebar: 2px 0 12px rgba(0, 0, 0, 0.12);
+
+	--font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+	--font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+/* The --*-deep hues are dark ink for light surfaces. On a dark surface they
+   read as mud, so dark mode swaps them for light ink of the same hue. Every
+   consumer (badge text, stat label, link, gauge fill) wants that inversion. */
+:root[data-theme="dark"] {
+	--bg: #1b1e1d;
+	--surface: #242827;
+	--surface-alt: #2a2e2d;
+	--border: #383d3b;
+	--text: #eceeed;
+	--text-muted: #9aa1a0;
+	--sidebar-bg: #161918;
+	--sidebar-active-bg: rgba(255, 255, 255, 0.06);
+	--shadow-card: 0 2px 10px rgba(0, 0, 0, 0.35);
+	--shadow-topbar: 0 1px 2px rgba(0, 0, 0, 0.4);
+	--shadow-sidebar: 2px 0 16px rgba(0, 0, 0, 0.4);
+
+	--primary-deep: #93c8e8;
+	--secondary-deep: #a7b4e6;
+	--success-deep: #7fe098;
+	--info-deep: #82dcf2;
+	--warning-deep: #f7c96f;
+	--danger-deep: #ffab92;
+
+	--thead-bg: #2b3350;
+	--thead-text: #e8eaf3;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg: #1b1e1d;
+		--surface: #242827;
+		--surface-alt: #2a2e2d;
+		--border: #383d3b;
+		--text: #eceeed;
+		--text-muted: #9aa1a0;
+		--sidebar-bg: #161918;
+		--sidebar-active-bg: rgba(255, 255, 255, 0.06);
+		--shadow-card: 0 2px 10px rgba(0, 0, 0, 0.35);
+		--shadow-topbar: 0 1px 2px rgba(0, 0, 0, 0.4);
+		--shadow-sidebar: 2px 0 16px rgba(0, 0, 0, 0.4);
+
+		--primary-deep: #93c8e8;
+		--secondary-deep: #a7b4e6;
+		--success-deep: #7fe098;
+		--info-deep: #82dcf2;
+		--warning-deep: #f7c96f;
+		--danger-deep: #ffab92;
+
+		--thead-bg: #2b3350;
+		--thead-text: #e8eaf3;
+	}
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+	margin: 0;
+	padding: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--font-sans);
+	font-size: 0.875rem;
+	font-weight: 400;
+	line-height: 1.5;
+}
+
+a { color: var(--primary-deep); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1, h2, h3 { font-weight: 700; color: var(--text); margin: 0; }
+.mono { font-family: var(--font-mono); font-variant-ligatures: none; }
+
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ---------- app shell: sidebar + top bar ---------- */
+.app-shell { display: flex; min-height: 100vh; }
+
+.sidebar {
+	width: 220px;
+	flex-shrink: 0;
+	background: var(--sidebar-bg);
+	box-shadow: var(--shadow-sidebar);
+	padding: 18px 12px;
+	position: sticky;
+	top: 0;
+	height: 100vh;
+	display: flex;
+	flex-direction: column;
+}
+.sidebar-brand {
+	color: #fff;
+	font-weight: 700;
+	font-size: 1.125rem;
+	padding: 6px 10px 20px;
+	letter-spacing: -0.01em;
+}
+.brand-stage {
+	display: block;
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--sidebar-text);
+	opacity: 0.65;
+	margin-top: 2px;
+}
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-label {
+	padding: 14px 12px 4px;
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--sidebar-text);
+	opacity: 0.55;
+}
+.sidebar-nav .nav-label:first-child { padding-top: 0; }
+.nav-soon {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	color: var(--sidebar-text);
+	opacity: 0.5;
+	padding: 9px 12px;
+	border-radius: var(--radius-nav);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	cursor: default;
+}
+.nav-soon svg { width: 17px; height: 17px; flex-shrink: 0; opacity: 0.9; }
+.soon-pill {
+	margin-left: auto;
+	font-size: 9px;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	padding: 1px 6px;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.1);
+}
+.sidebar-nav a {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	color: var(--sidebar-text);
+	padding: 9px 12px;
+	border-radius: var(--radius-nav);
+	font-size: 0.8125rem;
+	font-weight: 500;
+}
+.sidebar-nav a:hover { background: var(--sidebar-active-bg); color: #fff; text-decoration: none; }
+.sidebar-nav a.active { background: var(--primary); color: #fff; }
+.sidebar-nav svg { width: 17px; height: 17px; flex-shrink: 0; opacity: 0.9; }
+.sidebar-foot { margin-top: auto; padding: 10px; color: var(--sidebar-text); font-size: 0.75rem; opacity: 0.85; display: flex; flex-direction: column; gap: 4px; }
+.conn-line { display: flex; align-items: center; gap: 6px; }
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sidebar-text); display: inline-block; flex-shrink: 0; }
+.conn-dot.ok { background: var(--success); }
+.conn-dot.bad { background: var(--danger); }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.topbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 12px 24px;
+	background: var(--surface);
+	box-shadow: var(--shadow-topbar);
+	position: sticky;
+	top: 0;
+	z-index: 10;
+}
+.topbar-left { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.topbar-search { position: relative; width: 280px; max-width: 40vw; }
+.topbar-search svg {
+	position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+	width: 15px; height: 15px; color: var(--text-muted); pointer-events: none;
+}
+/* [type=text] is carried deliberately: the generic input[type=text] rule in the
+   forms section has equal specificity and would otherwise win on source order,
+   collapsing the left padding and sliding the placeholder under the icon. */
+.topbar-search input[type=text] {
+	width: 100%; padding: 7px 30px 7px 32px; border-radius: var(--radius-control);
+	border: 1px solid var(--border); background: var(--surface-alt); color: var(--text); font-size: 0.8125rem;
+	font-family: var(--font-sans);
+}
+.kbd-hint {
+	position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+	font-family: var(--font-mono); font-size: 10px; color: var(--text-muted);
+	border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; line-height: 16px;
+	background: var(--surface); pointer-events: none;
+}
+.topbar-search input:focus + .kbd-hint, .topbar-search:focus-within .kbd-hint { display: none; }
+.topbar-right { display: flex; align-items: center; gap: 6px; }
+
+.icon-btn {
+	position: relative;
+	display: inline-flex; align-items: center; justify-content: center;
+	width: 34px; height: 34px; border-radius: 50%;
+	border: none; background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.icon-btn:hover { background: var(--surface-alt); color: var(--text); }
+.icon-btn svg { width: 18px; height: 18px; }
+.notif-pill {
+	position: absolute; top: 3px; right: 3px;
+	min-width: 15px; height: 15px; padding: 0 3px;
+	border-radius: 999px; background: var(--danger); color: #fff;
+	font-size: 9px; font-weight: 700; line-height: 15px; text-align: center;
+}
+
+.profile-menu { position: relative; }
+.profile-menu > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 4px; border-radius: 999px; }
+.profile-menu > summary::-webkit-details-marker { display: none; }
+.profile-menu > summary:hover { background: var(--surface-alt); }
+.avatar {
+	width: 28px; height: 28px; border-radius: 50%; background: var(--secondary); color: #fff;
+	display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0;
+}
+.profile-name { font-size: 0.8125rem; font-weight: 500; }
+.profile-panel {
+	position: absolute; right: 0; top: calc(100% + 8px); width: 190px;
+	background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-control);
+	box-shadow: var(--shadow-card); padding: 8px; z-index: 20;
+}
+.profile-panel .profile-user { padding: 6px 8px 10px; border-bottom: 1px solid var(--border); margin-bottom: 6px; font-size: 0.75rem; color: var(--text-muted); }
+.profile-panel form { margin: 0; }
+.profile-panel button {
+	width: 100%; text-align: left; background: none; border: none; padding: 8px; border-radius: var(--radius-nav);
+	color: var(--danger-deep); font-size: 0.8125rem; font-weight: 500; cursor: pointer; font-family: var(--font-sans);
+}
+.profile-panel button:hover { background: var(--surface-alt); }
+
+.page { padding: 22px 28px 60px; width: 100%; }
+
+/* ---------- eyebrow strip: page name left, trail right ---------- */
+.page-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.page-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text); }
+.page-top .breadcrumb { margin-bottom: 0; }
+
+/* ---------- breadcrumb + page header ---------- */
+.breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px; }
+.breadcrumb a { color: var(--text-muted); }
+.breadcrumb a:hover { color: var(--primary-deep); }
+.breadcrumb .sep { opacity: 0.6; }
+.breadcrumb .current { color: var(--text); font-weight: 500; }
+
+.page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; gap: 16px; flex-wrap: wrap; }
+.page-header h1 { font-size: 1.625rem; }
+.page-sub { color: var(--text-muted); font-size: 0.8125rem; margin-top: 4px; }
+.page-header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- cards ---------- */
+.card {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-card);
+	box-shadow: var(--shadow-card);
+	margin-bottom: 20px;
+}
+.card-header {
+	padding: 14px 18px;
+	border-bottom: 1px solid var(--border);
+	font-weight: 600;
+	font-size: 0.9375rem;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 10px;
+}
+.card-title { display: flex; align-items: center; gap: 9px; font-size: 1rem; font-weight: 700; }
+.card-title svg { width: 18px; height: 18px; color: var(--secondary-deep); }
+.tabs { display: flex; gap: 4px; }
+.tab-btn { font-weight: 500; }
+.tab-btn.active { background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); color: #fff; }
+.card-body { padding: 18px; }
+.card-intro { padding: 16px 18px 0; color: var(--text-muted); font-size: 0.8125rem; max-width: 110ch; }
+
+/* ---------- panels: a card whose header is a tinted band ---------- */
+.panel-head {
+	display: flex; align-items: center; gap: 9px;
+	padding: 13px 18px;
+	font-weight: 700; font-size: 0.9375rem;
+	border-bottom: 1px solid var(--border);
+	border-radius: var(--radius-card) var(--radius-card) 0 0;
+}
+.panel-head svg { width: 17px; height: 17px; }
+.panel-info .panel-head { background: color-mix(in srgb, var(--info) 14%, var(--surface)); color: var(--info-deep); }
+.panel-info { border-color: color-mix(in srgb, var(--info) 30%, var(--border)); }
+.panel-warning .panel-head { background: color-mix(in srgb, var(--warning) 18%, var(--surface)); color: var(--warning-deep); }
+.panel-warning { border-color: color-mix(in srgb, var(--warning) 32%, var(--border)); }
+.panel-danger .panel-head { background: color-mix(in srgb, var(--danger) 16%, var(--surface)); color: var(--danger-deep); }
+.panel-danger { border-color: color-mix(in srgb, var(--danger) 32%, var(--border)); }
+.card-danger { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
+.card-danger .card-body { background: color-mix(in srgb, var(--danger) 5%, var(--surface)); border-radius: 0 0 var(--radius-card) var(--radius-card); }
+.card-warning { border-color: color-mix(in srgb, var(--warning) 35%, var(--border)); }
+.card-warning .card-body { background: color-mix(in srgb, var(--warning) 6%, var(--surface)); border-radius: 0 0 var(--radius-card) var(--radius-card); }
+
+/* Tables sit in gutters inside their card so the indigo header band reads as a
+   band, not as the top edge of the card. */
+.table-scroll { padding: 14px 16px 16px; }
+
+table { width: 100%; border-collapse: separate; border-spacing: 0; }
+th, td { text-align: left; padding: 12px 14px; font-size: 0.8125rem; }
+thead th {
+	background: var(--thead-bg);
+	color: var(--thead-text);
+	font-weight: 600;
+	text-transform: uppercase;
+	font-size: 0.6875rem;
+	letter-spacing: 0.06em;
+	white-space: nowrap;
+}
+thead th:first-child { border-radius: var(--radius-badge) 0 0 var(--radius-badge); }
+thead th:last-child { border-radius: 0 var(--radius-badge) var(--radius-badge) 0; }
+tbody td { border-bottom: 1px solid var(--border); }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--surface-alt); }
+td.num, th.num { text-align: right; }
+
+/* ---------- hero: the router answers "am I healthy?" before you scroll ---------- */
+.hero {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 20px;
+	padding: 30px 32px;
+	margin-bottom: 22px;
+	border-radius: var(--radius-card);
+	border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+	background: linear-gradient(100deg,
+		color-mix(in srgb, var(--primary) 30%, var(--surface)) 0%,
+		color-mix(in srgb, var(--primary) 11%, var(--surface)) 46%,
+		var(--surface) 100%);
+}
+.hero-title { font-size: 1.875rem; font-weight: 500; letter-spacing: -0.01em; line-height: 1.2; }
+.hero-sub { margin: 6px 0 0; font-size: 0.875rem; color: color-mix(in srgb, var(--text) 62%, transparent); }
+.hero-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.hero-status {
+	display: inline-flex; align-items: center; gap: 8px;
+	padding: 6px 14px; border-radius: 999px;
+	font-size: 0.8125rem; font-weight: 600;
+	background: var(--surface);
+	border: 1px solid var(--border);
+}
+.hero-status .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
+.hero-status.ok { color: var(--success-deep); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
+.hero-status.bad { color: var(--danger-deep); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.hero-updated { font-size: 0.75rem; color: var(--text-muted); }
+
+/* ---------- section headings that sit on the page canvas, not in a card ---------- */
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 26px 0 12px; }
+.section-title { display: flex; align-items: center; gap: 8px; font-size: 0.9375rem; font-weight: 700; }
+.section-title svg { width: 17px; height: 17px; color: var(--text-muted); }
+.section-link, .stat-link { display: inline-flex; align-items: center; gap: 5px; font-size: 0.75rem; font-weight: 600; }
+.arr { font-size: 0.8125rem; line-height: 1; }
+
+/* ---------- stat cards: solid pastel, tinted label, gauge rule, footer link ---------- */
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px; }
+.stat {
+	display: flex;
+	flex-direction: column;
+	border-radius: var(--radius-card);
+	border: 1px solid var(--border);
+	box-shadow: var(--shadow-card);
+	padding: 16px 18px 14px;
+	background: var(--surface);
+}
+.stat.tint-primary { border-color: color-mix(in srgb, var(--primary) 42%, var(--border)); background: color-mix(in srgb, var(--primary) 22%, var(--surface)); }
+.stat.tint-secondary { border-color: color-mix(in srgb, var(--secondary) 42%, var(--border)); background: color-mix(in srgb, var(--secondary) 22%, var(--surface)); }
+.stat.tint-success { border-color: color-mix(in srgb, var(--success) 42%, var(--border)); background: color-mix(in srgb, var(--success) 24%, var(--surface)); }
+.stat.tint-danger { border-color: color-mix(in srgb, var(--danger) 42%, var(--border)); background: color-mix(in srgb, var(--danger) 24%, var(--surface)); }
+.stat.tint-warning { border-color: color-mix(in srgb, var(--warning) 42%, var(--border)); background: color-mix(in srgb, var(--warning) 26%, var(--surface)); }
+
+.stat-label { font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+.stat-main { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.stat-icon { display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.stat-icon svg { width: 26px; height: 26px; }
+.stat-value { font-size: 1.75rem; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; }
+.stat-total { font-size: 1rem; font-weight: 600; opacity: 0.55; }
+
+/* A full-width neutral rule means "no denominator exists"; a coloured fill
+   means the number is a fraction of the track. The two must not look alike. */
+.stat-rule {
+	height: 4px; border-radius: 999px; margin: 14px 0 12px;
+	background: color-mix(in srgb, var(--text) 14%, transparent);
+	overflow: hidden;
+}
+.stat-rule-fill { display: block; height: 100%; border-radius: 999px; background: currentColor; }
+
+.stat-link, .stat-note { font-size: 0.75rem; margin-top: auto; }
+.stat-note { color: color-mix(in srgb, var(--text) 55%, transparent); }
+.stat-link:hover { text-decoration: none; opacity: 0.75; }
+
+.stat.tint-primary .stat-label, .stat.tint-primary .stat-icon, .stat.tint-primary .stat-link, .stat.tint-primary .stat-rule-fill { color: var(--primary-deep); }
+.stat.tint-secondary .stat-label, .stat.tint-secondary .stat-icon, .stat.tint-secondary .stat-link, .stat.tint-secondary .stat-rule-fill { color: var(--secondary-deep); }
+.stat.tint-success .stat-label, .stat.tint-success .stat-icon, .stat.tint-success .stat-link, .stat.tint-success .stat-rule-fill { color: var(--success-deep); }
+.stat.tint-danger .stat-label, .stat.tint-danger .stat-icon, .stat.tint-danger .stat-link, .stat.tint-danger .stat-rule-fill { color: var(--danger-deep); }
+.stat.tint-warning .stat-label, .stat.tint-warning .stat-icon, .stat.tint-warning .stat-link, .stat.tint-warning .stat-rule-fill { color: var(--warning-deep); }
+
+/* ---------- status badges: tinted, bordered, rounded rectangles ---------- */
+.badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 3px 9px;
+	border-radius: var(--radius-badge);
+	font-family: var(--font-sans);
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	white-space: nowrap;
+	background: var(--surface-alt);
+	color: var(--text-muted);
+	border: 1px solid var(--border);
+}
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; display: inline-block; }
+.badge-primary { background: color-mix(in srgb, var(--primary) 15%, var(--surface)); color: var(--primary-deep); border-color: color-mix(in srgb, var(--primary) 35%, transparent); }
+.badge-secondary { background: color-mix(in srgb, var(--secondary) 15%, var(--surface)); color: var(--secondary-deep); border-color: color-mix(in srgb, var(--secondary) 35%, transparent); }
+.badge-success { background: color-mix(in srgb, var(--success) 15%, var(--surface)); color: var(--success-deep); border-color: color-mix(in srgb, var(--success) 35%, transparent); }
+.badge-info { background: color-mix(in srgb, var(--info) 15%, var(--surface)); color: var(--info-deep); border-color: color-mix(in srgb, var(--info) 35%, transparent); }
+.badge-warning { background: color-mix(in srgb, var(--warning) 15%, var(--surface)); color: var(--warning-deep); border-color: color-mix(in srgb, var(--warning) 35%, transparent); }
+.badge-danger { background: color-mix(in srgb, var(--danger) 15%, var(--surface)); color: var(--danger-deep); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+
+/* ---------- value chips: network data reads as a token, not prose ---------- */
+.chip {
+	display: inline-flex;
+	align-items: center;
+	padding: 3px 8px;
+	border-radius: var(--radius-badge);
+	border: 1px solid var(--border);
+	background: var(--surface-alt);
+	font-family: var(--font-mono);
+	font-size: 11px;
+	font-weight: 500;
+	color: var(--text);
+	white-space: nowrap;
+}
+.chip-primary { background: color-mix(in srgb, var(--primary) 12%, var(--surface)); border-color: color-mix(in srgb, var(--primary) 40%, transparent); color: var(--primary-deep); }
+.chip-secondary { background: color-mix(in srgb, var(--secondary) 12%, var(--surface)); border-color: color-mix(in srgb, var(--secondary) 40%, transparent); color: var(--secondary-deep); }
+.chip-info { background: color-mix(in srgb, var(--info) 12%, var(--surface)); border-color: color-mix(in srgb, var(--info) 40%, transparent); color: var(--info-deep); }
+
+/* ---------- buttons ---------- */
+.btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 8px 16px;
+	border-radius: var(--radius-control);
+	border: 1px solid var(--border);
+	background: var(--surface);
+	color: var(--text);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	font-family: var(--font-sans);
+	cursor: pointer;
+}
+.btn svg { width: 15px; height: 15px; }
+.btn:hover { background: var(--surface-alt); text-decoration: none; }
+.btn-primary { background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); color: #fff; }
+.btn-primary:hover { background: var(--btn-primary-hover); border-color: var(--btn-primary-hover); }
+/* Green is reserved for "bring something new into existence". */
+.btn-success { background: var(--btn-success-bg); border-color: var(--btn-success-bg); color: #fff; font-weight: 600; }
+.btn-success:hover { background: var(--btn-success-hover); border-color: var(--btn-success-hover); }
+.btn-ghost { background: transparent; border-color: transparent; color: var(--text-muted); }
+.btn-ghost:hover { background: var(--surface-alt); color: var(--text); }
+.btn-sm { padding: 5px 11px; font-size: 0.75rem; }
+
+/* ---------- outlined square icon buttons (table row actions) ---------- */
+.icon-action {
+	display: inline-flex; align-items: center; justify-content: center;
+	width: 32px; height: 32px; padding: 0;
+	border-radius: var(--radius-badge);
+	border: 1px solid var(--border);
+	background: var(--surface);
+	color: var(--text-muted);
+	cursor: pointer;
+}
+.icon-action svg { width: 15px; height: 15px; }
+.icon-action:hover { text-decoration: none; }
+.a-primary { color: var(--primary-deep); border-color: color-mix(in srgb, var(--primary) 45%, transparent); }
+.a-primary:hover { background: color-mix(in srgb, var(--primary) 12%, var(--surface)); }
+.a-secondary { color: var(--secondary-deep); border-color: color-mix(in srgb, var(--secondary) 45%, transparent); }
+.a-secondary:hover { background: color-mix(in srgb, var(--secondary) 12%, var(--surface)); }
+.a-danger { color: var(--danger-deep); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+.a-danger:hover { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); }
+
+/* ---------- quick actions ---------- */
+.quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 20px; }
+.quick-action {
+	display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; text-align: center;
+	background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+	box-shadow: var(--shadow-card);
+	padding: 24px 12px; color: var(--text); font-size: 0.8125rem; font-weight: 600;
+}
+.quick-action:hover { text-decoration: none; border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); background: var(--surface-alt); }
+.quick-action-icon { display: flex; align-items: center; justify-content: center; color: var(--secondary-deep); }
+.quick-action-icon svg { width: 24px; height: 24px; }
+
+/* ---------- progress (goal-tracking) ---------- */
+.progress-track { width: 100%; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--text) 12%, transparent); overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 999px; background: var(--success); }
+.progress-fill.p-warning { background: var(--warning); }
+.progress-fill.p-danger { background: var(--danger); }
+.progress-label { font-size: 0.6875rem; color: var(--text-muted); margin-top: 4px; }
+
+/* ---------- forms ---------- */
+/* number is in the list deliberately: without it, every AS number and route
+   limit renders in a browser-default box a third the width of its neighbour. */
+input[type=text], input[type=password], input[type=number], select {
+	width: 100%;
+	padding: 8px 10px;
+	border-radius: var(--radius-control);
+	border: 1px solid var(--border);
+	background: var(--surface);
+	color: var(--text);
+	font-size: 0.8125rem;
+	font-family: var(--font-sans);
+}
+label { display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }
+.field { margin-bottom: 14px; }
+
+/* ---------- forms ---------- */
+/* Not scoped to .field: some hints sit beside a checkbox, outside any field. */
+.hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; font-weight: 400; }
+.field-error { font-size: 0.75rem; color: var(--danger-deep); margin-top: 4px; font-weight: 500; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+.checks { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.check { display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; color: var(--text); font-weight: 400; text-transform: none; margin: 0; }
+.check input { width: auto; margin: 0; }
+.form-actions { display: flex; gap: 8px; margin-bottom: 20px; }
+textarea {
+	width: 100%; padding: 10px; border-radius: var(--radius-control);
+	border: 1px solid var(--border); background: var(--surface); color: var(--text);
+	font-size: 0.8125rem; line-height: 1.6; resize: vertical;
+}
+.btn-danger { color: var(--danger-deep); border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
+.btn-danger:hover { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
+.row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.row-actions form { margin: 0; }
+
+.flash {
+	background: color-mix(in srgb, var(--success) 12%, var(--surface));
+	border: 1px solid color-mix(in srgb, var(--success) 35%, var(--border));
+	color: var(--success-deep);
+	border-radius: var(--radius-control);
+	padding: 10px 14px; margin-bottom: 16px; font-size: 0.8125rem; font-weight: 500;
+}
+
+/* Form on the left, live BIRD-code preview on the right. */
+.split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+@media (min-width: 1200px) {
+	.split { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+	.sticky-preview { position: sticky; top: 78px; }
+}
+
+/* ---------- ordered policy chains ---------- */
+.chain-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.chain-row { display: flex; align-items: center; gap: 8px; }
+.chain-row select { flex: 1; min-width: 0; }
+.chain-pos {
+	flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+	background: var(--surface-alt); border: 1px solid var(--border);
+	font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+	display: flex; align-items: center; justify-content: center; color: var(--text-muted);
+}
+.chain-row .icon-action { width: 30px; height: 30px; font-size: 14px; line-height: 1; }
+.chain-row .icon-action[disabled] { opacity: 0.35; cursor: default; }
+.chain-empty { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 10px; }
+.is-hidden { display: none; }
+/* Several chips per table cell, wrapping rather than stretching the column. */
+.chain-cell { display: flex; flex-wrap: wrap; gap: 4px; max-width: 220px; }
+
+/* ---------- lint findings ---------- */
+.lint-list { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.lint-list li { font-size: 0.8125rem; padding-left: 14px; border-left: 3px solid var(--border); line-height: 1.55; }
+.lint-danger { border-left-color: var(--danger) !important; }
+.lint-warn { border-left-color: var(--warning) !important; }
+
+/* ---------- generated code + diff ---------- */
+.code-block {
+	margin: 0; padding: 16px 18px;
+	font-family: var(--font-mono); font-size: 12px; line-height: 1.6;
+	white-space: pre; overflow-x: auto; tab-size: 4;
+	background: var(--surface-alt);
+	border-radius: 0 0 var(--radius-card) var(--radius-card);
+	color: var(--text);
+}
+.preview-note { font-size: 0.75rem; color: var(--text-muted); border-top: 1px solid var(--border); }
+
+/* The diff scrolls itself: its rows are full-bleed tinted bands, so they must
+   be as wide as the longest line, not clipped to the card. */
+.diff { font-family: var(--font-mono); font-size: 12px; line-height: 1.55; tab-size: 4; overflow-x: auto; }
+.diff-line, .diff-hunk-head { width: max-content; min-width: 100%; }
+.diff-hunk-head {
+	padding: 6px 18px; color: var(--text-muted);
+	background: var(--surface-alt); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+.diff-hunk-head:first-child { border-top: none; }
+.diff-line { padding: 0 18px; white-space: pre; }
+.diff-line .op { display: inline-block; width: 1.2em; opacity: 0.7; user-select: none; }
+.diff-line.op-\+ { background: color-mix(in srgb, var(--success) 14%, var(--surface)); color: var(--success-deep); }
+.diff-line.op-\- { background: color-mix(in srgb, var(--danger) 14%, var(--surface)); color: var(--danger-deep); }
+.diff-stat { font-family: var(--font-mono); font-size: 0.8125rem; }
+.diff-stat .add { color: var(--success-deep); font-weight: 600; }
+.diff-stat .del { color: var(--danger-deep); font-weight: 600; }
+
+/* ---------- login ---------- */
+.login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); }
+.login-card { width: 320px; }
+.login-card .brand { display: block; text-align: center; font-size: 1.375rem; font-weight: 700; margin-bottom: 18px; color: var(--text); }
+.error-text { color: var(--danger-deep); font-size: 0.8125rem; margin-bottom: 10px; }
+
+/* ---------- misc ---------- */
+.text-muted { color: var(--text-muted); }
+
+/* Striped label/value rows: muted label left, value hard right, zebra fill.
+   Stripes are addressed per row, so the two-pairs-wide layout below tints
+   both pairs of a row rather than checkerboarding them. */
+.kv { display: grid; grid-template-columns: 1fr auto; font-size: 0.8125rem; }
+.kv dt { color: var(--text-muted); padding: 10px 14px; border-radius: 8px 0 0 8px; }
+.kv dd { margin: 0; padding: 10px 14px; border-radius: 0 8px 8px 0; font-family: var(--font-mono); font-weight: 500; text-align: right; }
+.kv dt:nth-of-type(odd), .kv dd:nth-of-type(odd) { background: var(--surface-alt); }
+.empty { color: var(--text-muted); padding: 32px; text-align: center; font-size: 0.8125rem; }
+.timeline-item { display: flex; gap: 12px; padding: 11px 18px; border-bottom: 1px solid var(--border); font-size: 0.8125rem; align-items: center; }
+.timeline-item:last-child { border-bottom: none; }
+.timeline-time { color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; width: 150px; flex-shrink: 0; font-size: 0.75rem; }
+.timeline-time .rel { font-size: 0.6875rem; opacity: 0.75; margin-top: 1px; }
+
+.table-scroll { overflow-x: auto; }
+.row-link { cursor: pointer; }
+.mono, td.num, .stat-value, .timeline-time { font-variant-numeric: tabular-nums; }
+.login-sub { text-align: center; color: var(--text-muted); font-size: 0.75rem; margin: -14px 0 18px; }
+
+/* Two key/value pairs per row once the full-width page has room for it. The
+   stripe then spans a whole row (pairs 4n+1 and 4n+2), not every other pair.
+   The gutter is a margin on the left pair's value, not a grid column-gap:
+   a gap would fall between a label and its own value and split the stripe. */
+@media (min-width: 1100px) {
+	.kv { grid-template-columns: 1fr auto 1fr auto; }
+	.kv dd:nth-of-type(odd) { margin-right: 28px; }
+	.kv dt:nth-of-type(odd), .kv dd:nth-of-type(odd) { background: none; }
+	.kv dt:nth-of-type(4n+1), .kv dd:nth-of-type(4n+1),
+	.kv dt:nth-of-type(4n+2), .kv dd:nth-of-type(4n+2) { background: var(--surface-alt); }
+}
+
+/* ---------- collapsible card (raw output etc.) ---------- */
+details.collapse-card > summary { cursor: pointer; list-style: none; }
+details.collapse-card > summary::-webkit-details-marker { display: none; }
+details.collapse-card:not([open]) > summary.card-header { border-bottom: none; }
+.collapse-hint { font-size: 0.6875rem; font-weight: 500; color: var(--text-muted); }
+.collapse-hint::before { content: "show"; }
+details[open] .collapse-hint::before { content: "hide"; }
+
+/* ---------- motion ---------- */
+.btn, .icon-btn, .sidebar-nav a, .quick-action, .tab-btn {
+	transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+/* ---------- mobile navigation ---------- */
+.nav-toggle { display: none; }
+.nav-scrim { display: none; }
+
+@media (max-width: 860px) {
+	.nav-toggle { display: inline-flex; }
+	.sidebar {
+		position: fixed;
+		left: 0; top: 0; bottom: 0;
+		height: 100vh;
+		z-index: 40;
+		transform: translateX(-105%);
+		transition: transform 0.2s ease;
+	}
+	body.nav-open .sidebar { transform: translateX(0); }
+	body.nav-open .nav-scrim {
+		display: block;
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.45);
+		z-index: 30;
+	}
+	.topbar-search { display: none; }
+	.page { padding: 16px 14px 60px; }
+	.timeline-time { width: auto; }
+	.field-row { grid-template-columns: 1fr; }
+	.hero { padding: 22px 18px; }
+	.hero-title { font-size: 1.5rem; word-break: break-all; }
+	.hero-side { align-items: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}
+
+/* ---------- page tabs: switch the view without leaving the page ----------
+   Anchors, not buttons: the server honours ?tab=, so a tab survives a reload,
+   can be bookmarked, and works with JavaScript off. tabs.js upgrades them into
+   instant, history-aware swaps. */
+.page-tabs {
+	display: flex; gap: 4px; margin-bottom: 18px; overflow-x: auto;
+	border-bottom: 1px solid var(--border);
+}
+.page-tabs a {
+	display: flex; align-items: center; gap: 8px; white-space: nowrap;
+	padding: 9px 15px; font-size: 0.8125rem; font-weight: 500; color: var(--text-muted);
+	border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.page-tabs a:hover { color: var(--text); text-decoration: none; }
+.page-tabs a[aria-selected="true"] { color: var(--primary-deep); border-bottom-color: var(--primary-deep); font-weight: 600; }
+.page-tabs svg { width: 15px; height: 15px; }
+.tab-panel[hidden] { display: none; }
+
+/* ---------- line-numbered config ----------
+   bird -p reports errors by line, so the candidate config is numbered. The
+   gutter lives in ::before and is unselectable, so a drag-select or the Copy
+   button yields the config and nothing else. */
+.code-numbered { padding-left: 0; padding-right: 0; counter-reset: cl; }
+.code-numbered .cl { display: block; min-height: 1.6em; padding-right: 18px; }
+.code-numbered .cl::before {
+	content: counter(cl); counter-increment: cl;
+	display: inline-block; width: 40px; margin-right: 16px;
+	text-align: right; color: var(--text-muted); opacity: 0.5;
+	user-select: none; -webkit-user-select: none;
+}
+.code-numbered .cl:hover { background: var(--surface); }
+
+/* ---------- section sub-navigation (Library) ---------- */
+.subnav { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.subnav a {
+	padding: 8px 14px; font-size: 0.8125rem; font-weight: 500; color: var(--text-muted);
+	border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.subnav a:hover { color: var(--text); text-decoration: none; }
+.subnav a.active { color: var(--primary-deep); border-bottom-color: var(--primary-deep); font-weight: 600; }

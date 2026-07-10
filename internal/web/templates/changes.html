@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — changes</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Changes</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">Changes</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>Changes</h1>
+					<div class="page-sub">What birdy would write to <span class="mono">{{.LivePath}}</span>, and how it differs from what is running now.</div>
+				</div>
+			</div>
+
+			<div class="card panel-warning">
+				<div class="panel-head">{{template "icon-alert"}}Nothing here is applied</div>
+				<div class="card-body">
+					birdy cannot yet write to BIRD. This page renders the config from
+					{{.PeerCount}} peer{{if ne .PeerCount 1}}s{{end}}, {{.PolicyCount}} polic{{if ne .PolicyCount 1}}ies{{else}}y{{end}}
+					and {{.SetCount}} prefix set{{if ne .SetCount 1}}s{{end}},
+					checks it with <span class="chip">bird -p</span>, and diffs it against the running file. Copy it out by hand for now;
+					the apply pipeline (backup, <span class="chip">configure timeout</span>, verify, confirm or roll back) lands next.
+				</div>
+			</div>
+
+			{{if .Warnings}}
+			<div class="card {{if .Dangers}}panel-danger{{else}}panel-warning{{end}}">
+				<div class="panel-head">{{template "icon-alert"}}Review before you apply this
+					{{if .Dangers}}<span class="badge badge-danger">{{.Dangers}} serious</span>{{end}}
+				</div>
+				<div class="card-body">
+					<p class="text-muted" style="margin-top:0;font-size:0.8125rem">
+						<span class="mono">bird -p</span> checks syntax. It cannot tell you that a session will leak routes or reject everything it receives. These can:
+					</p>
+					<ul class="lint-list">
+						{{range .Warnings}}
+						<li class="lint-{{.Severity}}">{{if .Peer}}<span class="chip">{{.Peer}}</span> {{end}}{{.Message}}</li>
+						{{end}}
+					</ul>
+				</div>
+			</div>
+			{{end}}
+
+			{{if .RenderErr}}
+			<div class="card panel-danger">
+				<div class="panel-head">{{template "icon-alert"}}Cannot render a config</div>
+				<div class="card-body error-text">{{.RenderErr}}</div>
+			</div>
+			{{else}}
+
+			<div class="section-head">
+				<h2 class="section-title">{{template "icon-check"}}Syntax check</h2>
+			</div>
+			<div class="card {{if .Check.Skipped}}card-warning{{else if not .Check.OK}}card-danger{{end}}">
+				<div class="card-body">
+					{{if .Check.Skipped}}
+						<div><span class="badge badge-warning">skipped</span> {{.Check.Skipped}}</div>
+						<div class="text-muted" style="margin-top:8px;font-size:0.8125rem">The candidate config has not been validated. It is rendered below regardless.</div>
+					{{else if .Check.OK}}
+						<div><span class="badge badge-success">passed</span> <span class="mono">bird -p</span> accepted the candidate config.</div>
+					{{else}}
+						<div><span class="badge badge-danger">failed</span> <span class="mono">bird -p</span> rejected the candidate config.</div>
+					{{end}}
+					{{if .Check.Output}}<pre class="code-block" style="margin-top:12px">{{.Check.Output}}</pre>{{end}}
+				</div>
+			</div>
+
+			<nav class="page-tabs" data-tabs role="tablist">
+				<a href="?tab=config" data-tab="config" role="tab" aria-selected="{{if eq .Tab "config"}}true{{else}}false{{end}}">
+					{{template "icon-file"}}Candidate config
+				</a>
+				<a href="?tab=diff" data-tab="diff" role="tab" aria-selected="{{if eq .Tab "diff"}}true{{else}}false{{end}}">
+					{{template "icon-changes"}}Diff
+					{{if .Hunks}}<span class="diff-stat"><span class="add">+{{.Added}}</span> <span class="del">&minus;{{.Removed}}</span></span>
+					{{else if .Identical}}<span class="badge badge-success">in sync</span>{{end}}
+				</a>
+			</nav>
+
+			<section data-tab-panel="config" {{if ne .Tab "config"}}hidden{{end}} class="tab-panel">
+				<div class="card">
+					<div class="card-header">
+						<span class="card-title">{{template "icon-file"}}The whole file birdy would write</span>
+						<button type="button" id="copy-config" class="btn btn-sm">Copy</button>
+					</div>
+					<pre class="code-block code-numbered" id="candidate-config">{{range .CandidateLines}}<span class="cl">{{.}}</span>{{end}}</pre>
+					<div class="card-body preview-note">
+						Passwords are masked. Copying this into <span class="mono">{{.LivePath}}</span> as-is would configure every
+						session with the literal password <span class="mono">********</span> &mdash; fill in the real ones by hand.
+					</div>
+				</div>
+			</section>
+
+			<section data-tab-panel="diff" {{if ne .Tab "diff"}}hidden{{end}} class="tab-panel">
+				<div class="card">
+					<div class="card-header">
+						<span class="card-title">{{template "icon-changes"}}Against the running config</span>
+						{{if .Hunks}}<span class="diff-stat"><span class="add">+{{.Added}}</span> <span class="del">&minus;{{.Removed}}</span></span>{{end}}
+					</div>
+					{{if .LiveErr}}
+					<div class="card-body text-muted">{{.LiveErr}}</div>
+					{{end}}
+					{{if .Identical}}
+					<div class="card-body"><span class="badge badge-success">in sync</span> The running config already matches what birdy would write.</div>
+					{{else if .Hunks}}
+					<div class="diff">
+						{{range .Hunks}}
+						<div class="diff-hunk-head">{{.Header}}</div>
+						{{range .Lines}}<div class="diff-line op-{{printf "%c" .Op}}"><span class="op">{{printf "%c" .Op}}</span>{{.Text}}</div>{{end}}
+						{{end}}
+					</div>
+					<div class="card-body preview-note">
+						Passwords are masked on both sides, so a changed password value does not appear here.
+					</div>
+					{{else}}
+					<div class="card-body text-muted">No differences.</div>
+					{{end}}
+				</div>
+			</section>
+			{{end}}
+		</div>
+	</div>
+</div>
+<script src="/static/tabs.js"></script>
+<script src="/static/changes.js"></script>
+</body>
+</html>

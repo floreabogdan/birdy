@@ -1,0 +1,143 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — settings</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Settings</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">Settings</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>Settings</h1>
+					<div class="page-sub">Router identity, bogon lists and database snapshots.</div>
+				</div>
+			</div>
+
+			{{if .Msg}}<div class="flash">{{.Msg}}</div>{{end}}
+
+			<div class="card">
+				<div class="card-header"><span class="card-title">{{template "icon-settings"}}Router identity</span></div>
+				<div class="card-body">
+					<p class="text-muted" style="margin-top:0">These two values open every rendered config. BIRD will not start without a router ID.</p>
+					<form method="post" action="/settings/identity">
+						<div class="field-row">
+							<div class="field">
+								<label for="routerId">Router ID</label>
+								<input type="text" id="routerId" name="routerId" class="mono" value="{{.Settings.RouterID}}" placeholder="192.0.2.1" autocomplete="off">
+								<div class="hint">A 32-bit value, conventionally written as one of your IPv4 addresses.</div>
+								{{with index .IdentityErrs "routerId"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="field">
+								<label for="localAsn">Local ASN</label>
+								<input type="number" id="localAsn" name="localAsn" class="mono" value="{{if .Settings.LocalASN.Valid}}{{.Settings.LocalASN.Int64}}{{end}}" min="1" max="4294967295">
+								<div class="hint">Rendered as <code class="mono">define LOCAL_ASN</code> and used in the AS-path loop guard.</div>
+								{{with index .IdentityErrs "localAsn"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+						</div>
+						<button type="submit" class="btn btn-primary">Save identity</button>
+					</form>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="card-header">Router</div>
+				<div class="card-body">
+					<dl class="kv">
+						<dt>Label</dt><dd>{{.Settings.RouterLabel}}</dd>
+						<dt>BIRD socket</dt><dd>{{.Settings.BirdSocketPath}}</dd>
+						<dt>Listen address</dt><dd>{{.Settings.ListenAddr}}</dd>
+						<dt>Mode</dt><dd>{{if .ReadOnly}}<span class="badge badge-warning">read-only</span>{{else}}<span class="badge badge-success">read-write</span>{{end}}</dd>
+					</dl>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="card-header"><span class="card-title">{{template "icon-shield"}}Bogons</span></div>
+				<div class="card-body">
+					<p class="text-muted" style="margin-top:0">
+						Address space and AS numbers that must never appear in BGP. Every import policy with
+						"reject bogon prefixes" or an AS-path check reads these lists, and generated filters name them
+						directly — which is why they live here rather than in the Library, and cannot be deleted or announced.
+					</p>
+					<form method="post" action="/settings/bogons">
+						<div class="field-row">
+							<div class="field">
+								<label for="bogonsV4">IPv4 bogon prefixes</label>
+								<textarea id="bogonsV4" name="bogonsV4" rows="16" class="mono" spellcheck="false">{{.BogonsV4}}</textarea>
+								<div class="hint">One per line. Suffix <code class="mono">+</code> also matches more specifics.</div>
+								{{with index .BogonErrs "bogonsV4"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
+							</div>
+							<div class="field">
+								<label for="bogonsV6">IPv6 bogon prefixes</label>
+								<textarea id="bogonsV6" name="bogonsV6" rows="16" class="mono" spellcheck="false">{{.BogonsV6}}</textarea>
+								<div class="hint">Rendered as <code class="mono">define BOGONS_V6</code>.</div>
+								{{with index .BogonErrs "bogonsV6"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
+							</div>
+						</div>
+						<div class="field">
+							<label for="bogonAsns">Bogon AS numbers</label>
+							<textarea id="bogonAsns" name="bogonAsns" rows="11" class="mono" spellcheck="false">{{.BogonASNs}}</textarea>
+							<div class="hint">
+								One per line: <code class="mono">64512</code> or <code class="mono">64512-65534</code>, optionally followed by
+								<code class="mono">private</code> and a <code class="mono">#</code> comment.
+								Ranges marked <strong>private</strong> are the ones a policy set to "all except private" will tolerate —
+								that is what lets you peer with someone who legitimately uses a private ASN.
+							</div>
+							{{with index .BogonErrs "bogonAsns"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
+						</div>
+						<div class="form-actions" style="margin-bottom:0">
+							<button type="submit" class="btn btn-primary">Save bogon lists</button>
+							<button type="submit" name="restore" value="defaults" class="btn"
+								onclick="return confirm('Replace all three lists with the values birdy ships with?')">Restore defaults</button>
+						</div>
+					</form>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="card-header">Database snapshots</div>
+				<div class="card-body">
+					<p class="text-muted">birdy's entire state — settings, sessions, users, the event timeline — lives in one SQLite file. A fresh, consistent snapshot is taken nightly and can also be downloaded on demand below.</p>
+					<p><a class="btn btn-primary" href="/api/snapshot/download">Download snapshot now</a></p>
+
+					{{if not .ReadOnly}}
+					<hr style="border:none;border-top:1px solid var(--border);margin:18px 0">
+					<form id="restore-form" enctype="multipart/form-data">
+						<div class="field">
+							<label for="db">Restore from a snapshot file</label>
+							<input type="file" id="db" name="db" accept=".db">
+						</div>
+						<button type="submit" class="btn">Stage restore</button>
+						<span id="restore-msg" class="text-muted" style="margin-left:10px"></span>
+					</form>
+					<p class="text-muted" style="margin-top:8px">Restoring is staged, not applied live: birdy backs up the current database and swaps in the uploaded one the next time it starts. Run <code class="mono">systemctl restart birdy</code> afterward.</p>
+					<script>
+					document.getElementById("restore-form").addEventListener("submit", function (e) {
+						e.preventDefault();
+						var msg = document.getElementById("restore-msg");
+						var data = new FormData(e.target);
+						msg.textContent = "Uploading...";
+						fetch("/api/snapshot/restore", { method: "POST", body: data, credentials: "same-origin" })
+							.then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+							.then(function (res) {
+								msg.textContent = res.ok ? res.j.message : (res.j.error || "restore failed");
+							})
+							.catch(function () { msg.textContent = "restore failed"; });
+					});
+					</script>
+					{{end}}
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

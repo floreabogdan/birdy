@@ -1,0 +1,167 @@
+(function () {
+	var POLL_MS = 4000;
+	var KIND_BADGE = {
+		session_up: ["badge-success", "up"],
+		session_down: ["badge-danger", "down"],
+		flap: ["badge-warning", "flap"],
+		limit_hit: ["badge-warning", "limit"],
+		config_apply: ["badge-info", "config"],
+		config_revert: ["badge-info", "revert"],
+	};
+
+	function esc(s) {
+		var d = document.createElement("div");
+		d.textContent = s == null ? "" : String(s);
+		return d.innerHTML;
+	}
+
+	function fmtTime(iso) {
+		var d = new Date(iso);
+		if (isNaN(d.getTime())) return "-";
+		return d.toLocaleString();
+	}
+
+	function progressClass(pct) {
+		if (pct >= 90) return "p-danger";
+		if (pct >= 70) return "p-warning";
+		return "";
+	}
+
+	// Twin of the comma template func in templates.go.
+	function comma(n) {
+		return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+	}
+
+	function ratio(part, total) {
+		if (!total || total <= 0) return 0;
+		return Math.min((part / total) * 100, 100);
+	}
+
+	function setText(id, text) {
+		var el = document.getElementById(id);
+		if (el) el.textContent = text;
+	}
+
+	function setWidth(id, pct) {
+		var el = document.getElementById(id);
+		if (el) el.style.width = Math.round(pct) + "%";
+	}
+
+	function countCells(p) {
+		if (!p.hasCounts) {
+			return '<td class="num text-muted">—</td><td class="num text-muted">—</td>' +
+				'<td class="num text-muted">—</td><td class="text-muted">—</td>';
+		}
+		var limit;
+		if (p.limitPct >= 0) {
+			var w = Math.round(p.limitPct);
+			limit =
+				'<div class="progress-track"><div class="progress-fill ' + progressClass(p.limitPct) + '" style="width:' + w + '%"></div></div>' +
+				'<div class="progress-label">' + esc(p.limitText) + "</div>";
+		} else {
+			limit = '<span class="text-muted">no limit</span>';
+		}
+		var filtered = p.filtered
+			? esc(comma(p.filtered))
+			: '<span class="text-muted">0</span>';
+		return (
+			'<td class="num mono">' + esc(comma(p.imported)) + "</td>" +
+			'<td class="num mono">' + filtered + "</td>" +
+			'<td class="num mono">' + esc(comma(p.exported)) + "</td>" +
+			"<td>" + limit + "</td>"
+		);
+	}
+
+	// Only BGP belongs in the sessions table. Device/kernel/static are rendered
+	// once, server-side, in the collapsed infrastructure card.
+	function isBGP(p) {
+		return String(p.proto).toUpperCase() === "BGP";
+	}
+
+	function renderRows(protocols) {
+		var body = document.getElementById("proto-table-body");
+		if (!body) return;
+		var sessions = (protocols || []).filter(isBGP);
+		if (sessions.length === 0) {
+			body.innerHTML = '<tr><td colspan="9" class="empty">BIRD is running no BGP sessions.</td></tr>';
+			return;
+		}
+		body.innerHTML = sessions.map(function (p) {
+			var badgeClass = p.up ? "badge-success" : "badge-danger";
+			// BIRD's own vocabulary: Established, Active, Connect, Idle.
+			var state = p.info || p.state;
+			var managed = p.configured
+				? '<span class="badge badge-success">configured</span>'
+				: '<span class="badge badge-warning">unmanaged</span>';
+			return (
+				'<tr class="row-link" onclick="location.href=\'/peers/' + encodeURIComponent(p.name) + '\'">' +
+				'<td class="mono">' + esc(p.name) + "</td>" +
+				'<td class="mono">' + esc(p.table) + "</td>" +
+				'<td><span class="badge ' + badgeClass + '"><span class="dot"></span>' + esc(state) + "</span></td>" +
+				'<td class="mono">' + esc(p.since) + "</td>" +
+				countCells(p) +
+				"<td>" + managed + "</td>" +
+				"</tr>"
+			);
+		}).join("");
+	}
+
+	function renderEvents(events) {
+		var el = document.getElementById("recent-events");
+		if (!el) return;
+		if (!events || events.length === 0) {
+			el.innerHTML = '<div class="empty">No events yet.</div>';
+			return;
+		}
+		el.innerHTML = events.map(function (e) {
+			var b = KIND_BADGE[e.kind] || ["", e.kind];
+			return (
+				'<div class="timeline-item">' +
+				'<div class="timeline-time" data-ts="' + esc(e.ts) + '" title="' + esc(fmtTime(e.ts)) + '">' + esc(fmtTime(e.ts)) + "</div>" +
+				'<div><span class="badge ' + b[0] + '">' + esc(b[1]) + '</span> <span class="mono">' + esc(e.protocol) + "</span> — " + esc(e.message) + "</div>" +
+				"</div>"
+			);
+		}).join("");
+	}
+
+	function poll() {
+		fetch("/api/dashboard", { credentials: "same-origin" })
+			.then(function (r) {
+				if (r.status === 401 || r.redirected) { window.location.reload(); return null; }
+				return r.json();
+			})
+			.then(function (data) {
+				if (!data) return;
+				renderRows(data.protocols);
+				renderEvents(data.recentEvents);
+
+				var total = (data.protocols || []).length;
+				setText("stat-total", total);
+				setText("stat-up", data.upCount);
+				setText("stat-up-total", total);
+				setText("stat-down", data.downCount);
+				setText("stat-routes", comma(data.totalRoutes));
+				setWidth("bar-up", ratio(data.upCount, total));
+				setWidth("bar-down", ratio(data.downCount, total));
+
+				var hero = document.getElementById("hero-status");
+				if (hero) {
+					hero.classList.toggle("ok", !!data.statusOK);
+					hero.classList.toggle("bad", !data.statusOK);
+				}
+				setText("hero-status-text", data.statusText);
+
+				var updated = document.getElementById("updated-at");
+				if (updated) {
+					updated.setAttribute("data-ts", data.updatedAt);
+					updated.setAttribute("title", fmtTime(data.updatedAt));
+				}
+				if (window.birdyRefreshTimes) window.birdyRefreshTimes();
+				if (window.birdyApplyFilter) window.birdyApplyFilter();
+			})
+			.catch(function () { /* transient network hiccup, next poll will retry */ });
+	}
+
+	setInterval(poll, POLL_MS);
+	if (window.birdyRefreshTimes) window.birdyRefreshTimes();
+})();

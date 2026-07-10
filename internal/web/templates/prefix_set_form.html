@@ -1,0 +1,100 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — {{if .IsNew}}new prefix set{{else}}{{.Set.Name}}{{end}}</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">{{if .IsNew}}New prefix set{{else}}Edit prefix set{{end}}</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/library/prefix-sets">Library</a><span class="sep">/</span><span class="current mono">{{if .IsNew}}new{{else}}{{.Set.Name}}{{end}}</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>{{if .IsNew}}Add prefix set{{else}}Edit {{.Set.Name}}{{end}}</h1>
+					{{if .Set.Builtin}}<div class="page-sub">This set ships with birdy. Your edits are kept.</div>{{end}}
+				</div>
+			</div>
+
+			<form method="post" action="{{if .IsNew}}/library/prefix-sets/new{{else}}/library/prefix-sets/{{.Set.Name}}/edit{{end}}">
+			<div class="split">
+				<div>
+					{{if .Set.System}}
+					<div class="card panel-info">
+						<div class="panel-head">{{template "icon-info"}}This is a system set</div>
+						<div class="card-body" style="font-size:0.8125rem">
+							Generated filters name <span class="chip">{{.Set.Name}}</span> directly, so it cannot be renamed,
+							moved to another address family, or deleted. Edit it under <a href="/settings">Settings &rarr; Bogons</a>.
+						</div>
+					</div>
+					{{end}}
+					<div class="card">
+						<div class="card-body">
+							<div class="field">
+								<label for="name">Name</label>
+								<input type="text" id="name" name="name" class="mono" value="{{.Set.Name}}" autocomplete="off" required {{if .Set.System}}readonly{{end}}>
+								<div class="hint">Becomes a BIRD <code class="mono">define</code>. Convention is upper case, e.g. ANNOUNCE_V4.</div>
+								{{with index .Errs "name"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="field">
+								<label for="description">Description</label>
+								<input type="text" id="description" name="description" value="{{.Set.Description}}" autocomplete="off">
+								{{with index .Errs "description"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="field">
+								<label for="family">Address family</label>
+								<select id="family" name="family" {{if .Set.System}}disabled{{end}}>
+									<option value="ipv4" {{if eq .Set.Family "ipv4"}}selected{{end}}>IPv4</option>
+									<option value="ipv6" {{if eq .Set.Family "ipv6"}}selected{{end}}>IPv6</option>
+								</select>
+								{{with index .Errs "family"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="field">
+								<label for="entries">Prefixes</label>
+								<textarea id="entries" name="entries" rows="14" class="mono" spellcheck="false" placeholder="192.0.2.0/24&#10;198.51.100.0/24+&#10;203.0.113.0/24{25,32}">{{range .Set.Entries}}{{.Pattern}}
+{{end}}</textarea>
+								<div class="hint">
+									One per line. Blank lines and <code class="mono">#</code> comments are ignored.
+									Suffix <code class="mono">+</code> also matches more specifics, <code class="mono">-</code> matches less specifics,
+									<code class="mono">{24,32}</code> matches a length range.
+								</div>
+								{{with index .Errs "entries"}}<div class="field-error">{{.}}</div>{{end}}
+								{{range fieldErrs .Errs "entry."}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							{{if not .Set.System}}
+							<div class="checks">
+								<label class="check"><input type="checkbox" name="originate" {{if .Set.Originate}}checked{{end}}> Originate these prefixes</label>
+							</div>
+							<div class="hint">Originating adds a static protocol announcing each prefix as a blackhole route. You must originate what you announce.</div>
+							{{end}}
+						</div>
+					</div>
+
+					<div class="form-actions">
+						{{if .IsNew}}<button type="submit" class="btn btn-success">{{template "icon-plus"}}Create prefix set</button>{{else}}<button type="submit" class="btn btn-primary">Save changes</button>{{end}}
+						<a class="btn" href="/library/prefix-sets">Cancel</a>
+					</div>
+				</div>
+
+				<div>
+					<div class="card sticky-preview">
+						<div class="card-header"><span class="card-title">{{template "icon-changes"}}Generated BIRD code</span></div>
+						{{if .Preview}}
+						<pre class="code-block">{{.Preview}}</pre>
+						{{else}}
+						<div class="card-body text-muted">{{.PreviewErr}}</div>
+						{{end}}
+					</div>
+				</div>
+			</div>
+			</form>
+		</div>
+	</div>
+</div>
+</body>
+</html>
