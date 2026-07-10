@@ -114,6 +114,9 @@ func peerFromForm(r *http.Request) store.Peer {
 		OriginPeerOnly:    r.FormValue("originPeerOnly") == "on",
 		NextHopSelf:       r.FormValue("nextHopSelf") == "on",
 		RRClient:          r.FormValue("rrClient") == "on",
+		PrependCount:      atoi("prependCount"),
+		ExportCommunities: strings.TrimSpace(r.FormValue("exportCommunities")),
+		Drained:           r.FormValue("drained") == "on",
 	}
 }
 

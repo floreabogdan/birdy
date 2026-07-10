@@ -48,6 +48,7 @@
 								{{else if eq .Role "ix_peer"}}<span class="badge badge-primary">IX peer</span>
 								{{else if eq .Role "customer"}}<span class="badge badge-success">customer</span>
 								{{else}}<span class="badge badge-info">iBGP</span>{{end}}
+								{{if .Drained}}<span class="badge badge-warning" title="Draining for maintenance (RFC 8326 graceful shutdown)">draining</span>{{end}}
 							</td>
 							<td><span class="chip chip-primary">{{if .IsV6}}IPv6{{else}}IPv4{{end}}</span></td>
 							<td class="mono">{{.NeighborIP}}{{if .Multihop}}<div class="text-muted" style="font-size:0.75rem">multihop {{.Multihop}}</div>{{end}}</td>

@@ -67,6 +67,19 @@ type Peer struct {
 	// which is why a plain iBGP mesh has to be full.
 	RRClient bool
 
+	// PrependCount prepends our own AS this many times to everything we announce
+	// to this peer — a longer path is less preferred, so this steers inbound
+	// traffic away from this peer. eBGP only.
+	PrependCount int
+	// ExportCommunities are attached to every route announced to this peer, e.g.
+	// a community an upstream defines to mean "do not export to your other
+	// peers". Colon-separated, one per line. eBGP only.
+	ExportCommunities string
+	// Drained marks the session for maintenance: birdy signals RFC 8326
+	// graceful shutdown to the peer and deprefers routes from it, so traffic
+	// drains away before you take the session down. eBGP only.
+	Drained bool
+
 	// Ordered policy chains, filled by the caller from SetPeerPolicies/PeerPolicies.
 	ImportPolicies []Policy
 	ExportPolicies []Policy
@@ -103,6 +116,17 @@ func (p *Peer) Validate() map[string]string {
 	if !p.IsIBGP() {
 		p.NextHopSelf = false
 		p.RRClient = false
+	} else {
+		// These are eBGP export transforms; they mean nothing inside our own AS.
+		p.PrependCount = 0
+		p.ExportCommunities = ""
+		p.Drained = false
+	}
+	if p.PrependCount < 0 || p.PrependCount > 10 {
+		errs["prependCount"] = "Prepend between 0 and 10 times."
+	}
+	if _, cerrs := ParseCommunities(p.ExportCommunities); len(cerrs) > 0 {
+		errs["exportCommunities"] = strings.Join(cerrs, "\n")
 	}
 
 	neighbor, err := netip.ParseAddr(strings.TrimSpace(p.NeighborIP))
@@ -156,7 +180,8 @@ func (s *Store) ListPeers() ([]Peer, error) {
 	rows, err := s.db.Query(`
 		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
-		       origin_peer_only, next_hop_self, rr_client
+		       origin_peer_only, next_hop_self, rr_client,
+		       prepend_count, export_communities, drained
 		FROM peers ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list peers: %w", err)
@@ -177,7 +202,8 @@ func (s *Store) GetPeer(id int64) (Peer, error) {
 	row := s.db.QueryRow(`
 		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
-		       origin_peer_only, next_hop_self, rr_client
+		       origin_peer_only, next_hop_self, rr_client,
+		       prepend_count, export_communities, drained
 		FROM peers WHERE id = ?`, id)
 	p, err := scanPeer(row)
 	if err == sql.ErrNoRows {
@@ -193,7 +219,8 @@ func (s *Store) GetPeerByName(name string) (Peer, error) {
 	row := s.db.QueryRow(`
 		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
-		       origin_peer_only, next_hop_self, rr_client
+		       origin_peer_only, next_hop_self, rr_client,
+		       prepend_count, export_communities, drained
 		FROM peers WHERE name = ?`, name)
 	p, err := scanPeer(row)
 	if err == sql.ErrNoRows {
@@ -209,7 +236,8 @@ func scanPeer(sc scanner) (Peer, error) {
 	err := sc.Scan(&p.ID, &p.Name, &p.Description, &p.Role, &p.Enabled, &p.NeighborIP,
 		&p.RemoteASN, &p.LocalIP, &p.Multihop, &p.Passive, &p.Password,
 		&p.ImportLimit, &p.ImportLimitAction, &p.EnforceFirstAS, &p.OriginPeerOnly,
-		&p.NextHopSelf, &p.RRClient)
+		&p.NextHopSelf, &p.RRClient,
+		&p.PrependCount, &p.ExportCommunities, &p.Drained)
 	return p, err
 }
 
@@ -219,11 +247,12 @@ func (s *Store) CreatePeer(p Peer) (int64, error) {
 		INSERT INTO peers (name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		                   multihop, passive, password, import_limit, import_limit_action,
 		                   enforce_first_as, origin_peer_only, next_hop_self, rr_client,
-		                   created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   prepend_count, export_communities, drained, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
-		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient, ts, ts)
+		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
+		p.PrependCount, p.ExportCommunities, p.Drained, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create peer: %w", err)
 	}
@@ -235,11 +264,13 @@ func (s *Store) UpdatePeer(p Peer) error {
 		UPDATE peers SET name = ?, description = ?, role = ?, enabled = ?, neighbor_ip = ?,
 		                 remote_asn = ?, local_ip = ?, multihop = ?, passive = ?, password = ?,
 		                 import_limit = ?, import_limit_action = ?, enforce_first_as = ?,
-		                 origin_peer_only = ?, next_hop_self = ?, rr_client = ?, updated_at = ?
+		                 origin_peer_only = ?, next_hop_self = ?, rr_client = ?,
+		                 prepend_count = ?, export_communities = ?, drained = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
-		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient, now(), p.ID)
+		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
+		p.PrependCount, p.ExportCommunities, p.Drained, now(), p.ID)
 	if err != nil {
 		return fmt.Errorf("store: update peer: %w", err)
 	}

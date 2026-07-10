@@ -61,6 +61,13 @@ func Lint(in Input) []Warning {
 			add(SeverityWarn, p.Name,
 				"Next-hop-self is off. Routes learned from an eBGP peer will be readvertised on this session carrying that peer's address as the next hop; the far end can only use them if your IGP carries the peering subnets.")
 		}
+
+		// A drained peer is a deliberate, temporary state — but an easy one to
+		// forget, so surface it every time the config is reviewed.
+		if p.Drained {
+			add(SeverityWarn, p.Name,
+				"This peer is draining: birdy signals graceful shutdown and deprefers its routes so traffic moves away. Undrain it once maintenance is done.")
+		}
 	}
 
 	if in.RRClusterID != "" {

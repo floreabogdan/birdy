@@ -157,6 +157,31 @@
 						</div>
 					</div>
 
+					<div class="card" data-role-only="ebgp" {{if eq .Peer.Role "ibgp"}}hidden{{end}}>
+						<div class="card-header"><span class="card-title">{{template "icon-route"}}Traffic engineering</span></div>
+						<div class="card-body">
+							<div class="field">
+								<label for="prependCount">AS-path prepend</label>
+								<input type="number" id="prependCount" name="prependCount" class="mono" value="{{.Peer.PrependCount}}" min="0" max="10">
+								<div class="hint">Prepend our own AS this many times to everything we announce here. A longer path is less preferred, so this steers inbound traffic <strong>away</strong> from this peer. 0 = off.</div>
+								{{with index .Errs "prependCount"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="field">
+								<label for="exportCommunities">Export communities</label>
+								<textarea id="exportCommunities" name="exportCommunities" rows="3" class="mono" spellcheck="false" placeholder="65000:666&#10;65551:1:2">{{.Peer.ExportCommunities}}</textarea>
+								<div class="hint">Attached to every route we announce here. One per line: <span class="mono">ASN:value</span> (standard) or <span class="mono">ASN:x:y</span> (large). Upstreams publish these to mean things like &ldquo;do not export to your other peers&rdquo;.</div>
+								{{with index .Errs "exportCommunities"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
+							</div>
+							<div class="checks">
+								<label class="check"><input type="checkbox" name="drained" {{if .Peer.Drained}}checked{{end}}> Drain this session (maintenance)</label>
+							</div>
+							<div class="hint">
+								Signals <strong>graceful shutdown</strong> (RFC 8326) to the peer and deprefers its routes, so traffic moves off this
+								session before you take it down. It does <em>not</em> disable the session &mdash; undrain it when maintenance is done.
+							</div>
+						</div>
+					</div>
+
 					<div class="card">
 						<div class="card-header"><span class="card-title">{{template "icon-shield"}}Transport &amp; limits</span></div>
 						<div class="card-body">

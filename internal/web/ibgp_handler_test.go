@@ -187,3 +187,32 @@ func TestRRClusterIDValidation(t *testing.T) {
 		t.Errorf("an IPv6 cluster id should be refused, got %d", rec.Code)
 	}
 }
+
+func TestPeerTrafficEngineeringPersists(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+
+	form := peerForm()
+	form.Set("prependCount", "3")
+	form.Set("exportCommunities", "65000:666\n65551:1:2")
+	form.Set("drained", "on")
+	if rec := env.do(t, "POST", "/peers/new", form); rec.Code != http.StatusSeeOther {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	p, err := env.store.GetPeerByName("transit_v4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.PrependCount != 3 || !p.Drained || p.ExportCommunities == "" {
+		t.Fatalf("TE fields not persisted: %+v", p)
+	}
+
+	// A bad community is a form error, and nothing is saved.
+	bad := peerForm()
+	bad.Set("name", "bad_comm")
+	bad.Set("exportCommunities", "70000:1")
+	rec := env.do(t, "POST", "/peers/new", bad)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "standard community") {
+		t.Errorf("a bad community should be rejected on the form, got %d", rec.Code)
+	}
+}

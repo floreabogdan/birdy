@@ -769,3 +769,76 @@ func TestLintFlagsStaticVsOriginateClash(t *testing.T) {
 		t.Errorf("a static/originate clash should be flagged: %+v", Lint(in))
 	}
 }
+
+func TestExportTransforms(t *testing.T) {
+	in := baseInput()
+	p := ebgpPeer()
+	p.PrependCount = 2
+	p.ExportCommunities = "65000:666\n65551:1:2"
+	p.Drained = true
+	p.ExportPolicies = []store.Policy{{
+		ID: 1, Name: "EXPORT_MINE", Direction: store.DirExport, AnnounceEverything: true,
+	}}
+	in.Peers = []store.Peer{p}
+
+	out, err := Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The export filter for this peer must carry the transforms, BEFORE the
+	// policy call — a policy accept terminates the filter.
+	seg := out[strings.Index(out, "filter ebgp_out_"+p.Name):]
+	seg = seg[:strings.Index(seg, "\n}")]
+	for _, want := range []string{
+		"bgp_community.add((65535, 0))",          // graceful shutdown (drain)
+		"bgp_path.prepend(LOCAL_ASN);",           // prepend
+		"bgp_community.add((65000, 666))",        // standard community
+		"bgp_large_community.add((65551, 1, 2))", // large community
+	} {
+		if !strings.Contains(seg, want) {
+			t.Errorf("export filter missing %q:\n%s", want, seg)
+		}
+	}
+	// prepend appears exactly twice.
+	if got := strings.Count(seg, "bgp_path.prepend"); got != 2 {
+		t.Errorf("prepend count = %d, want 2", got)
+	}
+	// drain also deprefers on import.
+	imp := out[strings.Index(out, "filter ebgp_in_"+p.Name):]
+	if !strings.Contains(imp[:strings.Index(imp, "\n}")], "bgp_local_pref = 0;") {
+		t.Error("a drained peer should set local_pref 0 on import")
+	}
+}
+
+// Transforms are eBGP-only; an iBGP peer must render none of them.
+func TestNoExportTransformsForIBGP(t *testing.T) {
+	in := baseInput()
+	p := store.Peer{Name: "ibgp_core", Role: store.RoleIBGP, Enabled: true,
+		NeighborIP: "192.0.2.9", RemoteASN: in.LocalASN, NextHopSelf: true,
+		PrependCount: 3, Drained: true, ImportLimitAction: "restart"}
+	p.Validate() // normalises the eBGP-only fields away
+	in.Peers = []store.Peer{p}
+	out, err := Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "bgp_path.prepend") || strings.Contains(out, "GRACEFUL_SHUTDOWN") {
+		t.Error("iBGP peer should carry no export transforms")
+	}
+}
+
+func TestLintFlagsDrainedPeer(t *testing.T) {
+	in := baseInput()
+	p := ebgpPeer()
+	p.Drained = true
+	in.Peers = []store.Peer{p}
+	var found bool
+	for _, w := range Lint(in) {
+		if strings.Contains(w.Message, "draining") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("a drained peer should be surfaced by lint")
+	}
+}

@@ -742,6 +742,12 @@ func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 	// sending it to us pre-tagged with one of our own large communities.
 	fmt.Fprintf(b, "\tbgp_large_community.delete([(%d, *, *)]);\n", in.LocalASN)
 
+	// Draining: deprefer everything this peer sends, so we route around it while
+	// its own traffic bleeds off. Part of RFC 8326 graceful shutdown.
+	if p.Drained {
+		b.WriteString("\tbgp_local_pref = 0;\t# draining: deprefer this peer (RFC 8326)\n")
+	}
+
 	for _, pol := range p.ImportPolicies {
 		fmt.Fprintf(b, "\t%s;\n", policyFunc(pol, fam))
 	}
@@ -753,6 +759,31 @@ func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 
 func writePeerExportFilter(b *strings.Builder, p store.Peer, fam family) {
 	fmt.Fprintf(b, "filter ebgp_out_%s\n{\n", p.Name)
+
+	// Transforms run before the policy calls, because a policy function accepts
+	// the route and terminates the filter — so the route must already carry these
+	// modifications by the time it is accepted.
+
+	// Draining: signal RFC 8326 graceful shutdown so a peer that honours it
+	// deprefers what we announce and shifts its traffic off this session.
+	if p.Drained {
+		b.WriteString("\tbgp_community.add((65535, 0));\t# GRACEFUL_SHUTDOWN (RFC 8326) — draining\n")
+	}
+	// Prepend our own AS to make the path we advertise less preferred, steering
+	// inbound traffic toward our other peers.
+	for range p.PrependCount {
+		b.WriteString("\tbgp_path.prepend(LOCAL_ASN);\n")
+	}
+	// Operator-defined communities, e.g. an upstream's "do not export" signal.
+	comms, _ := store.ParseCommunities(p.ExportCommunities)
+	for _, c := range comms {
+		verb := "bgp_community"
+		if c.Large {
+			verb = "bgp_large_community"
+		}
+		fmt.Fprintf(b, "\t%s.add(%s);\n", verb, c.BIRD())
+	}
+
 	for _, pol := range p.ExportPolicies {
 		fmt.Fprintf(b, "\t%s;\n", policyFunc(pol, fam))
 	}

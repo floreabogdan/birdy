@@ -7,7 +7,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 10
+const schemaVersion = 11
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -172,6 +172,21 @@ func migrate(db *sql.DB) error {
 		// never written the file, so it must not overwrite a config it did not
 		// author without the operator explicitly adopting the router first.
 		if err := ensureColumn(tx, "settings", "applied_config_hash", `ALTER TABLE settings ADD COLUMN applied_config_hash TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 11 {
+		// eBGP export transforms: prepend our AS to steer inbound traffic, attach
+		// communities to signal upstreams, and a drain flag for RFC 8326 graceful
+		// shutdown before maintenance.
+		if err := ensureColumn(tx, "peers", "prepend_count", `ALTER TABLE peers ADD COLUMN prepend_count INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "peers", "export_communities", `ALTER TABLE peers ADD COLUMN export_communities TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "peers", "drained", `ALTER TABLE peers ADD COLUMN drained INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return err
 		}
 	}
