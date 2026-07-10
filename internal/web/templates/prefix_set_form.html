@@ -70,7 +70,21 @@
 							<div class="checks">
 								<label class="check"><input type="checkbox" name="originate" {{if .Set.Originate}}checked{{end}}> Originate these prefixes</label>
 							</div>
-							<div class="hint">Originating adds a static protocol announcing each prefix as a blackhole route. You must originate what you announce.</div>
+							<div class="hint">Originating adds a static protocol that anchors each prefix in the table. You must originate what you announce &mdash; an export filter permitting a prefix does nothing unless some protocol puts that route there.</div>
+							<div class="field" style="max-width:22rem">
+								<label for="originateAction">The anchor route</label>
+								<select id="originateAction" name="originateAction">
+									<option value="blackhole" {{if eq .Set.OriginateAction "blackhole"}}selected{{end}}>blackhole — drop it silently</option>
+									<option value="unreachable" {{if eq .Set.OriginateAction "unreachable"}}selected{{end}}>unreachable — drop it, send ICMP unreachable</option>
+									<option value="prohibit" {{if eq .Set.OriginateAction "prohibit"}}selected{{end}}>prohibit — drop it, send ICMP admin-prohibited</option>
+								</select>
+								<div class="hint">
+									The anchor only ever catches addresses inside the aggregate that no longer prefix matches &mdash; unassigned space.
+									Subnets that are up win on longest match, whether they come from an interface or from iBGP.
+									Dropping the rest here is the point: otherwise it follows your default route back to your upstream, which sends it back to you.
+								</div>
+								{{with index .Errs "originateAction"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
 							{{end}}
 						</div>
 					</div>

@@ -7,7 +7,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 8
+const schemaVersion = 9
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -153,6 +153,15 @@ func migrate(db *sql.DB) error {
 		}
 		// The escape hatch: config birdy does not model, appended verbatim.
 		if err := ensureColumn(tx, "settings", "raw_config", `ALTER TABLE settings ADD COLUMN raw_config TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 9 {
+		// An originated aggregate is an anchor route, and what it does with the
+		// traffic it attracts is a choice: drop it silently (blackhole) or say so
+		// (unreachable / prohibit). It used to always be blackhole.
+		if err := ensureColumn(tx, "prefix_sets", "originate_action", `ALTER TABLE prefix_sets ADD COLUMN originate_action TEXT NOT NULL DEFAULT 'blackhole'`); err != nil {
 			return err
 		}
 	}

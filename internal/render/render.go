@@ -402,9 +402,18 @@ func writeOriginators(b *strings.Builder, sets []store.PrefixSet) error {
 		if ps.Family == store.FamilyV6 {
 			channel = "ipv6"
 		}
-		fmt.Fprintf(b, "# Originate the prefixes in %s.\nprotocol static originate_%s {\n\t%s;\n", ps.Name, ps.Name, channel)
+		action := ps.OriginateAction
+		if action == "" {
+			action = store.OriginateBlackhole
+		}
+		fmt.Fprintf(b, "# Originate the prefixes in %s. The anchor keeps each one in the table\n"+
+			"# whether or not its more-specifics are up, so the announcement never flaps —\n"+
+			"# and it swallows traffic for unassigned space instead of sending it back out\n"+
+			"# the default route.\nprotocol static originate_%s {\n\t%s;\n", ps.Name, ps.Name, channel)
 		for _, e := range ps.Entries {
-			fmt.Fprintf(b, "\troute %s blackhole;\n", e.Prefix)
+			// The anchor route is the prefix itself, never the pattern: a "+"
+			// modifier widens what the filter matches, not what we originate.
+			fmt.Fprintf(b, "\troute %s %s;\n", e.Prefix, action)
 		}
 		b.WriteString("}\n\n")
 	}

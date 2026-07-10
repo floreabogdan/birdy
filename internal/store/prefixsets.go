@@ -14,6 +14,24 @@ const (
 	FamilyV6 = "ipv6"
 )
 
+// What an originated aggregate does with the traffic it attracts. The anchor
+// only ever catches addresses inside the aggregate that no longer prefix
+// matches — unassigned space — because the kernel forwards on longest match,
+// not on BIRD's route preference.
+//
+// Dropping that traffic here is the point. Without an anchor it would match
+// your default route and go straight back to your upstream, which sends it
+// back to you: a loop that lasts until the TTL runs out.
+const (
+	OriginateBlackhole   = "blackhole"   // drop it silently
+	OriginateUnreachable = "unreachable" // drop it, send ICMP unreachable
+	OriginateProhibit    = "prohibit"    // drop it, send ICMP admin-prohibited
+)
+
+var originateActions = map[string]bool{
+	OriginateBlackhole: true, OriginateUnreachable: true, OriginateProhibit: true,
+}
+
 // rangeModifier matches BIRD's "{low,high}" prefix pattern suffix.
 var rangeModifier = regexp.MustCompile(`^\{(\d{1,3}),(\d{1,3})\}$`)
 
@@ -23,7 +41,10 @@ type PrefixSet struct {
 	Description string
 	Family      string // ipv4 | ipv6
 	Originate   bool   // render a static protocol announcing these prefixes
-	Builtin     bool
+	// OriginateAction is what the anchor route does with traffic it attracts:
+	// blackhole (silent), unreachable or prohibit. Ignored unless Originate.
+	OriginateAction string
+	Builtin         bool
 	// System sets (the bogon lists) are named directly by generated filters.
 	// They live under Settings, never appear in a prefix-set picker, and
 	// cannot be renamed, re-familied or deleted.
@@ -52,6 +73,13 @@ func (ps *PrefixSet) Validate() map[string]string {
 	}
 	if ps.Family != FamilyV4 && ps.Family != FamilyV6 {
 		errs["family"] = "Choose IPv4 or IPv6."
+	}
+	// An anchor route has to do something with the traffic it attracts.
+	if ps.OriginateAction == "" {
+		ps.OriginateAction = OriginateBlackhole
+	}
+	if !originateActions[ps.OriginateAction] {
+		errs["originateAction"] = "Choose blackhole, unreachable or prohibit."
 	}
 	if len(ps.Entries) == 0 {
 		errs["entries"] = "Add at least one prefix."
@@ -117,7 +145,7 @@ func validModifier(mod string, p netip.Prefix) string {
 
 func (s *Store) ListPrefixSets() ([]PrefixSet, error) {
 	rows, err := s.db.Query(`
-		SELECT id, name, description, family, originate, builtin, system
+		SELECT id, name, description, family, originate, originate_action, builtin, system
 		FROM prefix_sets ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list prefix sets: %w", err)
@@ -126,7 +154,7 @@ func (s *Store) ListPrefixSets() ([]PrefixSet, error) {
 	var out []PrefixSet
 	for rows.Next() {
 		var ps PrefixSet
-		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.Builtin, &ps.System); err != nil {
+		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System); err != nil {
 			return nil, err
 		}
 		out = append(out, ps)
@@ -164,9 +192,9 @@ func (s *Store) ListSelectablePrefixSets() ([]PrefixSet, error) {
 func (s *Store) GetPrefixSet(id int64) (PrefixSet, error) {
 	var ps PrefixSet
 	row := s.db.QueryRow(`
-		SELECT id, name, description, family, originate, builtin, system
+		SELECT id, name, description, family, originate, originate_action, builtin, system
 		FROM prefix_sets WHERE id = ?`, id)
-	if err := row.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.Builtin, &ps.System); err != nil {
+	if err := row.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System); err != nil {
 		if err == sql.ErrNoRows {
 			return PrefixSet{}, ErrNotFound
 		}
@@ -218,8 +246,8 @@ func (s *Store) CreatePrefixSet(ps PrefixSet) (int64, error) {
 	defer tx.Rollback()
 	ts := now()
 	res, err := tx.Exec(`
-		INSERT INTO prefix_sets (name, description, family, originate, builtin, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 0, ?, ?)`, ps.Name, ps.Description, ps.Family, ps.Originate, ts, ts)
+		INSERT INTO prefix_sets (name, description, family, originate, originate_action, builtin, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?)`, ps.Name, ps.Description, ps.Family, ps.Originate, ps.OriginateAction, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create prefix set: %w", err)
 	}
@@ -243,8 +271,8 @@ func (s *Store) UpdatePrefixSet(ps PrefixSet) error {
 	}
 	defer tx.Rollback()
 	res, err := tx.Exec(`
-		UPDATE prefix_sets SET name = ?, description = ?, family = ?, originate = ?, updated_at = ?
-		WHERE id = ?`, ps.Name, ps.Description, ps.Family, ps.Originate, now(), ps.ID)
+		UPDATE prefix_sets SET name = ?, description = ?, family = ?, originate = ?, originate_action = ?, updated_at = ?
+		WHERE id = ?`, ps.Name, ps.Description, ps.Family, ps.Originate, ps.OriginateAction, now(), ps.ID)
 	if err != nil {
 		return fmt.Errorf("store: update prefix set: %w", err)
 	}

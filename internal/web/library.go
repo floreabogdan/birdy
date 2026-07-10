@@ -51,7 +51,7 @@ func (s *Server) handlePrefixSetsList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePrefixSetNew(w http.ResponseWriter, r *http.Request) {
 	s.renderPrefixSetForm(w, prefixSetFormView{
 		Active: "library", ReadOnly: s.readOnly, IsNew: true,
-		Set: store.PrefixSet{Family: store.FamilyV4},
+		Set: store.PrefixSet{Family: store.FamilyV4, OriginateAction: store.OriginateBlackhole},
 	})
 }
 
@@ -73,10 +73,11 @@ func (s *Server) handlePrefixSetEdit(w http.ResponseWriter, r *http.Request) {
 // lines and # comments are ignored so a list can be pasted in with notes.
 func prefixSetFromForm(r *http.Request) store.PrefixSet {
 	ps := store.PrefixSet{
-		Name:        r.FormValue("name"),
-		Description: strings.TrimSpace(r.FormValue("description")),
-		Family:      r.FormValue("family"),
-		Originate:   r.FormValue("originate") == "on",
+		Name:            r.FormValue("name"),
+		Description:     strings.TrimSpace(r.FormValue("description")),
+		Family:          r.FormValue("family"),
+		Originate:       r.FormValue("originate") == "on",
+		OriginateAction: r.FormValue("originateAction"),
 	}
 	for line := range strings.Lines(r.FormValue("entries")) {
 		line = strings.TrimSpace(line)

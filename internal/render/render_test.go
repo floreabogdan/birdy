@@ -631,3 +631,73 @@ func TestRawConfigIsMaskedToo(t *testing.T) {
 		t.Errorf("raw block leaked a password into the browser:\n%s", out)
 	}
 }
+
+// The anchor route is the prefix itself, never the prefix pattern. A "+" widens
+// what the export filter matches; it must not widen what we originate.
+func TestOriginateAnchorsThePrefixNotThePattern(t *testing.T) {
+	in := baseInput()
+	in.PrefixSets = []store.PrefixSet{{
+		ID: 1, Name: "MY_AGGREGATES", Family: store.FamilyV4, Originate: true,
+		OriginateAction: store.OriginateBlackhole,
+		Entries:         []store.PrefixEntry{{Prefix: "192.0.2.0/24", Modifier: "+"}},
+	}}
+	out, err := Config(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "\troute 192.0.2.0/24 blackhole;\n") {
+		t.Errorf("anchor should be the bare prefix:\n%s", out)
+	}
+	if strings.Contains(out, "route 192.0.2.0/24+ blackhole") {
+		t.Error("the modifier leaked into the static route")
+	}
+}
+
+func TestOriginateAction(t *testing.T) {
+	for _, action := range []string{store.OriginateBlackhole, store.OriginateUnreachable, store.OriginateProhibit} {
+		in := baseInput()
+		in.PrefixSets = []store.PrefixSet{{
+			ID: 1, Name: "MY_AGGREGATES", Family: store.FamilyV4, Originate: true,
+			OriginateAction: action,
+			Entries:         []store.PrefixEntry{{Prefix: "192.0.2.0/24"}},
+		}}
+		out, err := Config(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, "route 192.0.2.0/24 "+action+";") {
+			t.Errorf("action %q not rendered:\n%s", action, out)
+		}
+	}
+}
+
+// A "+" on an announced aggregate accepts every more-specific inside it. That
+// is how an internal /26 ends up on the internet.
+func TestLintFlagsWideningModifierOnExport(t *testing.T) {
+	in := baseInput()
+	in.PrefixSets = []store.PrefixSet{{
+		ID: 1, Name: "ANNOUNCE_V4", Family: store.FamilyV4,
+		Entries: []store.PrefixEntry{{Prefix: "192.0.2.0/24", Modifier: "+"}},
+	}}
+	in.Policies = []store.Policy{{
+		ID: 10, Name: "EXPORT_MINE", Direction: store.DirExport, SetIDs: []int64{1},
+	}}
+
+	var found bool
+	for _, w := range Lint(in) {
+		if strings.Contains(w.Message, "matches more-specifics inside 192.0.2.0/24") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("a widening modifier on an export set should be flagged: %+v", Lint(in))
+	}
+
+	// Without the modifier the aggregate alone is announced, and nothing is wrong.
+	in.PrefixSets[0].Entries[0].Modifier = ""
+	for _, w := range Lint(in) {
+		if strings.Contains(w.Message, "more-specifics") {
+			t.Errorf("an exact-match export set should lint clean: %+v", w)
+		}
+	}
+}

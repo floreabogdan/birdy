@@ -81,6 +81,32 @@ func Lint(in Input) []Warning {
 			"This config ends with a raw block that birdy does not understand. It is checked by bird -p and by nothing else — no lint rule here applies to it.")
 	}
 
+	// The one that leaks your internal deaggregates to the internet. An export
+	// filter is "if net ~ SET then accept", so a "+" on the aggregate accepts
+	// every more-specific inside it too — including the /26s you split it into
+	// for your own routers. Nothing else stops them: birdy puts no prefix-length
+	// guard on export, and by the time your upstream's filter catches it you are
+	// relying on someone else's config to enforce your intent.
+	for _, pol := range in.Policies {
+		if pol.Direction != store.DirExport {
+			continue
+		}
+		for _, id := range pol.SetIDs {
+			ps, ok := prefixSets[id]
+			if !ok {
+				continue
+			}
+			for _, e := range ps.Entries {
+				if e.Modifier == "" {
+					continue
+				}
+				add(SeverityWarn, "",
+					"%s announces %s. The %q matches more-specifics inside %s, so any subnet you split it into would be announced as well. Drop the modifier to announce the aggregate alone.",
+					pol.Name, e.Pattern(), e.Modifier, e.Prefix)
+			}
+		}
+	}
+
 	for _, p := range in.Peers {
 		if p.IsIBGP() {
 			continue
