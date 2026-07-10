@@ -1,6 +1,7 @@
 // Package buildinfo holds birdy's version string.
 package buildinfo
 
-// Version is a plain constant for now; overriding via -ldflags isn't worth
-// the added build complexity until birdy has real releases to tag.
-const Version = "0.1.0-m1"
+// Version is the build version. The release build overrides it with the git
+// tag via -ldflags "-X github.com/floreabogdan/birdy/internal/buildinfo.Version=...".
+// A source build leaves it at this default.
+var Version = "0.1.0-dev"

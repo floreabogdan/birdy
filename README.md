@@ -1,24 +1,76 @@
+<div align="center">
+
 # birdy
 
-A single Go binary that runs **on your router** and gives you a web UI for [BIRD 2.x](https://bird.network.cz/):
-eBGP/iBGP sessions, import/export policy, RPKI origin validation — plus live visibility into what
-every session is actually doing.
+**A web UI for [BIRD 2.x](https://bird.network.cz/) that runs _on_ your router.**
 
-No agents. No controller. No fleet. One router, done well.
+eBGP/iBGP sessions, import/export policy, RPKI, RTBH, BFD — modelled in a database,
+rendered to `bird.conf`, and applied with an armed auto-revert. Plus live visibility
+into what every session is actually doing.
+
+_No agents. No controller. No fleet. One router, done well._
+
+[![CI](https://github.com/floreabogdan/birdy/actions/workflows/ci.yml/badge.svg)](https://github.com/floreabogdan/birdy/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/floreabogdan/birdy?sort=semver)](https://github.com/floreabogdan/birdy/releases)
+[![Go](https://img.shields.io/github/go-mod/go-version/floreabogdan/birdy)](go.mod)
+[![License: 0BSD](https://img.shields.io/badge/license-0BSD-blue.svg)](LICENSE)
+
+<br>
+
+<img src="docs/screenshots/dashboard.png" alt="birdy dashboard" width="880">
+
+</div>
 
 ---
 
+## What it is
+
+birdy is a single Go binary you run on a BIRD router, under systemd or in a container.
+It gives you:
+
+- a **live dashboard** of every BGP session, read straight from BIRD's control socket, and
+- a **model** of the config — peers, policies, prefix/AS sets — that it renders into the
+  whole `bird.conf` and can apply for you, safely, with a one-command rollback.
+
+It ships **read-only** and stays a viewer until you decide to let it write. You get to trust
+it as a looking glass for as long as you like before it is allowed to touch anything.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/peer-form.png" alt="Peer editor with live BIRD-code preview"><br><sub><b>Edit a peer, watch the generated BIRD code update as you type.</b></sub></td>
+<td width="50%"><img src="docs/screenshots/changes-dark.png" alt="Review and apply a candidate config"><br><sub><b>Syntax-check, lint, diff, then apply with an armed auto-revert.</b></sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/policies.png" alt="Composable import and export policies"><br><sub><b>Composable policy chains — import rejects, export accepts.</b></sub></td>
+<td width="50%" valign="top"><br>
+
+**Model**
+- Peers with roles (upstream, IX, customer, iBGP) that drive origin tagging
+- Composable import/export policy chains, RPKI ROV, RTBH, BFD
+- Prefix sets, AS sets, static routes — expandable from IRR with `bgpq4`
+
+**Observe**
+- Live sessions, per-peer detail, on-demand looking glass
+- Timeline of flaps and limit hits
+- Alerts to Slack, Discord, email, or a webhook
+
+</td>
+</tr>
+</table>
+
 ## Read this before you install it
 
-**birdy is beta software. Expect bugs.** It is a personal project released in the hope it is useful
-to someone else. Nothing here has been through the kind of testing a piece of routing infrastructure
-deserves.
+> [!WARNING]
+> **birdy is beta software. Expect bugs.** It is a personal project released in the hope it is
+> useful to someone else. Nothing here has been through the kind of testing a piece of routing
+> infrastructure deserves.
 
-**Do not point birdy at a router with a configuration you care about.** birdy does not import,
-merge with, or preserve an existing `bird.conf`. It renders the *entire* config file from its own
-database. Anything it does not know about — a protocol, a filter, a table, a hand-tuned option —
-does not exist as far as birdy is concerned, and would be gone from any config it wrote. Use it on a
-**new router**, or on one whose config you are content to re-create inside birdy from scratch.
+> [!CAUTION]
+> **Do not point birdy at a router with a configuration you care about.** birdy does not import,
+> merge with, or preserve an existing `bird.conf`. It renders the _entire_ config file from its own
+> database. Anything it does not know about — a protocol, a filter, a table, a hand-tuned option —
+> does not exist as far as birdy is concerned, and would be gone from any config it wrote. Use it on
+> a **new router**, or on one whose config you are content to re-create inside birdy from scratch.
 
 **birdy is opinionated.** It does not expose every knob BIRD has. It renders what its authors believe
 is good practice — RFC 8212 default-deny on export, bogon prefix and ASN filtering, large communities
@@ -28,74 +80,30 @@ block, appended verbatim. If you disagree with those opinions, birdy is the wron
 write `bird.conf` by hand. That is a perfectly good way to run a router.
 
 **There is no support.** No warranty, no SLA, no guarantee of fitness for anything. Issues and pull
-requests are welcome and may be ignored. If you run this and it breaks your BGP session, your
-transit, your customers, or your night's sleep, that is entirely your responsibility. You accepted
-that the moment you ran it. See [LICENSE](LICENSE).
-
----
-
-## What works today
-
-birdy can now **apply** a config to BIRD, but it ships **read-only** and stays that way until you drop
-`--read-only`. Even then it will not overwrite a `bird.conf` it did not write without you adopting the
-router first. You get to trust it as a viewer for as long as you like before it is allowed to touch
-anything.
-
-**Observe**
-- Live dashboard of every BIRD protocol, split into BGP sessions and infrastructure
-- Per-peer detail: BGP state, channels, import limits, and the raw control-socket output
-- Route browser per session — imports, exports, and what was rejected on export
-- On-demand looking glass (`show route for …`)
-- Timeline of session transitions, flaps, and prefix-limit hits
-- Alerts to any number of destinations — Slack, Discord, email (SMTP), or a generic JSON webhook — when a session drops, recovers, flaps, hits its limit, or a config is applied/reverted; per-destination event filtering and repeat-suppression
-- A Prometheus `/metrics` endpoint (opt-in, `--metrics`) exposing session up/down and route counts, and a public `/healthz` liveness probe
-- An alert when BIRD itself becomes unreachable — the one failure session alerts can't catch, since detecting a session change needs a working poll
-- Login rate-limiting (per-IP lockout after repeated failures) and a downloadable off-box backup bundle (model + rendered config); the applied config can also be emailed on each confirm
-- Live BIRD-code preview on every editor: the generated config updates as you type, before you save
-
-**Model**
-- Peers with roles (upstream, IX peer, customer, iBGP), which drive automatic origin tagging
-- iBGP with next-hop-self and route reflection
-- AS-path prepending, export communities, and one-click drain (RFC 8326 graceful shutdown) per peer
-- Composable import and export policy chains (which can match communities), rather than one policy per session
-- Clone an existing peer to make another of the same shape — birdy's peer templates
-- A library of prefix sets, AS sets, and static routes — a prefix set can be expanded from an IRR AS-SET with `bgpq4` (opt-in)
-- PeeringDB and BFD; RFC 7999 customer blackhole (RTBH)
-- Static routes for what no protocol discovers on its own (a subnet behind a non-BGP device, a far
-  router's loopback for iBGP next-hop resolution)
-- Bogon prefixes and bogon ASNs, editable, in Settings
-- RPKI: RTR servers and per-policy validation (log-only or drop-invalid)
-- A raw config block for everything birdy does not model, checked by `bird -p` before it saves
-
-**Preview and apply**
-- The whole candidate `bird.conf`, rendered from the model, with a syntax check via `bird -p`
-- A unified diff against the running config
-- A linter for what `bird -p` cannot catch: route leaks, sessions that would accept nothing,
-  unreachable filter branches, an RTR server nobody validates against
-- **Apply** (when not read-only): back up the current file, write the new one, `configure check` on
-  the daemon, then `configure [soft] timeout` — BIRD holds the new config with an armed auto-revert.
-  Confirm within the window to keep it; do nothing and BIRD reverts on its own. Soft reload (the
-  default) re-runs filters without bouncing sessions. The pending screen shows live session states.
-- **The authorship guard**: birdy stores a hash of what it wrote and refuses to overwrite a `bird.conf`
-  it did not author. A hand-managed file must be explicitly adopted (which backs it up) first.
-- **Apply history**: every applied config is kept — browse it, diff any version against what is
-  running, and re-apply an old one (the emergency-rollback path). `birdy doctor` checks apply-readiness.
-
-For apply to work, birdy needs write access to `bird.conf` and its directory, and `--bird-conf` must
-be the same path BIRD was started with (`bird -c`). Passwords go to disk (BIRD needs them) but are
-still masked everywhere in the browser.
-
-**Not built yet:** the RPKI dry-run report ("N routes would be dropped") — it needs RPKI actually
-running on the router, so it comes after you enable apply and turn RPKI on.
-
-**Not modelled, so it belongs in the raw block:** BFD, graceful restart tuning, extra routing tables,
-IGPs (OSPF, Babel), MPLS, and restricting which interfaces the `direct` protocol picks up. (A static
-route with a next hop *is* modelled — see the Library — so an iBGP mesh over loopbacks does not need
-the raw block for reachability.)
+requests are welcome and may be ignored. If you run this and it breaks your BGP session, your transit,
+your customers, or your night's sleep, that is entirely your responsibility. You accepted that the
+moment you ran it. See [LICENSE](LICENSE).
 
 ## Install
 
-Requires Go 1.25+ to build. The binary is static (`CGO_ENABLED=0`); SQLite is
+birdy runs on the router, next to BIRD. Pick one of these.
+
+<details open>
+<summary><b>Download a binary</b></summary>
+
+Grab the archive for your platform from the [latest release](https://github.com/floreabogdan/birdy/releases/latest)
+(linux amd64/arm64/arm, freebsd, macOS), verify it, and drop the binary on the router:
+
+```sh
+tar -xzf birdy_*_linux_amd64.tar.gz
+sudo install birdy /usr/local/bin/birdy
+```
+</details>
+
+<details>
+<summary><b>go install</b></summary>
+
+Requires Go 1.25+. The binary is static (`CGO_ENABLED=0`); SQLite is
 [modernc.org/sqlite](https://modernc.org/sqlite), so there is nothing to link against.
 
 ```sh
@@ -108,6 +116,31 @@ Or cross-compile from anywhere and copy one file to the router:
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o birdy ./cmd/birdy
 scp birdy root@router:/usr/local/bin/birdy
 ```
+</details>
+
+<details>
+<summary><b>Docker</b></summary>
+
+Run it on the same host as BIRD, sharing BIRD's control socket into the container. A prebuilt
+multi-arch image is published to the GitHub Container Registry:
+
+```sh
+# one-time: create the database and admin account
+docker run --rm -it -v birdy-data:/var/lib/birdy \
+  ghcr.io/floreabogdan/birdy:latest \
+  init --asn 64496 --router-id 192.0.2.1 --label rtr1
+
+# run the viewer, reachable only on the host's loopback
+docker run -d --name birdy --restart unless-stopped \
+  -p 127.0.0.1:8080:8080 \
+  -v birdy-data:/var/lib/birdy \
+  -v /run/bird:/run/bird:ro \
+  ghcr.io/floreabogdan/birdy:latest
+```
+
+The image bundles the `bird` binary so `bird -p` syntax checks work inside the container. See
+[`docker-compose.yml`](docker-compose.yml) for a Compose setup and the notes on enabling apply.
+</details>
 
 Then, on the router:
 
@@ -117,23 +150,69 @@ birdy init --asn 64496 --router-id 192.0.2.1 --label rtr1
 birdy server --read-only           # or install deploy/birdy.service
 ```
 
-`birdy init` prompts for an admin password. It reads BIRD's control socket
-(`/run/bird/bird.ctl` by default), so it needs to run as a user in BIRD's group.
+`birdy init` prompts for an admin password. It reads BIRD's control socket (`/run/bird/bird.ctl` by
+default), so it needs to run as a user in BIRD's group. A sample systemd unit is in
+[`deploy/birdy.service`](deploy/birdy.service): it runs birdy as an unprivileged `birdy` user in
+group `bird`, with `ProtectSystem=strict`.
 
-A sample systemd unit is in [`deploy/birdy.service`](deploy/birdy.service). It runs birdy as an
-unprivileged `birdy` user in group `bird`, with `ProtectSystem=strict`.
+## What works today
+
+**Observe**
+- Live dashboard of every BIRD protocol, split into BGP sessions and infrastructure
+- Per-peer detail: BGP state, channels, import limits, and the raw control-socket output
+- Route browser per session — imports, exports, and what was rejected on export
+- On-demand looking glass (`show route for …`)
+- Timeline of session transitions, flaps, and prefix-limit hits
+- Alerts to any number of destinations — Slack, Discord, email (SMTP), or a generic JSON webhook —
+  when a session drops, recovers, flaps, hits its limit, or a config is applied/reverted; with
+  per-destination event filtering and repeat-suppression
+- An alert when BIRD itself becomes unreachable — the one failure session alerts can't catch
+- A Prometheus `/metrics` endpoint (opt-in, `--metrics`) and a public `/healthz` liveness probe
+- Login rate-limiting (per-IP lockout) and a downloadable off-box backup bundle
+- Live BIRD-code preview on every editor: the generated config updates as you type, before you save
+
+**Model**
+- Peers with roles (upstream, IX peer, customer, iBGP), which drive automatic origin tagging
+- iBGP with next-hop-self and route reflection; AS-path prepending, export communities, one-click
+  drain (RFC 8326 graceful shutdown), and BFD per peer
+- Composable import and export policy chains that can match communities, rather than one policy per
+  session; clone a peer to make another of the same shape
+- A library of prefix sets, AS sets, and static routes — a prefix set can be expanded from an IRR
+  AS-SET with `bgpq4` (opt-in, `--bgpq4`)
+- RFC 7999 customer blackhole (RTBH); PeeringDB lookups on the peer form (opt-in, `--peeringdb`)
+- Bogon prefixes and bogon ASNs, editable, in Settings
+- RPKI: RTR servers and per-policy validation (log-only or drop-invalid)
+- A raw config block for everything birdy does not model, checked by `bird -p` before it saves
+
+**Preview and apply**
+- The whole candidate `bird.conf`, rendered from the model, with a syntax check via `bird -p`
+- A unified diff against the running config
+- A linter for what `bird -p` cannot catch: route leaks, sessions that would accept nothing,
+  unreachable filter branches, an RTR server nobody validates against
+- **Apply** (when not read-only): back up the current file, write the new one, `configure check` on
+  the daemon, then `configure [soft] timeout` — BIRD holds the new config with an armed auto-revert.
+  Confirm within the window to keep it; do nothing and BIRD reverts on its own. Soft reload re-runs
+  filters without bouncing sessions.
+- **The authorship guard**: birdy stores a hash of what it wrote and refuses to overwrite a
+  `bird.conf` it did not author. A hand-managed file must be explicitly adopted (which backs it up).
+- **Apply history**: every applied config is kept — browse it, diff any version against what is
+  running, and re-apply an old one (the emergency-rollback path). `birdy doctor` checks readiness.
+
+For apply to work, birdy needs write access to `bird.conf` and its directory, and `--bird-conf` must
+be the same path BIRD was started with (`bird -c`). Passwords go to disk (BIRD needs them) but are
+still masked everywhere in the browser.
 
 ## Security
 
 birdy listens on `127.0.0.1:8080` by default. **Reach it over an SSH tunnel.** If you bind it to a
 LAN address, understand what you are exposing: a session cookie and a bcrypt password hash are the
-only things between the internet and your BGP config. It has no TLS, no rate limiting, and no audit
-log. Never put it on a public address.
+only things between the internet and your BGP config. It has no TLS and no audit log. Never put it on
+a public address.
 
-BGP MD5 session passwords are stored **in the clear** in birdy's SQLite database, because that is
-the form BIRD needs them in. The database file is therefore as sensitive as `bird.conf` itself.
-Passwords are never rendered into the browser: the peer form shows a blank field meaning
-"unchanged", and both sides of the config diff are masked.
+BGP MD5 session passwords are stored **in the clear** in birdy's SQLite database, because that is the
+form BIRD needs them in. The database file is therefore as sensitive as `bird.conf` itself. Passwords
+are never rendered into the browser: the peer form shows a blank field meaning "unchanged", and both
+sides of the config diff are masked.
 
 Run it with `--read-only` until you have reason not to.
 
@@ -143,20 +222,25 @@ Run it with `--read-only` until you have reason not to.
 go test ./...
 ```
 
-All addresses and AS numbers in the test fixtures are from the documentation ranges of
-[RFC 5398](https://www.rfc-editor.org/rfc/rfc5398), [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737)
-and [RFC 3849](https://www.rfc-editor.org/rfc/rfc3849).
+All addresses and AS numbers in the test fixtures — and in the screenshots above — are from the
+documentation ranges of [RFC 5398](https://www.rfc-editor.org/rfc/rfc5398),
+[RFC 5737](https://www.rfc-editor.org/rfc/rfc5737) and [RFC 3849](https://www.rfc-editor.org/rfc/rfc3849).
 
 The UI is server-rendered `html/template` with `go:embed` and a little vanilla JavaScript. There is
-no node build step and there will not be one.
+no node build step and there will not be one. [`PLAN.md`](PLAN.md) has the roadmap and the reasoning
+behind the data model.
 
-[`PLAN.md`](PLAN.md) has the roadmap and the reasoning behind the data model.
+## Contributors
+
+Built and maintained by **Bogdan — [AS210622](https://bgp.tools/as/210622)**.
+
+Contributions are welcome — open an issue or a pull request.
 
 ## License
 
 [BSD Zero Clause](LICENSE) — public-domain-equivalent. Do whatever you like with it; you owe no
 attribution and get no warranty.
 
-The bundled webfonts are [IBM Plex](https://github.com/IBM/plex), copyright IBM Corp., used under
-the SIL Open Font License 1.1 — see [`internal/web/static/fonts/LICENSE.txt`](internal/web/static/fonts/LICENSE.txt).
+The bundled webfonts are [IBM Plex](https://github.com/IBM/plex), copyright IBM Corp., used under the
+SIL Open Font License 1.1 — see [`internal/web/static/fonts/LICENSE.txt`](internal/web/static/fonts/LICENSE.txt).
 That license covers the fonts only, not birdy.

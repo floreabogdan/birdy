@@ -1,0 +1,14 @@
+.git
+.github
+dist
+*.db
+*.db-shm
+*.db-wal
+/snapshots/
+/preview/
+birdy
+birdy.exe
+birdy-linux-amd64
+route64.png
+r64-design-2.png
+docs/screenshots

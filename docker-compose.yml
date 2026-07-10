@@ -1,0 +1,50 @@
+# Run birdy in a container, on the same host as BIRD.
+#
+# birdy talks to BIRD over its control socket, so the socket has to be shared
+# into the container. This example runs birdy as a read-only viewer, which
+# needs nothing but the socket. To let it APPLY config, see the notes at the
+# bottom.
+#
+# One-time setup — create the database and admin account:
+#
+#   docker compose run --rm birdy init --asn 64496 --router-id 192.0.2.1 --label rtr1
+#
+# (add --password to avoid the prompt; it will land in your shell history).
+# Then bring up the server:
+#
+#   docker compose up -d
+#
+# Reach the UI over an SSH tunnel to the host, e.g.
+#   ssh -L 8080:127.0.0.1:8080 router
+# then open http://127.0.0.1:8080.
+
+services:
+  birdy:
+    build: .
+    # Or pull a published image instead of building:
+    # image: ghcr.io/floreabogdan/birdy:latest
+    restart: unless-stopped
+    command: ["server", "--read-only", "--listen", "0.0.0.0:8080"]
+    # Publish ONLY to the host's loopback — birdy has no TLS. Tunnel in over SSH.
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      # birdy's database and snapshots. Holds BGP MD5 passwords in the clear
+      # once you configure peers, so treat this volume as a secret.
+      - birdy-data:/var/lib/birdy
+      # BIRD's control socket. Read-only is enough for a viewer; drop ":ro" if
+      # you enable apply (birdy sends "configure" over this socket).
+      - /run/bird:/run/bird:ro
+
+    # ── To enable apply (not read-only) ──────────────────────────────────────
+    # 1. Drop --read-only from `command`, and make the socket mount writable
+    #    (remove the ":ro" above).
+    # 2. Mount BIRD's config so birdy can write it, and make sure --bird-conf
+    #    matches the path BIRD was started with (bird -c):
+    #      - /etc/bird:/etc/bird
+    #    then add `--bird-conf /etc/bird/bird.conf` to the command.
+    # 3. The container already ships the `bird` binary for "bird -p" syntax
+    #    checks; pin it to the host's version if you need an exact match.
+
+volumes:
+  birdy-data:
