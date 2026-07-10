@@ -25,6 +25,42 @@ type fakeClient struct {
 	details   map[string]birdc.ProtocolDetail
 	routes    map[string][]birdc.RouteTable // keyed "type:target"
 	routeErr  error
+
+	// Apply pipeline behaviour. Zero value means every configure step succeeds,
+	// which is what most tests want; a test flips one to false or sets an error
+	// to exercise a failure path. calls records the sequence for assertions.
+	cfgCheckFail   bool
+	cfgApplyFail   bool
+	cfgConfirmFail bool
+	cfgErr         error
+	calls          []string
+}
+
+func (f *fakeClient) result(ok bool, msg string) (birdc.ConfigureResult, error) {
+	return birdc.ConfigureResult{OK: ok, Message: msg}, nil
+}
+
+func (f *fakeClient) ConfigureCheck() (birdc.ConfigureResult, error) {
+	f.calls = append(f.calls, "check")
+	if f.cfgErr != nil {
+		return birdc.ConfigureResult{}, f.cfgErr
+	}
+	return f.result(!f.cfgCheckFail, "checked")
+}
+func (f *fakeClient) ConfigureTimeout(seconds int) (birdc.ConfigureResult, error) {
+	f.calls = append(f.calls, "timeout")
+	if f.cfgErr != nil {
+		return birdc.ConfigureResult{}, f.cfgErr
+	}
+	return f.result(!f.cfgApplyFail, "applied")
+}
+func (f *fakeClient) ConfigureConfirm() (birdc.ConfigureResult, error) {
+	f.calls = append(f.calls, "confirm")
+	return f.result(!f.cfgConfirmFail, "confirmed")
+}
+func (f *fakeClient) ConfigureUndo() (birdc.ConfigureResult, error) {
+	f.calls = append(f.calls, "undo")
+	return f.result(true, "undone")
 }
 
 func (f *fakeClient) Status() (birdc.Status, error)               { return birdc.Status{Version: "2.17.1"}, nil }
@@ -64,10 +100,11 @@ func (f *fakeClient) lookup(key string) (birdc.RoutePage, error) {
 }
 
 type testEnv struct {
-	srv    *Server
-	store  *store.Store
-	fc     *fakeClient
-	cookie *http.Cookie
+	srv      *Server
+	store    *store.Store
+	fc       *fakeClient
+	cookie   *http.Cookie
+	confPath string
 }
 
 func newTestEnv(t *testing.T, readOnly bool) *testEnv {
@@ -94,7 +131,13 @@ func newTestEnv(t *testing.T, readOnly bool) *testEnv {
 
 	snapMgr := snapshot.NewManager(filepath.Join(dir, "birdy.db"), filepath.Join(dir, "snapshots"), 3)
 
-	srv := New(Config{Store: st, Client: fc, Poller: p, Snapshot: snapMgr, Log: log, ReadOnly: readOnly})
+	confPath := filepath.Join(dir, "bird.conf")
+	srv := New(Config{
+		Store: st, Client: fc, Poller: p, Snapshot: snapMgr, Log: log, ReadOnly: readOnly,
+		BirdConfPath: confPath, BirdBackupDir: filepath.Join(dir, "bird-backups"),
+		BirdBinary:   "definitely-not-a-real-bird-binary", // makes bird -p Skip rather than run
+		ApplyTimeout: 60,
+	})
 
 	hash, err := HashPassword("correct horse battery staple")
 	if err != nil {
@@ -111,7 +154,7 @@ func newTestEnv(t *testing.T, readOnly bool) *testEnv {
 		t.Fatal(err)
 	}
 
-	return &testEnv{srv: srv, store: st, fc: fc, cookie: &http.Cookie{Name: sessionCookieName, Value: token}}
+	return &testEnv{srv: srv, store: st, fc: fc, confPath: confPath, cookie: &http.Cookie{Name: sessionCookieName, Value: token}}
 }
 
 func TestLoginFlow(t *testing.T) {

@@ -387,6 +387,8 @@ h1, h2, h3 { font-weight: 700; color: var(--text); margin: 0; }
 .panel-warning { border-color: color-mix(in srgb, var(--warning) 32%, var(--border)); }
 .panel-danger .panel-head { background: color-mix(in srgb, var(--danger) 16%, var(--surface)); color: var(--danger-deep); }
 .panel-danger { border-color: color-mix(in srgb, var(--danger) 32%, var(--border)); }
+.panel-success .panel-head { background: color-mix(in srgb, var(--success) 16%, var(--surface)); color: var(--success-deep); }
+.panel-success { border-color: color-mix(in srgb, var(--success) 32%, var(--border)); }
 .card-danger { border-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
 .card-danger .card-body { background: color-mix(in srgb, var(--danger) 5%, var(--surface)); border-radius: 0 0 var(--radius-card) var(--radius-card); }
 .card-warning { border-color: color-mix(in srgb, var(--warning) 35%, var(--border)); }

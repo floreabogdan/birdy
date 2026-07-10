@@ -218,4 +218,24 @@ CREATE TABLE IF NOT EXISTS static_routes (
 	created_at  TEXT NOT NULL,
 	updated_at  TEXT NOT NULL
 );
+
+-- One row per apply. The full rendered config is kept (the database already
+-- holds the session passwords it contains) so a version can be re-shown, and so
+-- a confirmed apply can rewrite the file BIRD is now running from memory.
+CREATE TABLE IF NOT EXISTS config_versions (
+	id               INTEGER PRIMARY KEY AUTOINCREMENT,
+	created_at       TEXT NOT NULL,
+	sha256           TEXT NOT NULL,
+	size             INTEGER NOT NULL,
+	config_text      TEXT NOT NULL,
+	-- On-disk backup of whatever bird.conf was before this apply overwrote it.
+	backup_path      TEXT NOT NULL DEFAULT '',
+	-- pending | confirmed | reverted | failed
+	status           TEXT NOT NULL DEFAULT 'pending',
+	-- When the armed auto-revert fires, RFC3339. Empty once resolved.
+	timeout_deadline TEXT NOT NULL DEFAULT '',
+	message          TEXT NOT NULL DEFAULT '',
+	resolved_at      TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_cv_status ON config_versions(status);
 `

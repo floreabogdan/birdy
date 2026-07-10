@@ -28,6 +28,14 @@ type birdClient interface {
 	RoutesByProtocolPage(name string, offset, limit int) (birdc.RoutePage, error)
 	RoutesExportPage(name string, offset, limit int) (birdc.RoutePage, error)
 	RoutesNoExportPage(name string, offset, limit int) (birdc.RoutePage, error)
+
+	// The apply pipeline. These act on BIRD's own configured config file, which
+	// birdy writes before calling them. ConfigureCheck never changes the running
+	// config; ConfigureTimeout applies with an armed auto-revert.
+	ConfigureCheck() (birdc.ConfigureResult, error)
+	ConfigureTimeout(seconds int) (birdc.ConfigureResult, error)
+	ConfigureConfirm() (birdc.ConfigureResult, error)
+	ConfigureUndo() (birdc.ConfigureResult, error)
 }
 
 type Server struct {
@@ -38,24 +46,27 @@ type Server struct {
 	log      *slog.Logger
 	readOnly bool
 
-	// Where the running config lives and how to invoke BIRD's parse check.
-	// Only ever read (and `bird -p`, which touches nothing) until M2's apply
-	// pipeline exists.
-	birdConfPath string
-	birdBinary   string
+	// Where the running config lives, where its backups go, how to invoke
+	// `bird -p`, and how long an armed reconfigure has before it auto-reverts.
+	birdConfPath  string
+	birdBackupDir string
+	birdBinary    string
+	applyTimeout  int
 
 	mux *http.ServeMux
 }
 
 type Config struct {
-	Store        *store.Store
-	Client       birdClient
-	Poller       *poller.Poller
-	Snapshot     *snapshot.Manager
-	Log          *slog.Logger
-	ReadOnly     bool
-	BirdConfPath string
-	BirdBinary   string
+	Store         *store.Store
+	Client        birdClient
+	Poller        *poller.Poller
+	Snapshot      *snapshot.Manager
+	Log           *slog.Logger
+	ReadOnly      bool
+	BirdConfPath  string
+	BirdBackupDir string
+	BirdBinary    string
+	ApplyTimeout  int
 }
 
 func New(cfg Config) *Server {
@@ -67,20 +78,30 @@ func New(cfg Config) *Server {
 	if birdConfPath == "" {
 		birdConfPath = "/etc/bird/bird.conf"
 	}
+	birdBackupDir := cfg.BirdBackupDir
+	if birdBackupDir == "" {
+		birdBackupDir = "/var/lib/birdy/bird-backups"
+	}
 	birdBinary := cfg.BirdBinary
 	if birdBinary == "" {
 		birdBinary = "bird"
 	}
+	applyTimeout := cfg.ApplyTimeout
+	if applyTimeout <= 0 {
+		applyTimeout = 60
+	}
 	s := &Server{
-		store:        cfg.Store,
-		client:       cfg.Client,
-		poller:       cfg.Poller,
-		snap:         cfg.Snapshot,
-		log:          log,
-		readOnly:     cfg.ReadOnly,
-		birdConfPath: birdConfPath,
-		birdBinary:   birdBinary,
-		mux:          http.NewServeMux(),
+		store:         cfg.Store,
+		client:        cfg.Client,
+		poller:        cfg.Poller,
+		snap:          cfg.Snapshot,
+		log:           log,
+		readOnly:      cfg.ReadOnly,
+		birdConfPath:  birdConfPath,
+		birdBackupDir: birdBackupDir,
+		birdBinary:    birdBinary,
+		applyTimeout:  applyTimeout,
+		mux:           http.NewServeMux(),
 	}
 	s.routes()
 	return s
@@ -149,6 +170,10 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /rpki/{name}/delete", s.requireAuth(s.handleRPKIDelete))
 
 	s.mux.Handle("GET /changes", s.requireAuth(s.handleChanges))
+	s.mux.Handle("POST /apply", s.requireAuth(s.handleApply))
+	s.mux.Handle("POST /apply/confirm", s.requireAuth(s.handleApplyConfirm))
+	s.mux.Handle("POST /apply/rollback", s.requireAuth(s.handleApplyRollback))
+	s.mux.Handle("POST /apply/adopt", s.requireAuth(s.handleAdopt))
 
 	s.mux.Handle("GET /timeline", s.requireAuth(s.handleTimeline))
 	s.mux.Handle("GET /lg", s.requireAuth(s.handleLookingGlass))

@@ -21,16 +21,76 @@
 				</div>
 			</div>
 
-			<div class="card panel-warning">
-				<div class="panel-head">{{template "icon-alert"}}Nothing here is applied</div>
+			{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+
+			{{if .Pending}}
+			{{/* An armed reconfigure is live: BIRD is running the new config but will
+			     revert unless it is confirmed. This is the one screen state that is
+			     time-critical, so it leads and it carries a countdown. */}}
+			<div class="card panel-warning" id="apply-pending" data-secs="{{.PendingSecs}}">
+				<div class="panel-head">{{template "icon-alert"}}Applied — waiting for you to confirm</div>
 				<div class="card-body">
-					birdy cannot yet write to BIRD. This page renders the config from
-					{{.PeerCount}} peer{{if ne .PeerCount 1}}s{{end}}, {{.PolicyCount}} polic{{if ne .PolicyCount 1}}ies{{else}}y{{end}}
-					and {{.SetCount}} prefix set{{if ne .SetCount 1}}s{{end}},
-					checks it with <span class="chip">bird -p</span>, and diffs it against the running file. Copy it out by hand for now;
-					the apply pipeline (backup, <span class="chip">configure timeout</span>, verify, confirm or roll back) lands next.
+					<p style="margin-top:0">
+						BIRD is running this config now, but it will <strong>revert on its own</strong>
+						in <span id="apply-countdown" class="mono">{{.PendingSecs}}</span>s unless you confirm it.
+						Check that your sessions are up and you can still reach the router.
+					</p>
+					{{if .ReadOnly}}
+					<p class="text-muted" style="font-size:0.8125rem;margin-bottom:0">birdy is read-only; the timeout will let this revert.</p>
+					{{else}}
+					<div class="form-actions">
+						<form method="post" action="/apply/confirm"><button type="submit" class="btn btn-success">Keep it — confirm</button></form>
+						<form method="post" action="/apply/rollback"><button type="submit" class="btn btn-danger">Roll back now</button></form>
+					</div>
+					{{end}}
 				</div>
 			</div>
+			{{else if or (eq .Ownership "foreign") (eq .Ownership "edited")}}
+			<div class="card panel-danger">
+				<div class="panel-head">{{template "icon-alert"}}birdy has not adopted this router</div>
+				<div class="card-body">
+					{{if eq .Ownership "foreign"}}
+					<p style="margin-top:0"><span class="mono">{{.LivePath}}</span> was not written by birdy. Applying would replace it entirely &mdash;
+					birdy renders the <em>whole</em> file and keeps nothing it does not model.</p>
+					{{else}}
+					<p style="margin-top:0"><span class="mono">{{.LivePath}}</span> has changed since birdy last wrote it &mdash; something edited it out of band.
+					Applying would overwrite those changes.</p>
+					{{end}}
+					<p>Adopting backs up the current file and lets birdy manage it from here. Nothing about the running daemon changes.</p>
+					{{if not .ReadOnly}}
+					<form method="post" action="/apply/adopt" onsubmit="return confirm('Back up the current bird.conf and let birdy manage it?')">
+						<button type="submit" class="btn btn-primary">Adopt this router</button>
+					</form>
+					{{end}}
+				</div>
+			</div>
+			{{else if .ReadOnly}}
+			<div class="card panel-info">
+				<div class="panel-head">{{template "icon-info"}}Read-only</div>
+				<div class="card-body">
+					birdy is running with <span class="mono">--read-only</span>, so it will not write to BIRD. This page renders the config,
+					checks it with <span class="chip">bird -p</span>, and diffs it against the running file. Drop <span class="mono">--read-only</span> to enable apply.
+				</div>
+			</div>
+			{{else if .InSync}}
+			<div class="card panel-success">
+				<div class="panel-head">{{template "icon-check"}}In sync</div>
+				<div class="card-body">The running config already matches what birdy would write. Nothing to apply.</div>
+			</div>
+			{{else if not .RenderErr}}
+			<div class="card panel-info">
+				<div class="panel-head">{{template "icon-bolt"}}Ready to apply</div>
+				<div class="card-body">
+					<p style="margin-top:0">
+						Applying writes this config, asks BIRD to load it with a <strong>{{.ApplyTimeout}}s safety timeout</strong>
+						(so a mistake reverts itself), and waits for you to confirm. The current file is backed up first.
+					</p>
+					<form method="post" action="/apply" onsubmit="return confirm('Apply this config to BIRD? It reverts automatically unless you confirm within the timeout.')">
+						<button type="submit" class="btn btn-primary">{{template "icon-bolt"}}Apply to BIRD</button>
+					</form>
+				</div>
+			</div>
+			{{end}}
 
 			{{if .Warnings}}
 			<div class="card {{if .Dangers}}panel-danger{{else}}panel-warning{{end}}">
@@ -131,5 +191,6 @@
 </div>
 <script src="/static/tabs.js"></script>
 <script src="/static/changes.js"></script>
+<script src="/static/apply.js"></script>
 </body>
 </html>

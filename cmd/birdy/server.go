@@ -24,8 +24,10 @@ func cmdServer(args []string) error {
 	socketPath := fs.String("socket", "", "override BIRD control socket path (defaults to the value set by \"birdy init\")")
 	listen := fs.String("listen", "", "override listen address (defaults to the value set by \"birdy init\")")
 	readOnly := fs.Bool("read-only", false, "run as a pure viewer; never issue write commands to BIRD")
-	birdConf := fs.String("bird-conf", defaultConfigDir+"/bird.conf", "path to the running BIRD config, for the Changes diff")
+	birdConf := fs.String("bird-conf", defaultConfigDir+"/bird.conf", "path to the running BIRD config birdy reads and (unless --read-only) writes")
+	birdBackupDir := fs.String("bird-backup-dir", defaultBirdBackupDir, "where a copy of bird.conf is kept before each apply overwrites it")
 	birdBinary := fs.String("bird-binary", defaultBirdBinary, `bird executable used for "bird -p" config checks`)
+	applyTimeout := fs.Int("apply-timeout", 60, "seconds an applied config has to be confirmed before BIRD auto-reverts it")
 	pollInterval := fs.Duration("poll-interval", 4*time.Second, "how often to poll BIRD for session state")
 	snapshotDir := fs.String("snapshot-dir", defaultSnapshotDir, "directory for nightly database snapshots")
 	snapshotInterval := fs.Duration("snapshot-interval", 24*time.Hour, "how often to take a nightly database snapshot")
@@ -73,7 +75,8 @@ func cmdServer(args []string) error {
 
 	srv := web.New(web.Config{
 		Store: st, Client: client, Poller: p, Snapshot: snapMgr, Log: log, ReadOnly: *readOnly,
-		BirdConfPath: *birdConf, BirdBinary: *birdBinary,
+		BirdConfPath: *birdConf, BirdBackupDir: *birdBackupDir, BirdBinary: *birdBinary,
+		ApplyTimeout: *applyTimeout,
 	})
 
 	httpServer := &http.Server{Addr: effListen, Handler: srv}

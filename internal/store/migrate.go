@@ -7,7 +7,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 9
+const schemaVersion = 10
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -162,6 +162,16 @@ func migrate(db *sql.DB) error {
 		// traffic it attracts is a choice: drop it silently (blackhole) or say so
 		// (unreachable / prohibit). It used to always be blackhole.
 		if err := ensureColumn(tx, "prefix_sets", "originate_action", `ALTER TABLE prefix_sets ADD COLUMN originate_action TEXT NOT NULL DEFAULT 'blackhole'`); err != nil {
+			return err
+		}
+	}
+
+	if version < 10 {
+		// The authorship guard. This is the sha256 of the exact bytes birdy last
+		// wrote to bird.conf and that BIRD is running. Empty means birdy has
+		// never written the file, so it must not overwrite a config it did not
+		// author without the operator explicitly adopting the router first.
+		if err := ensureColumn(tx, "settings", "applied_config_hash", `ALTER TABLE settings ADD COLUMN applied_config_hash TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
 	}

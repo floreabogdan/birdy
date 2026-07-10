@@ -360,10 +360,10 @@ func TestChangesRendersWithoutBirdInstalled(t *testing.T) {
 		t.Fatalf("code=%d", rec.Code)
 	}
 	body := rec.Body.String()
-	// No bird binary and no /etc/bird/bird.conf in the test environment: the
-	// page must degrade to "skipped" rather than error.
-	if !strings.Contains(body, "Nothing here is applied") {
-		t.Error("the not-applied warning must always be shown")
+	// No bird.conf on disk and birdy has never written one: the page offers to
+	// apply (a clean-slate router), not to adopt.
+	if !strings.Contains(body, "Ready to apply") {
+		t.Error("a clean-slate router should offer to apply")
 	}
 	if !strings.Contains(body, "define BOGON_ASNS") {
 		t.Error("the candidate config should be rendered")

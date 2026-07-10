@@ -28,6 +28,11 @@ type Settings struct {
 	// graceful restart tuning. birdy does not parse it; `bird -p` is the only
 	// thing standing between it and a broken router.
 	RawConfig string
+
+	// AppliedConfigHash is the sha256 of the bytes birdy last wrote to bird.conf.
+	// Empty means birdy has never written it — the authorship guard's cue that
+	// the router must be adopted before birdy may overwrite what is there.
+	AppliedConfigHash string
 }
 
 // ValidateRRClusterID accepts an empty value (use the router ID) or an IPv4
@@ -51,10 +56,10 @@ func (s *Store) GetSettings() (Settings, bool, error) {
 	var st Settings
 	row := s.db.QueryRow(`
 		SELECT router_label, local_asn, router_id, bird_socket_path, listen_addr, webhook_url,
-		       rr_cluster_id, raw_config
+		       rr_cluster_id, raw_config, applied_config_hash
 		FROM settings WHERE id = 1`)
 	err := row.Scan(&st.RouterLabel, &st.LocalASN, &st.RouterID, &st.BirdSocketPath,
-		&st.ListenAddr, &st.WebhookURL, &st.RRClusterID, &st.RawConfig)
+		&st.ListenAddr, &st.WebhookURL, &st.RRClusterID, &st.RawConfig, &st.AppliedConfigHash)
 	if err == sql.ErrNoRows {
 		return Settings{}, false, nil
 	}

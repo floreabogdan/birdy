@@ -15,9 +15,19 @@ import (
 type changesView struct {
 	Active   string
 	ReadOnly bool
+	Flash    string
 
 	// Tab is which panel the page opens on: "config" or "diff".
 	Tab string
+
+	// Apply state. Ownership is birdy's relationship to the file on disk;
+	// Pending is a live armed reconfigure awaiting confirm.
+	Ownership      string // owned | absent | foreign | edited
+	Pending        bool
+	PendingSecs    int // seconds left before the auto-revert fires
+	PendingMessage string
+	InSync         bool // on-disk file already matches the candidate
+	ApplyTimeout   int  // the configured safety-timeout window, for the ready panel
 
 	// Candidate is the config birdy would write, secrets masked.
 	Candidate string
@@ -126,14 +136,28 @@ func (s *Server) renderInput(mask bool) (birdconf.Input, string, error) {
 
 func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 	v := changesView{
-		Active:   "changes",
-		ReadOnly: s.readOnly,
-		LivePath: s.birdConfPath,
-		Tab:      tabParam(r, "config", "diff"),
+		Active:       "changes",
+		ReadOnly:     s.readOnly,
+		LivePath:     s.birdConfPath,
+		Flash:        r.URL.Query().Get("flash"),
+		Tab:          tabParam(r, "config", "diff"),
+		ApplyTimeout: s.applyTimeout,
 	}
 
-	// Everything bound for a browser has its secrets masked. The apply pipeline
-	// (M2b) will render again, unmasked, straight to disk.
+	// An armed reconfigure that BIRD already auto-reverted is recorded here, so
+	// the page never shows a pending apply that is really over.
+	if err := s.reconcilePending(); err != nil {
+		s.log.Error("reconcile pending", "error", err)
+	}
+	settings, _, err := s.store.GetSettings()
+	if err != nil {
+		s.serverError(w, "get settings", err)
+		return
+	}
+	onDiskHash := s.fillApplyState(&v, settings.AppliedConfigHash)
+
+	// Everything bound for a browser has its secrets masked. Applying renders
+	// again, unmasked, straight to disk.
 	in, reason, err := s.renderInput(true)
 	if err != nil {
 		s.serverError(w, "build render input", err)
@@ -184,5 +208,39 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 	v.Added, v.Removed = birdconf.Stat(v.Hunks)
 	v.Identical = err == nil && len(v.Hunks) == 0
 
+	// The apply panel's "in sync" compares the REAL config to the file on disk,
+	// not the masked diff, which would hide a changed password. Re-render the
+	// same model unmasked (no extra database work) purely to hash it.
+	unmasked := in
+	unmasked.MaskSecrets = false
+	if realCfg, rerr := birdconf.Config(unmasked); rerr == nil {
+		v.InSync = v.Ownership == "owned" && onDiskHash == hashBytes([]byte(realCfg))
+	}
+
 	render(w, s.log, "changes.html", v)
+}
+
+// fillApplyState populates the apply panel: who owns the file on disk, and
+// whether an armed reconfigure is waiting to be confirmed. It returns the hash
+// of the on-disk file so the caller can decide whether it is already in sync.
+func (s *Server) fillApplyState(v *changesView, storedHash string) string {
+	auth, onDisk, err := s.birdConfState(storedHash)
+	if err != nil {
+		s.log.Error("read bird.conf state", "error", err)
+		v.Ownership = "unknown"
+		return ""
+	}
+	v.Ownership = auth.String()
+	if pending, ok, err := s.store.PendingConfigVersion(); err == nil && ok {
+		v.Pending = true
+		v.PendingMessage = pending.Message
+		if !pending.Deadline.IsZero() {
+			left := int(time.Until(pending.Deadline).Seconds())
+			if left < 0 {
+				left = 0
+			}
+			v.PendingSecs = left
+		}
+	}
+	return onDisk
 }

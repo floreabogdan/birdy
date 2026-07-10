@@ -36,9 +36,10 @@ that the moment you ran it. See [LICENSE](LICENSE).
 
 ## What works today
 
-birdy is currently **read-only**. It has never written a byte to `/etc/bird/bird.conf` and cannot;
-the code to do so is not written yet. That is deliberate — you get to trust it as a viewer long
-before it is allowed to touch anything.
+birdy can now **apply** a config to BIRD, but it ships **read-only** and stays that way until you drop
+`--read-only`. Even then it will not overwrite a `bird.conf` it did not write without you adopting the
+router first. You get to trust it as a viewer for as long as you like before it is allowed to touch
+anything.
 
 **Observe**
 - Live dashboard of every BIRD protocol, split into BGP sessions and infrastructure
@@ -58,17 +59,22 @@ before it is allowed to touch anything.
 - RPKI: RTR servers and per-policy validation (log-only or drop-invalid)
 - A raw config block for everything birdy does not model, checked by `bird -p` before it saves
 
-**Preview**
+**Preview and apply**
 - The whole candidate `bird.conf`, rendered from the model, with a syntax check via `bird -p`
 - A unified diff against the running config
 - A linter for what `bird -p` cannot catch: route leaks, sessions that would accept nothing,
   unreachable filter branches, an RTR server nobody validates against
+- **Apply** (when not read-only): back up the current file, write the new one, `configure check` on
+  the daemon, then `configure timeout` — BIRD holds the new config with an armed auto-revert. Confirm
+  within the window to keep it; do nothing and BIRD reverts on its own. Every apply is recorded.
+- **The authorship guard**: birdy stores a hash of what it wrote and refuses to overwrite a `bird.conf`
+  it did not author. A hand-managed file must be explicitly adopted (which backs it up) first.
 
-To apply any of it, copy the config out of the **Changes** page by hand. Passwords are masked in
-the browser, so fill in the real MD5 secrets yourself.
+For apply to work, birdy needs write access to `bird.conf` and its directory, and `--bird-conf` must
+be the same path BIRD was started with (`bird -c`). Passwords go to disk (BIRD needs them) but are
+still masked everywhere in the browser.
 
-**Not built yet:** writing `bird.conf`, the apply pipeline (`configure check` / `timeout` / `confirm`
-/ `undo`, backup, rollback), peer templates, community manipulation and prepending, and alerting.
+**Not built yet:** peer templates, community manipulation and prepending, and alerting.
 
 **Not modelled, so it belongs in the raw block:** BFD, graceful restart tuning, extra routing tables,
 IGPs (OSPF, Babel), MPLS, and restricting which interfaces the `direct` protocol picks up. (A static
