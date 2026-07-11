@@ -721,6 +721,32 @@ textarea {
 .diff-stat .add { color: var(--success-deep); font-weight: 600; }
 .diff-stat .del { color: var(--danger-deep); font-weight: 600; }
 
+/* Per-section change browser on the Changes page: one collapsible row per
+   rendered unit of the config, so a huge file reads as a tree of small diffs. */
+.file-tree { border: 1px solid var(--border); border-radius: var(--radius-control); overflow: hidden; margin: 0 16px 14px; }
+.file-entry { border-bottom: 1px solid var(--border); }
+.file-entry:last-child { border-bottom: none; }
+.file-entry > summary {
+	list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px;
+	padding: 9px 14px; font-size: 0.8125rem;
+}
+.file-entry > summary::-webkit-details-marker { display: none; }
+.file-entry > summary:hover { background: var(--surface-alt); }
+.file-flag {
+	flex-shrink: 0; width: 18px; height: 18px; border-radius: 4px; font-size: 11px; font-weight: 700;
+	display: flex; align-items: center; justify-content: center; color: #fff;
+}
+.file-added   > summary .file-flag { background: var(--success-deep); }
+.file-removed > summary .file-flag { background: var(--danger-deep); }
+.file-modified > summary .file-flag { background: var(--warning-deep); }
+.file-path { font-weight: 600; color: var(--text); }
+.file-desc { color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-entry > .diff { border-top: 1px solid var(--border); padding: 8px 0; background: var(--surface-alt); }
+.full-diff { margin: 0 16px 4px; }
+.full-diff > summary { cursor: pointer; font-size: 0.8125rem; color: var(--text-muted); padding: 4px 0 10px; }
+.full-diff > summary:hover { color: var(--text); }
+.full-diff > .diff { border: 1px solid var(--border); border-radius: var(--radius-control); padding: 8px 0; }
+
 /* ---------- login ---------- */
 .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); }
 .login-card { width: 320px; }

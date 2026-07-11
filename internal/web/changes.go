@@ -51,6 +51,9 @@ type changesView struct {
 	Added     int
 	Removed   int
 	Identical bool
+	// Files is the same diff attributed to each rendered unit of the config, so a
+	// giant file becomes a browsable tree of per-section changes.
+	Files []birdconf.FileChange
 
 	Check    birdconf.CheckResult
 	Warnings []birdconf.Warning
@@ -66,6 +69,17 @@ func (v changesView) Dangers() int {
 	n := 0
 	for _, w := range v.Warnings {
 		if w.Severity == birdconf.SeverityDanger {
+			n++
+		}
+	}
+	return n
+}
+
+// ChangedFiles counts the rendered sections that differ from the running config.
+func (v changesView) ChangedFiles() int {
+	n := 0
+	for _, f := range v.Files {
+		if f.Status != "unchanged" {
 			n++
 		}
 	}
@@ -218,6 +232,14 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 	v.Hunks = birdconf.Diff(liveText, candidate, 3)
 	v.Added, v.Removed = birdconf.Stat(v.Hunks)
 	v.Identical = err == nil && len(v.Hunks) == 0
+
+	// The same diff, attributed to each rendered section, for the file browser.
+	// Uses the masked input so its candidate matches the masked live side exactly.
+	if files, ferr := birdconf.SectionDiff(liveText, in, 3); ferr == nil {
+		v.Files = files
+	} else {
+		s.log.Warn("section diff failed", "error", ferr)
+	}
 
 	// The apply panel's "in sync" compares the REAL config to the file on disk,
 	// not the masked diff, which would hide a changed password. Re-render the

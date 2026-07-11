@@ -169,6 +169,96 @@ func buildHunk(seg []edit) Hunk {
 	return h
 }
 
+// FileChange is the diff for one rendered section: how many lines it gained and
+// lost, and the hunks scoped to it. Status is "added" (the whole unit is new),
+// "removed" (the whole unit is gone), "modified", or "unchanged".
+type FileChange struct {
+	Path    string
+	Title   string
+	Status  string
+	Added   int
+	Removed int
+	Hunks   []Hunk
+}
+
+// SectionDiff renders the model to sections, diffs the concatenated candidate
+// against oldText, and attributes every changed line to the section it lands in
+// — so the UI can show which unit of a large config each change touches.
+//
+// Attribution is by the candidate's line ownership: an added or unchanged line
+// belongs to its own section; a deleted line (present only in oldText) is charged
+// to the section whose lines surround it. That means a section removed outright
+// from the model — its lines no longer exist in the candidate — shows up as
+// deletions on the neighbouring section rather than as its own entry. Splitting
+// the file physically (a later step) is what removes that seam.
+func SectionDiff(oldText string, in Input, context int) ([]FileChange, error) {
+	secs, err := Sections(in)
+	if err != nil {
+		return nil, err
+	}
+
+	var nb strings.Builder
+	// lineOf[i] = index into secs of the section owning candidate line i (0-based).
+	// Each body ends in a newline, so a section's line count is its newline count
+	// and the partition lands exactly on section boundaries.
+	var lineOf []int
+	for si, s := range secs {
+		nb.WriteString(s.Body)
+		body := strings.ReplaceAll(s.Body, "\r\n", "\n")
+		for k := 0; k < strings.Count(body, "\n"); k++ {
+			lineOf = append(lineOf, si)
+		}
+	}
+
+	oldLines, newLines := splitLines(oldText), splitLines(nb.String())
+	// Guard against a body that did not end in a newline: keep ownership as long
+	// as the line list, charging any tail to the last section.
+	for len(lineOf) < len(newLines) && len(secs) > 0 {
+		lineOf = append(lineOf, len(secs)-1)
+	}
+
+	script := lcsScript(oldLines, newLines)
+
+	perSec := make([][]edit, len(secs))
+	cur := 0
+	for _, e := range script {
+		si := cur
+		if e.newLine > 0 && e.newLine-1 < len(lineOf) {
+			si = lineOf[e.newLine-1]
+			cur = si
+		}
+		if si >= 0 && si < len(perSec) {
+			perSec[si] = append(perSec[si], e)
+		}
+	}
+
+	out := make([]FileChange, 0, len(secs))
+	for si, s := range secs {
+		hs := hunks(perSec[si], context)
+		added, removed := Stat(hs)
+		hasEqual := false
+		for _, e := range perSec[si] {
+			if e.op == ' ' {
+				hasEqual = true
+				break
+			}
+		}
+		fc := FileChange{Path: s.Path, Title: s.Title, Added: added, Removed: removed, Hunks: hs}
+		switch {
+		case added == 0 && removed == 0:
+			fc.Status = "unchanged"
+		case removed == 0 && !hasEqual:
+			fc.Status = "added"
+		case added == 0 && !hasEqual:
+			fc.Status = "removed"
+		default:
+			fc.Status = "modified"
+		}
+		out = append(out, fc)
+	}
+	return out, nil
+}
+
 // Stat counts added and removed lines across all hunks.
 func Stat(hs []Hunk) (added, removed int) {
 	for _, h := range hs {

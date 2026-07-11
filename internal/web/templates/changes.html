@@ -191,12 +191,48 @@
 					{{if .Identical}}
 					<div class="card-body"><span class="badge badge-success">in sync</span> The running config already matches what birdy would write.</div>
 					{{else if .Hunks}}
-					<div class="diff">
-						{{range .Hunks}}
-						<div class="diff-hunk-head">{{.Header}}</div>
-						{{range .Lines}}<div class="diff-line op-{{printf "%c" .Op}}"><span class="op">{{printf "%c" .Op}}</span>{{.Text}}</div>{{end}}
+						{{if .Files}}
+						<div class="card-body" style="padding-bottom:8px">
+							<p class="text-muted" style="margin:0;font-size:0.8125rem">
+								<strong>{{.ChangedFiles}}</strong> of {{len .Files}} config section{{if ne (len .Files) 1}}s{{end}} changed. Open one to see its diff.
+							</p>
+						</div>
+						<div class="file-tree">
+							{{range .Files}}{{if ne .Status "unchanged"}}
+							<details class="file-entry file-{{.Status}}">
+								<summary>
+									<span class="file-flag" title="{{.Status}}">{{if eq .Status "added"}}A{{else if eq .Status "removed"}}D{{else}}M{{end}}</span>
+									<span class="file-path mono">{{.Path}}</span>
+									<span class="file-desc">{{.Title}}</span>
+									<span class="diff-stat">{{if .Added}}<span class="add">+{{.Added}}</span>{{end}}{{if .Removed}} <span class="del">&minus;{{.Removed}}</span>{{end}}</span>
+								</summary>
+								<div class="diff">
+									{{range .Hunks}}
+									<div class="diff-hunk-head">{{.Header}}</div>
+									{{range .Lines}}<div class="diff-line op-{{printf "%c" .Op}}"><span class="op">{{printf "%c" .Op}}</span>{{.Text}}</div>{{end}}
+									{{end}}
+								</div>
+							</details>
+							{{end}}{{end}}
+						</div>
+						<details class="full-diff">
+							<summary>View the full file diff</summary>
+							<div class="diff">
+								{{range .Hunks}}
+								<div class="diff-hunk-head">{{.Header}}</div>
+								{{range .Lines}}<div class="diff-line op-{{printf "%c" .Op}}"><span class="op">{{printf "%c" .Op}}</span>{{.Text}}</div>{{end}}
+								{{end}}
+							</div>
+						</details>
+						{{else}}
+						{{/* Per-section attribution unavailable — show the whole-file diff. */}}
+						<div class="diff">
+							{{range .Hunks}}
+							<div class="diff-hunk-head">{{.Header}}</div>
+							{{range .Lines}}<div class="diff-line op-{{printf "%c" .Op}}"><span class="op">{{printf "%c" .Op}}</span>{{.Text}}</div>{{end}}
+							{{end}}
+						</div>
 						{{end}}
-					</div>
 					<div class="card-body preview-note">
 						Passwords are masked on both sides, so a changed password value does not appear here.
 					</div>

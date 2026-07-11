@@ -105,9 +105,46 @@ var (
 
 // Config renders the complete bird.conf. The output is deterministic: given the
 // same model it is byte-identical, which is what makes diffing meaningful.
+// Section is one logical unit of the rendered bird.conf — the globals block, one
+// policy's functions, one peer's filters-and-protocol, the raw block, and so on.
+// Concatenating every section's Body in order reproduces exactly what Config
+// returns; the split exists so the UI can show a per-unit diff of a large config
+// instead of one undifferentiated file.
+type Section struct {
+	// Path is a stable identifier that doubles as a tree path: "globals",
+	// "peers/edge1", "policies/IMPORT_SANITY". The part before the first slash
+	// groups related sections in the UI.
+	Path string
+	// Title is the human label for the section.
+	Title string
+	// Body is the rendered text, already carrying the same trailing blank-line
+	// spacing it had when it was one concatenated file.
+	Body string
+}
+
+// Config renders the whole bird.conf. It is exactly the concatenation of every
+// section's body, so anything that hashes or diffs the file sees identical bytes
+// whether it goes through Config or Sections.
 func Config(in Input) (string, error) {
-	if err := validate(in); err != nil {
+	secs, err := Sections(in)
+	if err != nil {
 		return "", err
+	}
+	var b strings.Builder
+	for _, s := range secs {
+		b.WriteString(s.Body)
+	}
+	return b.String(), nil
+}
+
+// Sections renders the config as an ordered list of named units. Each writer is
+// captured into its own buffer; because the writers only ever append (none reads
+// the builder), the concatenation is byte-for-byte what a single shared builder
+// produced. Sections with no output are dropped — an empty body contributes
+// nothing to the file and would only be noise in the tree.
+func Sections(in Input) ([]Section, error) {
+	if err := validate(in); err != nil {
+		return nil, err
 	}
 
 	sets := slices.Clone(in.PrefixSets)
@@ -133,7 +170,7 @@ func Config(in Input) (string, error) {
 		bogons = store.DefaultBogonASNs()
 	}
 	if err := checkBogonSets(sets, policies); err != nil {
-		return "", err
+		return nil, err
 	}
 	var rtr []store.RPKIServer
 	for _, srv := range in.RPKIServers {
@@ -143,38 +180,62 @@ func Config(in Input) (string, error) {
 	}
 	slices.SortFunc(rtr, func(a, b store.RPKIServer) int { return strings.Compare(a.Name, b.Name) })
 	if err := checkRPKI(policies, rtr); err != nil {
-		return "", err
-	}
-
-	var b strings.Builder
-	writeHeader(&b, in)
-	writeGlobals(&b, in)
-	writeCommunities(&b, in.LocalASN)
-	writeSets(&b, sets)
-	writeASSets(&b, asSets)
-	writeBogonASNs(&b, bogons)
-	writeRPKITables(&b, rtr)
-	writeBaseProtocols(&b)
-	writeBFDProtocol(&b, peers)
-	writeRPKIProtocols(&b, rtr)
-	if err := writeOriginators(&b, sets); err != nil {
-		return "", err
+		return nil, err
 	}
 	statics := slices.Clone(in.StaticRoutes)
 	slices.SortFunc(statics, func(a, b store.StaticRoute) int { return strings.Compare(a.Prefix, b.Prefix) })
-	writeStaticRoutes(&b, statics)
-	for _, pol := range policies {
-		if err := writePolicy(&b, in, pol, setsByID, asSetsByID); err != nil {
-			return "", fmt.Errorf("policy %q: %w", pol.Name, err)
+
+	var secs []Section
+	var ferr error
+	add := func(path, title string, fn func(*strings.Builder) error) {
+		if ferr != nil {
+			return
 		}
+		var b strings.Builder
+		if err := fn(&b); err != nil {
+			ferr = err
+			return
+		}
+		if b.Len() == 0 {
+			return
+		}
+		secs = append(secs, Section{Path: path, Title: title, Body: b.String()})
+	}
+
+	add("header", "Header", func(b *strings.Builder) error { writeHeader(b, in); return nil })
+	add("globals", "Router identity & logging", func(b *strings.Builder) error { writeGlobals(b, in); return nil })
+	add("communities", "Origin communities", func(b *strings.Builder) error { writeCommunities(b, in.LocalASN); return nil })
+	add("sets/prefixes", "Prefix sets", func(b *strings.Builder) error { writeSets(b, sets); return nil })
+	add("sets/as", "AS sets", func(b *strings.Builder) error { writeASSets(b, asSets); return nil })
+	add("bogons/asns", "Bogon AS numbers", func(b *strings.Builder) error { writeBogonASNs(b, bogons); return nil })
+	add("rpki/tables", "RPKI ROA tables", func(b *strings.Builder) error { writeRPKITables(b, rtr); return nil })
+	add("protocols/base", "Device, direct & kernel", func(b *strings.Builder) error { writeBaseProtocols(b); return nil })
+	add("protocols/bfd", "BFD", func(b *strings.Builder) error { writeBFDProtocol(b, peers); return nil })
+	add("rpki/servers", "RPKI RTR servers", func(b *strings.Builder) error { writeRPKIProtocols(b, rtr); return nil })
+	add("sets/originators", "Originated prefixes", func(b *strings.Builder) error { return writeOriginators(b, sets) })
+	add("static", "Static routes", func(b *strings.Builder) error { writeStaticRoutes(b, statics); return nil })
+	for _, pol := range policies {
+		add("policies/"+pol.Name, "Policy "+pol.Name, func(b *strings.Builder) error {
+			if err := writePolicy(b, in, pol, setsByID, asSetsByID); err != nil {
+				return fmt.Errorf("policy %q: %w", pol.Name, err)
+			}
+			return nil
+		})
 	}
 	for _, p := range peers {
-		if err := writePeer(&b, in, p); err != nil {
-			return "", fmt.Errorf("peer %q: %w", p.Name, err)
-		}
+		add("peers/"+p.Name, "Peer "+p.Name, func(b *strings.Builder) error {
+			if err := writePeer(b, in, p); err != nil {
+				return fmt.Errorf("peer %q: %w", p.Name, err)
+			}
+			return nil
+		})
 	}
-	writeRawConfig(&b, in)
-	return b.String(), nil
+	add("raw", "Raw configuration", func(b *strings.Builder) error { writeRawConfig(b, in); return nil })
+
+	if ferr != nil {
+		return nil, ferr
+	}
+	return secs, nil
 }
 
 func validate(in Input) error {
