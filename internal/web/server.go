@@ -216,6 +216,14 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /rpki/{name}/edit", s.requireAuth(s.handleRPKISave))
 	s.mux.Handle("POST /rpki/{name}/delete", s.requireAuth(s.handleRPKIDelete))
 
+	// BMP monitoring stations
+	s.mux.Handle("GET /bmp", s.requireAuth(s.handleBMPPage))
+	s.mux.Handle("GET /bmp/new", s.requireAuth(s.handleBMPNew))
+	s.mux.Handle("POST /bmp/new", s.requireAuth(s.handleBMPSave))
+	s.mux.Handle("GET /bmp/{name}/edit", s.requireAuth(s.handleBMPEdit))
+	s.mux.Handle("POST /bmp/{name}/edit", s.requireAuth(s.handleBMPSave))
+	s.mux.Handle("POST /bmp/{name}/delete", s.requireAuth(s.handleBMPDelete))
+
 	s.mux.Handle("GET /changes", s.requireAuth(s.handleChanges))
 	s.mux.Handle("POST /apply", s.requireAuth(s.handleApply))
 	s.mux.Handle("POST /apply/confirm", s.requireAuth(s.handleApplyConfirm))

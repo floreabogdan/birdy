@@ -68,6 +68,10 @@ type Input struct {
 	Policies    []store.Policy
 	Peers       []store.Peer
 	RPKIServers []store.RPKIServer
+	// BMPStations are RFC 7854 monitoring collectors BIRD streams session state
+	// to. Rendered as standalone protocols; they reference nothing else birdy
+	// generates.
+	BMPStations []store.BMPStation
 	// BogonASNs is editable model data, not a constant: IANA keeps handing out
 	// ranges. Empty means "use the shipped defaults".
 	BogonASNs []store.BogonASN
@@ -184,6 +188,8 @@ func Sections(in Input) ([]Section, error) {
 	}
 	statics := slices.Clone(in.StaticRoutes)
 	slices.SortFunc(statics, func(a, b store.StaticRoute) int { return strings.Compare(a.Prefix, b.Prefix) })
+	bmpStations := slices.Clone(in.BMPStations)
+	slices.SortFunc(bmpStations, func(a, b store.BMPStation) int { return strings.Compare(a.Name, b.Name) })
 
 	var secs []Section
 	var ferr error
@@ -211,6 +217,7 @@ func Sections(in Input) ([]Section, error) {
 	add("rpki/tables", "RPKI ROA tables", func(b *strings.Builder) error { writeRPKITables(b, rtr); return nil })
 	add("protocols/base", "Device, direct & kernel", func(b *strings.Builder) error { writeBaseProtocols(b); return nil })
 	add("protocols/bfd", "BFD", func(b *strings.Builder) error { writeBFDProtocol(b, peers); return nil })
+	add("protocols/bmp", "BMP monitoring stations", func(b *strings.Builder) error { writeBMP(b, bmpStations); return nil })
 	add("rpki/servers", "RPKI RTR servers", func(b *strings.Builder) error { writeRPKIProtocols(b, rtr); return nil })
 	add("sets/originators", "Originated prefixes", func(b *strings.Builder) error { return writeOriginators(b, sets) })
 	add("static", "Static routes", func(b *strings.Builder) error { writeStaticRoutes(b, statics); return nil })
@@ -417,6 +424,33 @@ func writeRPKIProtocols(b *strings.Builder, enabled []store.RPKIServer) {
 		}
 		if srv.Expire > 0 {
 			fmt.Fprintf(b, "\texpire keep %d;\n", srv.Expire)
+		}
+		b.WriteString("}\n\n")
+	}
+}
+
+// writeBMP emits one protocol per enabled monitoring station. BIRD's BMP
+// exporter picks up every BGP session by itself, so the station block only says
+// where to send the stream and which RIB views to include. A disabled station is
+// not rendered at all, matching how RPKI servers behave.
+func writeBMP(b *strings.Builder, stations []store.BMPStation) {
+	for _, st := range stations {
+		if !st.Enabled {
+			continue
+		}
+		if st.Description != "" {
+			fmt.Fprintf(b, "# %s\n", st.Description)
+		}
+		fmt.Fprintf(b, "protocol bmp %s {\n", st.Name)
+		fmt.Fprintf(b, "\tstation address ip %s port %d;\n", st.Address, st.Port)
+		if st.PrePolicy {
+			b.WriteString("\tmonitoring rib in pre_policy;\n")
+		}
+		if st.PostPolicy {
+			b.WriteString("\tmonitoring rib in post_policy;\n")
+		}
+		if st.TxBufferLimit > 0 {
+			fmt.Fprintf(b, "\ttx buffer limit %d;\n", st.TxBufferLimit)
 		}
 		b.WriteString("}\n\n")
 	}

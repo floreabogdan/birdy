@@ -34,10 +34,11 @@ All addresses and AS numbers in this guide are from the documentation ranges of
 8. [Policy parameters](#8-policy-parameters)
 9. [Library: prefix sets, AS sets, static routes](#9-library-prefix-sets-as-sets-static-routes)
 10. [RPKI](#10-rpki)
-11. [Alerts](#11-alerts)
-12. [Settings](#12-settings)
-13. [Your profile](#13-your-profile)
-14. [Security](#14-security)
+11. [BMP monitoring](#11-bmp-monitoring)
+12. [Alerts](#12-alerts)
+13. [Settings](#13-settings)
+14. [Your profile](#14-your-profile)
+15. [Security](#15-security)
 
 ---
 
@@ -432,7 +433,36 @@ import policy via the **RPKI ROV** knob (log-only or drop-invalid).
 
 ---
 
-## 11. Alerts
+## 11. BMP monitoring
+
+The **BGP Monitoring Protocol** ([RFC 7854](https://www.rfc-editor.org/rfc/rfc7854))
+streams your sessions' route data and up/down events to an external collector — a
+route collector, an analytics pipeline, or a looking-glass backend. BIRD's exporter
+monitors **every** BGP session on the router automatically; a **station** just says
+where the stream goes.
+
+Add a station on the **BMP** page. Each row renders one `protocol bmp` instance:
+
+- **Name** — the BIRD protocol name.
+- **Station address / port** — the collector's IP (an address, not a hostname) and
+  TCP port. BMP is `1790` by convention.
+- **Monitor pre-policy RIB** — mirror what a peer sent, before your import filters
+  ran.
+- **Monitor post-policy RIB** — mirror what survived the import filters. Sending both
+  lets the collector see exactly what your policies dropped. With neither, the
+  collector still receives session state and statistics, just no route contents.
+- **Send buffer limit (MB)** — how much data may queue for a slow collector before
+  BIRD drops and restarts the station rather than run the router out of memory. `0`
+  uses BIRD's default (1024). A disabled station is not rendered at all.
+
+> [!NOTE]
+> BMP is a **preliminary** feature in BIRD (2.14+), and the daemon must be built with
+> BMP support. birdy renders the config; the `bird -p` check on the Changes page is
+> what confirms your build accepts it.
+
+---
+
+## 12. Alerts
 
 Session events (a session dropping, recovering, flapping, hitting its import
 limit, a sharp drop in accepted prefixes, or a config being applied/reverted) are
@@ -445,7 +475,7 @@ session-watching alert can't catch on its own. Manage destinations on the
 
 ---
 
-## 12. Settings
+## 13. Settings
 
 - **Router identity** — router ID (an IPv4-formatted 32-bit value) and local ASN.
   These open every rendered config; BIRD will not start without a router ID.
@@ -465,7 +495,7 @@ session-watching alert can't catch on its own. Manage destinations on the
 
 ---
 
-## 13. Your profile
+## 14. Your profile
 
 Reach it from the avatar menu at the top right → **Profile & password**.
 
@@ -476,7 +506,7 @@ Reach it from the avatar menu at the top right → **Profile & password**.
 
 ---
 
-## 14. Security
+## 15. Security
 
 birdy is a thin, single-user admin panel. Treat it as sensitive as `bird.conf`
 itself.

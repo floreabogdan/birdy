@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — BMP</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">BMP</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">BMP</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>BMP monitoring</h1>
+					<div class="page-sub">Stream every BGP session's routes and state to an external monitoring station.</div>
+				</div>
+			</div>
+
+			{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+
+			<div class="card panel-info">
+				<div class="panel-head">{{template "icon-info"}}How this works</div>
+				<div class="card-body" style="font-size:0.8125rem">
+					<p style="margin-top:0">
+						The BGP Monitoring Protocol (<strong>RFC 7854</strong>) streams your sessions' route data and up/down
+						events to a collector &mdash; a route-collector, an analytics pipeline, or a looking-glass backend.
+						BIRD monitors <strong>every</strong> BGP session automatically; a station just says where the stream goes.
+					</p>
+					<p>
+						<strong>Pre-policy</strong> mirrors what a peer sent before your import filters ran; <strong>post-policy</strong>
+						mirrors what survived them. Sending both lets the collector see exactly what your policies dropped.
+					</p>
+					<p style="margin-bottom:0" class="text-muted">
+						BMP is a <strong>preliminary</strong> feature in BIRD (2.14+), and the daemon must be built with BMP
+						support. birdy renders the config; <span class="chip">bird -p</span> on Changes is what confirms your
+						build accepts it.
+					</p>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">{{template "icon-activity"}}Stations</span>
+					<a class="btn btn-success" href="/bmp/new">{{template "icon-plus"}}Add station</a>
+				</div>
+				<p class="card-intro">
+					Where BIRD sends the monitoring stream. Each row is one <span class="mono">protocol bmp</span> instance.
+				</p>
+				<div class="table-scroll">
+				<table>
+					<thead><tr><th>Name</th><th>Station</th><th>RIB views</th><th>Enabled</th><th>In BIRD</th><th class="num">Actions</th></tr></thead>
+					<tbody data-search-target>
+						{{range .Stations}}
+						<tr>
+							<td class="mono">
+								<a href="/bmp/{{.Name}}/edit">{{.Name}}</a>
+								{{if .Description}}<div class="text-muted" style="font-size:0.75rem">{{.Description}}</div>{{end}}
+							</td>
+							<td class="mono">{{.Address}}<span class="text-muted">:{{.Port}}</span></td>
+							<td>
+								{{if .PrePolicy}}<span class="chip">pre-policy</span> {{end}}
+								{{if .PostPolicy}}<span class="chip">post-policy</span>{{end}}
+								{{if and (not .PrePolicy) (not .PostPolicy)}}<span class="text-muted">state only</span>{{end}}
+							</td>
+							<td>{{if .Enabled}}<span class="badge badge-success">enabled</span>{{else}}<span class="badge">disabled</span>{{end}}</td>
+							<td>
+								{{$live := index $.Live .Name}}
+								{{if $live.Name}}{{sessionBadge $live.Up $live.BGPState}}
+								{{else if not .Enabled}}<span class="text-muted" title="A disabled station is not rendered into the config at all.">not rendered</span>
+								{{else}}<span class="badge badge-warning" title="It is in the candidate config, but birdy has not applied one.">not applied</span>{{end}}
+							</td>
+							<td class="row-actions">
+								<a class="icon-action a-primary" href="/bmp/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
+								<form method="post" action="/bmp/{{.Name}}/delete" onsubmit="return confirm('Delete BMP station {{.Name}}?')">
+									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
+								</form>
+							</td>
+						</tr>
+						{{else}}
+						<tr><td colspan="6" class="empty">
+							No BMP station. <a href="/bmp/new">Add one</a> to start streaming session data to a collector.
+						</td></tr>
+						{{end}}
+					</tbody>
+				</table>
+				</div>
+				<div class="card-body preview-note">
+					<strong>In BIRD</strong> shows what the router is actually running, read from its control socket.
+					birdy is read-only and has never written <span class="mono">/etc/bird/bird.conf</span>, so an enabled station
+					reads <span class="badge badge-warning">not applied</span> until the config from <a href="/changes">Changes</a>
+					is on the router.
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

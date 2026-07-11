@@ -179,6 +179,24 @@ CREATE TABLE IF NOT EXISTS rpki_servers (
 	updated_at  TEXT NOT NULL
 );
 
+-- BMP (RFC 7854) monitoring stations BIRD streams every session's state to.
+-- BIRD's exporter watches all BGP sessions automatically; a row is only where
+-- the stream goes and which RIB views (pre- and/or post-import-filter) to send.
+CREATE TABLE IF NOT EXISTS bmp_stations (
+	id              INTEGER PRIMARY KEY AUTOINCREMENT,
+	name            TEXT NOT NULL UNIQUE,
+	description     TEXT NOT NULL DEFAULT '',
+	address         TEXT NOT NULL,
+	port            INTEGER NOT NULL DEFAULT 1790,
+	enabled         INTEGER NOT NULL DEFAULT 1,
+	monitor_pre     INTEGER NOT NULL DEFAULT 1,
+	monitor_post    INTEGER NOT NULL DEFAULT 1,
+	-- Megabytes of pending data before BIRD restarts the station. 0 = default.
+	tx_buffer_limit INTEGER NOT NULL DEFAULT 0,
+	created_at      TEXT NOT NULL,
+	updated_at      TEXT NOT NULL
+);
+
 -- AS numbers that must never appear in a received AS path. Data, not code:
 -- IANA hands out new ranges, and a peer may legitimately use a private ASN.
 CREATE TABLE IF NOT EXISTS bogon_asns (

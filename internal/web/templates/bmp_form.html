@@ -1,0 +1,91 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — {{if .IsNew}}new BMP station{{else}}{{.Station.Name}}{{end}}</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">{{if .IsNew}}New BMP station{{else}}Edit BMP station{{end}}</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/bmp">BMP</a><span class="sep">/</span><span class="current mono">{{if .IsNew}}new{{else}}{{.Station.Name}}{{end}}</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>{{if .IsNew}}Add BMP station{{else}}Edit {{.Station.Name}}{{end}}</h1>
+					<div class="page-sub">The monitoring collector BIRD streams every session's data to.</div>
+				</div>
+			</div>
+
+			<form method="post" action="{{if .IsNew}}/bmp/new{{else}}/bmp/{{.Station.Name}}/edit{{end}}">
+			<div class="card">
+				<div class="card-header"><span class="card-title">{{template "icon-activity"}}Station</span></div>
+				<div class="card-body">
+					<div class="field">
+						<label for="name">Name</label>
+						<input type="text" id="name" name="name" class="mono" value="{{.Station.Name}}" autocomplete="off" required>
+						<div class="hint">Becomes the BIRD protocol name, e.g. <code class="mono">bmp_collector</code>.</div>
+						{{with index .Errs "name"}}<div class="field-error">{{.}}</div>{{end}}
+					</div>
+					<div class="field">
+						<label for="description">Description</label>
+						<input type="text" id="description" name="description" value="{{.Station.Description}}" autocomplete="off">
+						{{with index .Errs "description"}}<div class="field-error">{{.}}</div>{{end}}
+					</div>
+					<div class="field-row">
+						<div class="field">
+							<label for="address">Station address</label>
+							<input type="text" id="address" name="address" class="mono" value="{{.Station.Address}}" placeholder="198.51.100.10" autocomplete="off" required>
+							<div class="hint">The collector's IP address. BIRD's BMP station takes an address, not a hostname.</div>
+							{{with index .Errs "address"}}<div class="field-error">{{.}}</div>{{end}}
+						</div>
+						<div class="field">
+							<label for="port">Port</label>
+							<input type="number" id="port" name="port" class="mono" value="{{.Station.Port}}" min="1" max="65535" required>
+							<div class="hint">BMP is 1790 by convention.</div>
+							{{with index .Errs "port"}}<div class="field-error">{{.}}</div>{{end}}
+						</div>
+					</div>
+
+					<div class="field">
+						<label for="txBufferLimit">Send buffer limit (MB)</label>
+						<input type="number" id="txBufferLimit" name="txBufferLimit" class="mono" value="{{.Station.TxBufferLimit}}" min="0" max="65535">
+						<div class="hint">
+							How much data may queue for a slow collector before BIRD drops and restarts the station rather than
+							run the router out of memory. 0 uses BIRD's default (1024).
+						</div>
+						{{with index .Errs "txBufferLimit"}}<div class="field-error">{{.}}</div>{{end}}
+					</div>
+
+					<div class="checks">
+						<label class="check"><input type="checkbox" name="monitorPre" {{if .Station.PrePolicy}}checked{{end}}> Monitor pre-policy RIB</label>
+						<label class="check"><input type="checkbox" name="monitorPost" {{if .Station.PostPolicy}}checked{{end}}> Monitor post-policy RIB</label>
+					</div>
+					<div class="hint">
+						Pre-policy is what the peer sent; post-policy is what your import filters kept. With neither, the collector
+						still sees session up/down and statistics, just no route contents.
+					</div>
+
+					<div class="checks">
+						<label class="check"><input type="checkbox" name="enabled" {{if .Station.Enabled}}checked{{end}}> Enabled</label>
+					</div>
+					<div class="hint">A disabled station is not rendered into the config at all.</div>
+					{{with index .Errs "enabled"}}<div class="field-error">{{.}}</div>{{end}}
+				</div>
+			</div>
+
+			<div class="form-actions">
+				{{if .IsNew}}<button type="submit" class="btn btn-success">{{template "icon-plus"}}Create station</button>
+				{{else}}<button type="submit" class="btn btn-primary">Save changes</button>{{end}}
+				<a class="btn" href="/bmp">Cancel</a>
+			</div>
+			</form>
+		</div>
+	</div>
+</div>
+</body>
+</html>

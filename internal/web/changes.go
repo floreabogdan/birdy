@@ -129,6 +129,10 @@ func (s *Server) renderInput(mask bool) (birdconf.Input, string, error) {
 	if err != nil {
 		return birdconf.Input{}, "", err
 	}
+	bmpStations, err := s.store.ListBMPStations()
+	if err != nil {
+		return birdconf.Input{}, "", err
+	}
 
 	in := birdconf.Input{
 		RouterID:     settings.RouterID,
@@ -140,6 +144,7 @@ func (s *Server) renderInput(mask bool) (birdconf.Input, string, error) {
 		Peers:        peers,
 		BogonASNs:    bogonASNs,
 		StaticRoutes: statics,
+		BMPStations:  bmpStations,
 		RRClusterID:  settings.RRClusterID,
 		RawConfig:    settings.RawConfig,
 		Version:      buildinfo.Version,
