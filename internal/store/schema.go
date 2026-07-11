@@ -246,14 +246,20 @@ CREATE TABLE IF NOT EXISTS config_versions (
 	sha256           TEXT NOT NULL,
 	size             INTEGER NOT NULL,
 	config_text      TEXT NOT NULL,
-	-- On-disk backup of whatever bird.conf was before this apply overwrote it.
+	-- On-disk backup of whatever the config was before this apply overwrote it:
+	-- a snapshot directory (bird.conf + birdy.d/) for split layouts, or a single
+	-- .bak file for older single-file backups.
 	backup_path      TEXT NOT NULL DEFAULT '',
 	-- pending | confirmed | reverted | failed
 	status           TEXT NOT NULL DEFAULT 'pending',
 	-- When the armed auto-revert fires, RFC3339. Empty once resolved.
 	timeout_deadline TEXT NOT NULL DEFAULT '',
 	message          TEXT NOT NULL DEFAULT '',
-	resolved_at      TEXT NOT NULL DEFAULT ''
+	resolved_at      TEXT NOT NULL DEFAULT '',
+	-- The exact multi-file layout this apply wrote, as JSON (a render.FileSet), so
+	-- confirm and re-apply can rewrite the whole set. Empty for older single-file
+	-- versions, which fall back to writing config_text to bird.conf.
+	config_files     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_cv_status ON config_versions(status);
 

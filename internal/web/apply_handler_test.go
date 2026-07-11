@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -76,18 +77,84 @@ func TestApplyConfirmKeepsConfig(t *testing.T) {
 		t.Fatalf("last call = %q, want confirm", env.fc.calls[len(env.fc.calls)-1])
 	}
 
-	// After confirm, the new config is on disk and birdy owns it.
-	data, err := os.ReadFile(env.confPath)
-	if err != nil || !strings.Contains(string(data), "define BOGON_ASNS") {
-		t.Fatalf("confirmed config not on disk: %v", err)
+	// After confirm, the config is written as bird.conf plus a birdy.d/ of
+	// includes. bird.conf itself is just the include list; the rendered content
+	// lives in the section files, and the reconstructed logical config carries it.
+	entry, err := os.ReadFile(env.confPath)
+	if err != nil {
+		t.Fatalf("bird.conf not on disk: %v", err)
+	}
+	if !strings.Contains(string(entry), `include "`) || !strings.Contains(string(entry), "birdy.d/") {
+		t.Errorf("bird.conf should be an include list, got:\n%s", entry)
+	}
+	if strings.Contains(string(entry), "define BOGON_ASNS") {
+		t.Error("the rendered content should live in the include files, not bird.conf")
+	}
+
+	logical, exists, err := env.srv.readLogicalConfig()
+	if err != nil || !exists {
+		t.Fatalf("logical config not readable after confirm: exists=%v err=%v", exists, err)
+	}
+	if !strings.Contains(logical, "define BOGON_ASNS") {
+		t.Error("the reconstructed logical config should carry the rendered content")
 	}
 	st, _, _ := env.store.GetSettings()
-	if st.AppliedConfigHash != hashBytes(data) {
-		t.Error("applied hash should match the on-disk file after confirm")
+	if st.AppliedConfigHash != hashBytes([]byte(logical)) {
+		t.Error("applied hash should match the logical config after confirm")
 	}
 	if _, ok, _ := env.store.PendingConfigVersion(); ok {
 		t.Error("no version should be pending after confirm")
 	}
+}
+
+// The apply pipeline writes a bird.conf that includes one file per section under
+// birdy.d/, and birdy stays the owner (in sync) afterwards.
+func TestApplyProducesSplitLayout(t *testing.T) {
+	env := applyReady(t)
+	env.do(t, "POST", "/apply", nil)
+	env.do(t, "POST", "/apply/confirm", nil)
+
+	incDir := filepath.Join(filepath.Dir(env.confPath), "birdy.d")
+	entries, err := os.ReadDir(incDir)
+	if err != nil {
+		t.Fatalf("birdy.d not created: %v", err)
+	}
+	var haveHeader, havePeer bool
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".conf") {
+			t.Errorf("unexpected file in birdy.d: %s", e.Name())
+		}
+		if strings.Contains(e.Name(), "header") {
+			haveHeader = true
+		}
+		if strings.Contains(e.Name(), "peers-") {
+			havePeer = true
+		}
+	}
+	if !haveHeader {
+		t.Error("birdy.d should contain a header section file")
+	}
+	_ = havePeer // peers are optional depending on the seeded model
+
+	// bird.conf's includes point into birdy.d.
+	if got := env.srv.birdyIncludes(readFile(t, env.confPath)); len(got) != len(entries) {
+		t.Errorf("bird.conf includes %d files, birdy.d has %d", len(got), len(entries))
+	}
+
+	// The Changes page reports in sync — the logical config on disk matches the model.
+	body := env.do(t, "GET", "/changes", nil).Body.String()
+	if !strings.Contains(body, "In sync") {
+		t.Error("after apply+confirm the router should read as in sync")
+	}
+}
+
+func readFile(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func TestApplyRollbackRevertsAndUndoes(t *testing.T) {

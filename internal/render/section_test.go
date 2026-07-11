@@ -91,8 +91,13 @@ func TestSectionDiffAttributesPeerChange(t *testing.T) {
 		t.Fatalf("expected only peers/edge_v4 to change, got %v", changed)
 	}
 	for _, f := range files {
-		if f.Path == "peers/edge_v4" && f.Added == 0 {
-			t.Error("peers/edge_v4 should show an added line for the new description")
+		if f.Path == "peers/edge_v4" {
+			if f.Added == 0 {
+				t.Error("peers/edge_v4 should show an added line for the new description")
+			}
+			if f.File != "birdy.d/09-peers-edge_v4.conf" {
+				t.Errorf("peers/edge_v4 maps to file %q, want birdy.d/09-peers-edge_v4.conf", f.File)
+			}
 		}
 	}
 }

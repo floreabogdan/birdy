@@ -2,7 +2,6 @@ package web
 
 import (
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
@@ -60,9 +59,10 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Diff this version against what is on disk now, so "what would re-applying
-	// change" is visible. Both sides masked, like the Changes diff.
-	if live, err := os.ReadFile(s.birdConfPath); err == nil {
-		liveMasked := birdconf.MaskPasswords(string(live))
+	// change" is visible. Both sides masked, like the Changes diff. The on-disk
+	// side is the logical config, reconstructed from the split files if needed.
+	if live, exists, err := s.readLogicalConfig(); err == nil && exists {
+		liveMasked := birdconf.MaskPasswords(live)
 		view.OnDisk = liveMasked == masked
 		view.Hunks = birdconf.Diff(liveMasked, masked, 3)
 		view.Added, view.Removed = birdconf.Stat(view.Hunks)
@@ -84,9 +84,14 @@ func (s *Server) handleReapply(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	set, err := fileSetFor(v)
+	if err != nil {
+		s.serverError(w, "decode version file set", err)
+		return
+	}
 	// Emergency rollback defaults to soft: putting an old config back should not
 	// bounce sessions that are currently fine.
-	s.applyConfig(w, r, v.ConfigText, true)
+	s.applyConfig(w, r, v.ConfigText, set, true)
 }
 
 func (s *Server) versionFromPath(w http.ResponseWriter, r *http.Request) (store.ConfigVersion, error) {

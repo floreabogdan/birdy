@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -217,26 +216,27 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 	// a string literal either way.
 	v.Check = birdconf.Check(r.Context(), s.birdBinary, candidate)
 
-	live, err := os.ReadFile(s.birdConfPath)
+	// The on-disk side is the logical config: for a split layout, the birdy.d
+	// includes reconstructed in order; for a single file, bird.conf itself.
+	live, liveExists, liveErr := s.readLogicalConfig()
 	switch {
-	case errors.Is(err, fs.ErrNotExist):
+	case errors.Is(liveErr, fs.ErrPermission):
+		v.LiveErr = "birdy cannot read the config (permission denied)."
+	case liveErr != nil:
+		v.LiveErr = liveErr.Error()
+	case !liveExists:
 		v.LiveErr = "No config at this path yet — the whole candidate would be new."
-	case errors.Is(err, fs.ErrPermission):
-		v.LiveErr = "birdy cannot read this file (permission denied)."
-	case err != nil:
-		v.LiveErr = err.Error()
 	}
-	liveText := string(live)
 
 	// The live file holds real passwords; the candidate holds masked ones. A
 	// naive diff would report a change on every password line forever — and
 	// would print the running secret into the browser. Mask the live side the
 	// same way, and tell the user that password values are not compared.
-	liveText = birdconf.MaskPasswords(liveText)
+	liveText := birdconf.MaskPasswords(live)
 
 	v.Hunks = birdconf.Diff(liveText, candidate, 3)
 	v.Added, v.Removed = birdconf.Stat(v.Hunks)
-	v.Identical = err == nil && len(v.Hunks) == 0
+	v.Identical = liveErr == nil && liveExists && len(v.Hunks) == 0
 
 	// The same diff, attributed to each rendered section, for the file browser.
 	// Uses the masked input so its candidate matches the masked live side exactly.

@@ -17,7 +17,7 @@
 			<div class="page-header">
 				<div>
 					<h1>Changes</h1>
-					<div class="page-sub">What birdy would write to <span class="mono">{{.LivePath}}</span>, and how it differs from what is running now.</div>
+					<div class="page-sub">What birdy would write to <span class="mono">{{.LivePath}}</span> and its <span class="mono">birdy.d/</span> directory, and how it differs from what is running now.</div>
 				</div>
 				<div class="page-header-actions">
 					<a class="btn" href="/changes/history">{{template "icon-clock"}}Apply history</a>
@@ -168,13 +168,14 @@
 			<section data-tab-panel="config" {{if ne .Tab "config"}}hidden{{end}} class="tab-panel">
 				<div class="card">
 					<div class="card-header">
-						<span class="card-title">{{template "icon-file"}}The whole file birdy would write</span>
+						<span class="card-title">{{template "icon-file"}}The full config birdy would write</span>
 						<button type="button" id="copy-config" class="btn btn-sm">Copy</button>
 					</div>
 					<pre class="code-block code-numbered" id="candidate-config">{{range .CandidateLines}}<span class="cl">{{.}}</span>{{end}}</pre>
 					<div class="card-body preview-note">
-						Passwords are masked. Copying this into <span class="mono">{{.LivePath}}</span> as-is would configure every
-						session with the literal password <span class="mono">********</span> &mdash; fill in the real ones by hand.
+						This is every section concatenated &mdash; what BIRD loads once the <span class="mono">birdy.d/</span> includes are
+						spliced in. Passwords are masked; applying with them as-is would set every session's password to the literal
+						<span class="mono">********</span>, so fill in the real ones by hand if you copy this out.
 					</div>
 				</div>
 			</section>
@@ -194,7 +195,7 @@
 						{{if .Files}}
 						<div class="card-body" style="padding-bottom:8px">
 							<p class="text-muted" style="margin:0;font-size:0.8125rem">
-								<strong>{{.ChangedFiles}}</strong> of {{len .Files}} config section{{if ne (len .Files) 1}}s{{end}} changed. Open one to see its diff.
+								<strong>{{.ChangedFiles}}</strong> of {{len .Files}} config file{{if ne (len .Files) 1}}s{{end}} changed. birdy writes each section to its own file under <span class="mono">birdy.d/</span>, pulled in by <span class="mono">bird.conf</span>. Open one to see its diff.
 							</p>
 						</div>
 						<div class="file-tree">
@@ -202,7 +203,7 @@
 							<details class="file-entry file-{{.Status}}">
 								<summary>
 									<span class="file-flag" title="{{.Status}}">{{if eq .Status "added"}}A{{else if eq .Status "removed"}}D{{else}}M{{end}}</span>
-									<span class="file-path mono">{{.Path}}</span>
+									<span class="file-path mono">{{.File}}</span>
 									<span class="file-desc">{{.Title}}</span>
 									<span class="diff-stat">{{if .Added}}<span class="add">+{{.Added}}</span>{{end}}{{if .Removed}} <span class="del">&minus;{{.Removed}}</span>{{end}}</span>
 								</summary>

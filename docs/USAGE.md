@@ -303,7 +303,8 @@ birdy keeps two separate things:
   dashboard, per-peer detail, the looking glass, and the timeline. Available in
   read-only mode with nothing else configured.
 - **What you want BIRD to do** — a database model of peers, policies and sets.
-  birdy renders this model into a whole `bird.conf`.
+  birdy renders this model into a complete BIRD config (a `bird.conf` that
+  includes a `birdy.d/` of per-section files — see **Split layout** below).
 
 Editing the model changes nothing on the router. When you visit **Changes**, birdy:
 
@@ -314,16 +315,33 @@ Editing the model changes nothing on the router. When you visit **Changes**, bir
    that would accept nothing, unreachable filter branches, an RTR server nobody
    validates against.
 
-If birdy is **not** read-only, you can then **Apply**: it backs up the current
-file, writes the new one, runs `configure check`, then `configure timeout`. BIRD
+If birdy is **not** read-only, you can then **Apply**: it snapshots the current
+config, writes the new one, runs `configure check`, then `configure timeout`. BIRD
 holds the new config with an **armed auto-revert** — confirm within the window
 (`--apply-timeout`) to keep it, or do nothing and BIRD rolls back on its own. A
 **soft** reload re-runs filters without bouncing sessions.
 
-**Authorship guard.** birdy stores a hash of the exact bytes it last wrote and
-refuses to overwrite a `bird.conf` it did not author. A hand-managed file must be
-explicitly **adopted** first (which backs it up). This is how it avoids clobbering
-a config you wrote by hand.
+**Split layout.** birdy does not write one giant `bird.conf`. It writes a small
+`bird.conf` that `include`s one file per section from a `birdy.d/` directory
+beside it — `00-header.conf`, `03-sets-prefixes.conf`, one `09-peers-*.conf` per
+peer, and so on. On a large router this keeps each file small and reviewable, and
+the **Changes** diff becomes a browsable tree showing exactly which file each
+change lands in. birdy owns `birdy.d/` exclusively and rewrites it in full on
+every apply. What BIRD loads — every include spliced together — is identical to
+the single-file config it replaces, so the split is invisible to the diff, the
+syntax check, and the authorship hash.
+
+**Authorship guard.** birdy stores a hash of the config it last wrote — computed
+from the included files as BIRD would splice them, so an edit to any `birdy.d/`
+file is detected — and refuses to overwrite a config it did not author. A
+hand-managed file must be explicitly **adopted** first (which backs it up). An
+existing single-file birdy install stays owned across the upgrade; its first apply
+lays down the split layout. This is how it avoids clobbering a config you wrote by
+hand.
+
+**Backups.** Each apply (and each adopt) snapshots the whole config — `bird.conf`
+plus `birdy.d/` — into a timestamped directory under the backup path, and a
+rejected or reverted apply restores it exactly.
 
 **Apply history.** Every applied config is kept — browse it, diff any version
 against what is running, and re-apply an old one as an emergency rollback.

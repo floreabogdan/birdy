@@ -29,6 +29,9 @@ type ConfigVersion struct {
 	ResolvedAt time.Time // zero while pending
 	// BaselineSessions are the BGP sessions established when this was applied.
 	BaselineSessions string
+	// ConfigFiles is the exact on-disk file set this apply wrote, JSON-encoded
+	// (a render.FileSet). Empty for older single-file versions.
+	ConfigFiles string
 }
 
 // Expired reports whether a pending version's auto-revert deadline has passed,
@@ -44,9 +47,9 @@ func (s *Store) CreateConfigVersion(v ConfigVersion) (int64, error) {
 		deadline = v.Deadline.UTC().Format(time.RFC3339Nano)
 	}
 	res, err := s.db.Exec(`
-		INSERT INTO config_versions (created_at, sha256, size, config_text, backup_path, status, timeout_deadline, message, baseline_sessions)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		ts, v.SHA256, v.Size, v.ConfigText, v.BackupPath, v.Status, deadline, v.Message, v.BaselineSessions)
+		INSERT INTO config_versions (created_at, sha256, size, config_text, backup_path, status, timeout_deadline, message, baseline_sessions, config_files)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		ts, v.SHA256, v.Size, v.ConfigText, v.BackupPath, v.Status, deadline, v.Message, v.BaselineSessions, v.ConfigFiles)
 	if err != nil {
 		return 0, fmt.Errorf("store: create config version: %w", err)
 	}
@@ -58,7 +61,7 @@ func (s *Store) CreateConfigVersion(v ConfigVersion) (int64, error) {
 // time, because BIRD itself holds only one previous config to revert to.
 func (s *Store) PendingConfigVersion() (ConfigVersion, bool, error) {
 	row := s.db.QueryRow(`
-		SELECT id, created_at, sha256, size, config_text, backup_path, status, timeout_deadline, message, resolved_at, baseline_sessions
+		SELECT id, created_at, sha256, size, config_text, backup_path, status, timeout_deadline, message, resolved_at, baseline_sessions, config_files
 		FROM config_versions WHERE status = ? ORDER BY id DESC LIMIT 1`, ConfigPending)
 	v, err := scanConfigVersion(row)
 	if err == sql.ErrNoRows {
@@ -72,7 +75,7 @@ func (s *Store) PendingConfigVersion() (ConfigVersion, bool, error) {
 
 func (s *Store) GetConfigVersion(id int64) (ConfigVersion, error) {
 	row := s.db.QueryRow(`
-		SELECT id, created_at, sha256, size, config_text, backup_path, status, timeout_deadline, message, resolved_at, baseline_sessions
+		SELECT id, created_at, sha256, size, config_text, backup_path, status, timeout_deadline, message, resolved_at, baseline_sessions, config_files
 		FROM config_versions WHERE id = ?`, id)
 	v, err := scanConfigVersion(row)
 	if err == sql.ErrNoRows {
@@ -95,7 +98,7 @@ func (s *Store) ResolveConfigVersion(id int64, status, message string) error {
 
 func (s *Store) ListConfigVersions(limit int) ([]ConfigVersion, error) {
 	rows, err := s.db.Query(`
-		SELECT id, created_at, sha256, size, config_text, backup_path, status, timeout_deadline, message, resolved_at, baseline_sessions
+		SELECT id, created_at, sha256, size, config_text, backup_path, status, timeout_deadline, message, resolved_at, baseline_sessions, config_files
 		FROM config_versions ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: list config versions: %w", err)
@@ -116,7 +119,7 @@ func scanConfigVersion(sc scanner) (ConfigVersion, error) {
 	var v ConfigVersion
 	var created, deadline, resolved string
 	if err := sc.Scan(&v.ID, &created, &v.SHA256, &v.Size, &v.ConfigText, &v.BackupPath,
-		&v.Status, &deadline, &v.Message, &resolved, &v.BaselineSessions); err != nil {
+		&v.Status, &deadline, &v.Message, &resolved, &v.BaselineSessions, &v.ConfigFiles); err != nil {
 		return ConfigVersion{}, err
 	}
 	v.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)

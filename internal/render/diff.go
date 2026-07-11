@@ -173,7 +173,11 @@ func buildHunk(seg []edit) Hunk {
 // lost, and the hunks scoped to it. Status is "added" (the whole unit is new),
 // "removed" (the whole unit is gone), "modified", or "unchanged".
 type FileChange struct {
+	// Path is the section identifier, e.g. "peers/edge1"; File is the on-disk
+	// file that section is written to under IncludeDir, e.g.
+	// "birdy.d/09-peers-edge1.conf".
 	Path    string
+	File    string
 	Title   string
 	Status  string
 	Added   int
@@ -243,7 +247,7 @@ func SectionDiff(oldText string, in Input, context int) ([]FileChange, error) {
 				break
 			}
 		}
-		fc := FileChange{Path: s.Path, Title: s.Title, Added: added, Removed: removed, Hunks: hs}
+		fc := FileChange{Path: s.Path, File: includeFileName(s.Path), Title: s.Title, Added: added, Removed: removed, Hunks: hs}
 		switch {
 		case added == 0 && removed == 0:
 			fc.Status = "unchanged"

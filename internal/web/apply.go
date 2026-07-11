@@ -3,12 +3,14 @@ package web
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -45,19 +47,77 @@ func (a authorship) String() string {
 	}
 }
 
-// birdConfState reads bird.conf and classifies birdy's ownership of it.
-func (s *Server) birdConfState(storedHash string) (authorship, string, error) {
+// configDir is the directory bird.conf lives in; birdy.d/ sits beside it.
+func (s *Server) configDir() string { return filepath.Dir(s.birdConfPath) }
+
+// birdyIncludeDir is the directory birdy writes its per-section files into and
+// owns exclusively.
+func (s *Server) birdyIncludeDir() string { return filepath.Join(s.configDir(), birdconf.IncludeDir) }
+
+var includeRe = regexp.MustCompile(`(?m)^\s*include\s+"([^"]+)"\s*;`)
+
+// birdyIncludes returns, in order, the absolute include paths in a bird.conf
+// that point into birdy's own include directory. An operator's own includes,
+// pointing elsewhere, are ignored — so a hand-managed file still reads as one.
+func (s *Server) birdyIncludes(conf string) []string {
+	want := filepath.Clean(s.birdyIncludeDir())
+	var out []string
+	for _, m := range includeRe.FindAllStringSubmatch(conf, -1) {
+		p := filepath.Clean(filepath.FromSlash(m[1]))
+		if filepath.Dir(p) == want {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// readLogicalConfig returns the effective config text on disk: for a split
+// layout, the concatenation of the birdy.d files bird.conf includes, in include
+// order; for a single file, bird.conf itself. The bool is false when there is no
+// bird.conf at all. This is the text birdy hashes and diffs, so how the config is
+// split on disk is invisible to ownership detection and diffing — and an existing
+// single-file install stays "owned" across the upgrade to the split layout.
+func (s *Server) readLogicalConfig() (string, bool, error) {
 	data, err := os.ReadFile(s.birdConfPath)
 	if errors.Is(err, fs.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	includes := s.birdyIncludes(string(data))
+	if len(includes) == 0 {
+		return string(data), true, nil // single file: legacy birdy, or foreign
+	}
+	var b strings.Builder
+	for _, inc := range includes {
+		part, err := os.ReadFile(inc)
+		if errors.Is(err, fs.ErrNotExist) {
+			// A birdy include vanished out of band: the reconstruction is
+			// incomplete, so its hash will not match — reported as edited.
+			continue
+		}
+		if err != nil {
+			return "", true, err
+		}
+		b.Write(part)
+	}
+	return b.String(), true, nil
+}
+
+// birdConfState reads the on-disk config and classifies birdy's ownership of it.
+func (s *Server) birdConfState(storedHash string) (authorship, string, error) {
+	text, exists, err := s.readLogicalConfig()
+	if err != nil {
+		return 0, "", err
+	}
+	if !exists {
 		if storedHash == "" {
 			return authAbsent, "", nil
 		}
 		return authEdited, "", nil // birdy wrote a config, something deleted it
 	}
-	if err != nil {
-		return 0, "", err
-	}
-	onDisk := hashBytes(data)
+	onDisk := hashBytes([]byte(text))
 	switch {
 	case storedHash == "":
 		return authForeign, onDisk, nil
@@ -73,68 +133,184 @@ func hashBytes(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// writeBirdConf writes cfg to bird.conf atomically: a temp file in the same
-// directory, then a rename, so BIRD never reads a half-written config. 0640
-// keeps the session passwords readable only by birdy and BIRD's group.
-func (s *Server) writeBirdConf(cfg string) error {
-	dir := filepath.Dir(s.birdConfPath)
-	tmp, err := os.CreateTemp(dir, ".birdy-conf-*")
+// atomicWriteFile writes content to path via a temp file in the same directory
+// and a rename, so a reader never sees a half-written file. 0640 keeps session
+// passwords readable only by birdy and BIRD's group.
+func atomicWriteFile(path, content string, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".birdy-tmp-*")
 	if err != nil {
 		return err
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName) // no-op after a successful rename
-	if _, err := tmp.WriteString(cfg); err != nil {
+	if _, err := tmp.WriteString(content); err != nil {
 		tmp.Close()
 		return err
 	}
-	if err := tmp.Chmod(0o640); err != nil {
+	if err := tmp.Chmod(perm); err != nil {
 		tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, s.birdConfPath)
+	return os.Rename(tmpName, path)
 }
 
-// backupBirdConf copies the current bird.conf into the backup directory with a
-// timestamped name and returns its path. It returns "" when there is nothing to
-// back up (no file yet).
-func (s *Server) backupBirdConf(now time.Time) (string, error) {
-	data, err := os.ReadFile(s.birdConfPath)
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(s.birdBackupDir, 0o750); err != nil {
-		return "", err
-	}
-	name := fmt.Sprintf("bird.conf.%s.bak", now.UTC().Format("20060102T150405Z"))
-	path := filepath.Join(s.birdBackupDir, name)
-	if err := os.WriteFile(path, data, 0o640); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-// restoreFrom copies a backup file back over bird.conf. An empty path means the
-// backed-up state was "no file", so bird.conf is removed to match.
-func (s *Server) restoreFrom(backupPath string) error {
-	if backupPath == "" {
-		err := os.Remove(s.birdConfPath)
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
+// writeFileSet writes bird.conf and its birdy.d/ includes. Includes are written
+// first (each atomically) so bird.conf never references a file that is not yet
+// there, then bird.conf, then any stale birdy.d/*.conf the set no longer includes
+// is removed. birdy owns birdy.d exclusively, so pruning only ever touches its
+// own files. A set with no includes is the single-file layout: bird.conf is
+// written and birdy.d is cleared.
+//
+// The write is not atomic across the whole set, but nothing reads it until birdy
+// itself asks BIRD to reconfigure, which happens only after this returns.
+func (s *Server) writeFileSet(set birdconf.FileSet) error {
+	keep := make(map[string]bool, len(set.Includes))
+	for _, f := range set.Includes {
+		abs := filepath.Join(s.configDir(), filepath.FromSlash(f.Name))
+		if err := os.MkdirAll(filepath.Dir(abs), 0o750); err != nil {
+			return err
 		}
+		if err := atomicWriteFile(abs, f.Body, 0o640); err != nil {
+			return err
+		}
+		keep[filepath.Base(abs)] = true
+	}
+	if err := atomicWriteFile(s.birdConfPath, set.Entry, 0o640); err != nil {
 		return err
 	}
-	data, err := os.ReadFile(backupPath)
+	return s.pruneIncludeDir(keep)
+}
+
+// pruneIncludeDir removes every *.conf in birdy.d that is not in keep. A nil or
+// empty keep clears the directory. A missing directory is fine.
+func (s *Server) pruneIncludeDir(keep map[string]bool) error {
+	entries, err := os.ReadDir(s.birdyIncludeDir())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	return s.writeBirdConf(string(data))
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+			continue
+		}
+		if keep[e.Name()] {
+			continue
+		}
+		if err := os.Remove(filepath.Join(s.birdyIncludeDir(), e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// snapshotConfig copies the current config — bird.conf plus every birdy.d/*.conf
+// — into a timestamped backup directory and returns its path, or "" when there is
+// nothing to back up (no bird.conf yet).
+func (s *Server) snapshotConfig(now time.Time) (string, error) {
+	if _, err := os.Stat(s.birdConfPath); errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	}
+	dest := filepath.Join(s.birdBackupDir, "bird."+now.UTC().Format("20060102T150405Z"))
+	if err := os.MkdirAll(dest, 0o750); err != nil {
+		return "", err
+	}
+	if err := copyFile(s.birdConfPath, filepath.Join(dest, "bird.conf"), 0o640); err != nil {
+		return "", err
+	}
+	entries, err := os.ReadDir(s.birdyIncludeDir())
+	if errors.Is(err, fs.ErrNotExist) {
+		return dest, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Join(dest, birdconf.IncludeDir), 0o750); err != nil {
+		return "", err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+			continue
+		}
+		if err := copyFile(filepath.Join(s.birdyIncludeDir(), e.Name()),
+			filepath.Join(dest, birdconf.IncludeDir, e.Name()), 0o640); err != nil {
+			return "", err
+		}
+	}
+	return dest, nil
+}
+
+// restoreConfig makes the live config match a backup, undoing a write. It handles
+// both new-style snapshot directories (bird.conf + birdy.d/) and older single
+// .bak files. An empty path means the backed-up state was "no config", so
+// bird.conf and birdy.d are removed.
+func (s *Server) restoreConfig(backup string) error {
+	if backup == "" {
+		if err := os.Remove(s.birdConfPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return s.pruneIncludeDir(nil)
+	}
+	info, err := os.Stat(backup)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		// Legacy single-file backup: restore it and clear any split files.
+		data, err := os.ReadFile(backup)
+		if err != nil {
+			return err
+		}
+		if err := atomicWriteFile(s.birdConfPath, string(data), 0o640); err != nil {
+			return err
+		}
+		return s.pruneIncludeDir(nil)
+	}
+	data, err := os.ReadFile(filepath.Join(backup, "bird.conf"))
+	if err != nil {
+		return err
+	}
+	if err := atomicWriteFile(s.birdConfPath, string(data), 0o640); err != nil {
+		return err
+	}
+	keep := map[string]bool{}
+	entries, err := os.ReadDir(filepath.Join(backup, birdconf.IncludeDir))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err == nil {
+		if err := os.MkdirAll(s.birdyIncludeDir(), 0o750); err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(backup, birdconf.IncludeDir, e.Name()))
+			if err != nil {
+				return err
+			}
+			if err := atomicWriteFile(filepath.Join(s.birdyIncludeDir(), e.Name()), string(b), 0o640); err != nil {
+				return err
+			}
+			keep[e.Name()] = true
+		}
+	}
+	return s.pruneIncludeDir(keep)
+}
+
+func copyFile(src, dst string, perm os.FileMode) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return atomicWriteFile(dst, string(data), perm)
 }
 
 // writeGuard turns away every apply endpoint in read-only mode. Read-only is the
@@ -232,18 +408,20 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		s.redirectChanges(w, r, reason)
 		return
 	}
-	cfg, err := birdconf.Config(in)
+	set, err := birdconf.Files(in, s.configDir())
 	if err != nil {
 		s.redirectChanges(w, r, "The config cannot be rendered: "+err.Error())
 		return
 	}
-	s.applyConfig(w, r, cfg, r.FormValue("soft") == "on")
+	s.applyConfig(w, r, set.Logical(), set, r.FormValue("soft") == "on")
 }
 
-// applyConfig runs the write-and-arm pipeline for a specific config text, shared
-// by a fresh render and a re-apply of a stored version. The caller must have
-// passed canStartApply first. soft reloads filters without bouncing sessions.
-func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string, soft bool) {
+// applyConfig runs the write-and-arm pipeline for a config, shared by a fresh
+// render and a re-apply of a stored version. cfg is the logical config text (for
+// hashing, the bird -p pre-flight and the stored version); set is how it is laid
+// out on disk, and set.Logical() must equal cfg. The caller must have passed
+// canStartApply first. soft reloads filters without bouncing sessions.
+func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string, set birdconf.FileSet, soft bool) {
 	settings, _, err := s.store.GetSettings()
 	if err != nil {
 		s.serverError(w, "get settings", err)
@@ -273,28 +451,29 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 	}
 
 	now := time.Now()
-	backup, err := s.backupBirdConf(now)
+	backup, err := s.snapshotConfig(now)
 	if err != nil {
-		s.log.Error("back up bird.conf", "error", err)
+		s.log.Error("back up config", "error", err)
 		s.redirectChanges(w, r, "Could not back up the current config: "+err.Error())
 		return
 	}
-	if err := s.writeBirdConf(cfg); err != nil {
+	if err := s.writeFileSet(set); err != nil {
 		// The usual cause is that birdy cannot write to bird.conf's directory —
-		// grant it, or run read-only. Nothing has changed on the router yet.
-		s.log.Error("write bird.conf", "error", err)
-		s.redirectChanges(w, r, "Could not write "+s.birdConfPath+": "+err.Error()+
-			". birdy needs write access to that file and its directory.")
+		// grant it, or run read-only. Undo any partial write before bailing.
+		s.log.Error("write config", "error", err)
+		_ = s.restoreConfig(backup)
+		s.redirectChanges(w, r, "Could not write to "+s.configDir()+": "+err.Error()+
+			". birdy needs write access to that directory.")
 		return
 	}
 
-	// The daemon's own check, against the exact file it will load.
+	// The daemon's own check, against the exact files it will load.
 	if res, err := s.client.ConfigureCheck(); err != nil {
-		_ = s.restoreFrom(backup)
+		_ = s.restoreConfig(backup)
 		s.serverError(w, "configure check", err)
 		return
 	} else if !res.OK {
-		_ = s.restoreFrom(backup)
+		_ = s.restoreConfig(backup)
 		s.redirectChanges(w, r, "BIRD rejected the config; it was rolled back:\n"+res.Message)
 		return
 	}
@@ -303,21 +482,21 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 	// or the sessions never come up, BIRD reverts on its own.
 	res, err := s.client.ConfigureTimeout(s.applyTimeout, soft)
 	if err != nil {
-		_ = s.restoreFrom(backup)
+		_ = s.restoreConfig(backup)
 		s.serverError(w, "configure timeout", err)
 		return
 	}
 	if !res.OK {
-		_ = s.restoreFrom(backup)
+		_ = s.restoreConfig(backup)
 		s.redirectChanges(w, r, "BIRD could not apply the config; it was rolled back:\n"+res.Message)
 		return
 	}
 
 	// The trick that keeps disk and daemon consistent: BIRD now holds the new
-	// config in memory (armed). Put the previous file back on disk, so if the
+	// config in memory (armed). Put the previous config back on disk, so if the
 	// timeout fires — or anything restarts BIRD — disk still matches the config
-	// BIRD reverts to. The new bytes live in the version row until confirm.
-	if err := s.restoreFrom(backup); err != nil {
+	// BIRD reverts to. The new set lives in the version row until confirm.
+	if err := s.restoreConfig(backup); err != nil {
 		s.serverError(w, "restore pending backup", err)
 		return
 	}
@@ -326,12 +505,18 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 	if soft {
 		how = "soft"
 	}
+	filesJSON, err := json.Marshal(set)
+	if err != nil {
+		s.serverError(w, "encode file set", err)
+		return
+	}
 	deadline := now.Add(time.Duration(s.applyTimeout) * time.Second)
 	id, err := s.store.CreateConfigVersion(store.ConfigVersion{
 		SHA256: newHash, Size: len(cfg), ConfigText: cfg, BackupPath: backup,
 		Status: store.ConfigPending, Deadline: deadline,
 		Message:          fmt.Sprintf("Applied (%s) with a %ds safety timeout.", how, s.applyTimeout),
 		BaselineSessions: strings.Join(s.establishedSessions(), ","),
+		ConfigFiles:      string(filesJSON),
 	})
 	if err != nil {
 		s.serverError(w, "record config version", err)
@@ -364,15 +549,20 @@ func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Write the new config to disk first, so if confirm fails we can roll the
-	// file back and leave nothing half-applied. On success this is the file
-	// BIRD is already running from memory.
-	if err := s.writeBirdConf(pending.ConfigText); err != nil {
-		s.serverError(w, "write bird.conf", err)
+	// files back and leave nothing half-applied. On success this is what BIRD is
+	// already running from memory.
+	set, err := fileSetFor(pending)
+	if err != nil {
+		s.serverError(w, "decode pending file set", err)
+		return
+	}
+	if err := s.writeFileSet(set); err != nil {
+		s.serverError(w, "write config", err)
 		return
 	}
 	res, err := s.client.ConfigureConfirm()
 	if err != nil || !res.OK {
-		_ = s.restoreFrom(pending.BackupPath)
+		_ = s.restoreConfig(pending.BackupPath)
 		msg := "BIRD would not confirm the apply"
 		if err == nil {
 			msg += ": " + res.Message
@@ -434,40 +624,50 @@ func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
 	s.redirectChanges(w, r, msg)
 }
 
-// handleAdopt takes ownership of a bird.conf birdy did not write. It backs the
-// file up and records its hash as the baseline birdy now manages, so the next
-// apply diffs against it and replaces it cleanly. Nothing about the running
-// daemon changes.
+// fileSetFor reconstructs the on-disk layout a stored version should write. A
+// version saved with the split layout carries the exact set; an older
+// single-file version falls back to writing its text as bird.conf alone.
+func fileSetFor(v store.ConfigVersion) (birdconf.FileSet, error) {
+	if v.ConfigFiles == "" {
+		return birdconf.FileSet{Entry: v.ConfigText}, nil
+	}
+	var set birdconf.FileSet
+	if err := json.Unmarshal([]byte(v.ConfigFiles), &set); err != nil {
+		return birdconf.FileSet{}, err
+	}
+	return set, nil
+}
+
+// handleAdopt takes ownership of a config birdy did not write. It snapshots the
+// current config and records its logical hash as the baseline birdy now manages,
+// so the next apply diffs against it and replaces it cleanly. Nothing about the
+// running daemon changes.
 func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()
 	if !s.writeGuard(w) {
 		return
 	}
-	backup, err := s.backupBirdConf(time.Now())
+	backup, err := s.snapshotConfig(time.Now())
 	if err != nil {
-		s.serverError(w, "back up bird.conf", err)
+		s.serverError(w, "back up config", err)
 		return
 	}
-	data, err := os.ReadFile(s.birdConfPath)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		// No file to adopt — clear the hash so birdy is on a clean slate.
-		if err := s.store.SetAppliedConfigHash(""); err != nil {
-			s.serverError(w, "clear applied hash", err)
-			return
-		}
-	case err != nil:
-		s.serverError(w, "read bird.conf", err)
+	text, exists, err := s.readLogicalConfig()
+	if err != nil {
+		s.serverError(w, "read config", err)
 		return
-	default:
-		if err := s.store.SetAppliedConfigHash(hashBytes(data)); err != nil {
-			s.serverError(w, "set applied hash", err)
-			return
-		}
 	}
-	_ = s.store.InsertEvent(store.EventConfigApply, "", "Adopted the existing bird.conf")
-	msg := "Adopted. birdy now manages this config; the previous file is backed up."
+	hash := ""
+	if exists {
+		hash = hashBytes([]byte(text))
+	}
+	if err := s.store.SetAppliedConfigHash(hash); err != nil {
+		s.serverError(w, "set applied hash", err)
+		return
+	}
+	_ = s.store.InsertEvent(store.EventConfigApply, "", "Adopted the existing config")
+	msg := "Adopted. birdy now manages this config; the previous config is backed up."
 	if backup != "" {
 		msg = "Adopted. The existing config is backed up to " + filepath.Base(backup) + "."
 	}
