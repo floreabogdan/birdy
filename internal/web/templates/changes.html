@@ -26,6 +26,29 @@
 
 			{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
 
+			{{if .WouldRemove}}
+			<div class="card panel-danger">
+				<div class="panel-head">{{template "icon-alert"}}Applying would remove {{len .WouldRemove}} live BGP session{{if ne (len .WouldRemove) 1}}s{{end}}
+					{{if .EstablishedAtRisk}}<span class="badge badge-danger">{{.EstablishedAtRisk}} established</span>{{end}}
+				</div>
+				<div class="card-body">
+					<p style="margin-top:0">
+						birdy renders the <em>whole</em> config from its model and keeps nothing it does not model. These sessions BIRD
+						is running now have no matching peer in birdy &mdash; applying would tear them down:
+					</p>
+					<div class="kv" style="margin:4px 0 12px">
+						{{range .WouldRemove}}
+						<dt class="mono">{{.Name}}</dt><dd>{{sessionBadge .Up .BGPState}}</dd>
+						{{end}}
+					</div>
+					<p class="text-muted" style="margin-bottom:0;font-size:0.8125rem">
+						To keep one, add it as a <a href="/peers/new">peer</a> with the same name before you apply. If you mean to
+						retire these sessions, this is expected.
+					</p>
+				</div>
+			</div>
+			{{end}}
+
 			{{if .Pending}}
 			{{/* An armed reconfigure is live: BIRD is running the new config but will
 			     revert unless it is confirmed. This is the one screen state that is

@@ -10,6 +10,7 @@ import (
 
 	"github.com/floreabogdan/birdy/internal/buildinfo"
 	birdconf "github.com/floreabogdan/birdy/internal/render"
+	"github.com/floreabogdan/birdy/internal/store"
 )
 
 type changesView struct {
@@ -57,6 +58,11 @@ type changesView struct {
 	Check    birdconf.CheckResult
 	Warnings []birdconf.Warning
 
+	// WouldRemove are BGP sessions BIRD is running now that have no matching peer
+	// in birdy's model — applying the whole-file config would tear them down. The
+	// headline signal that the model does not yet match the router.
+	WouldRemove []protoRow
+
 	PeerCount   int
 	SetCount    int
 	PolicyCount int
@@ -83,6 +89,38 @@ func (v changesView) ChangedFiles() int {
 		}
 	}
 	return n
+}
+
+// EstablishedAtRisk counts the would-be-removed sessions that are established
+// right now — the ones actually carrying traffic.
+func (v changesView) EstablishedAtRisk() int {
+	n := 0
+	for _, row := range v.WouldRemove {
+		if row.Up {
+			n++
+		}
+	}
+	return n
+}
+
+// sessionsWouldRemove lists the BGP protocols BIRD is running that have no peer
+// of the same name in the model. Because birdy renders the whole config and one
+// peer becomes one `protocol bgp <name>`, any live BGP session the model does
+// not name would be removed on apply — the classic footgun of pointing birdy at
+// a router whose sessions it has not modelled yet.
+func (s *Server) sessionsWouldRemove(peers []store.Peer) []protoRow {
+	have := make(map[string]bool, len(peers))
+	for _, p := range peers {
+		have[p.Name] = true
+	}
+	var out []protoRow
+	for _, row := range s.liveStates() {
+		if row.IsBGP() && !have[row.Name] {
+			out = append(out, row)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // renderInput assembles everything the renderer needs from the model. A
@@ -202,6 +240,10 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 	// Lint before rendering: a config that fails to render still has findings
 	// worth showing, and bird -p will never catch a route leak.
 	v.Warnings = birdconf.Lint(in)
+
+	// What applying would tear down: BGP sessions BIRD runs now that the model
+	// does not include. This is the adoption trap made visible.
+	v.WouldRemove = s.sessionsWouldRemove(in.Peers)
 
 	candidate, err := birdconf.Config(in)
 	if err != nil {

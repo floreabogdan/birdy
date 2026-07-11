@@ -95,7 +95,7 @@ func (s *Server) handlePeerNew(w http.ResponseWriter, r *http.Request) {
 	// switches to iBGP: it is ignored for every other role, and off is the setting
 	// that blackholes.
 	p := store.Peer{Role: store.RoleUpstream, Enabled: true, EnforceFirstAS: true,
-		BGPRole: true, NextHopSelf: true, ImportLimitAction: "restart"}
+		BGPRole: true, NextHopSelf: true, ImportLimitAction: "restart", GracefulRestart: store.GRAware}
 	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: true, Peer: p})
 }
 
@@ -145,6 +145,8 @@ func peerFromForm(r *http.Request) store.Peer {
 		ExportCommunities: strings.TrimSpace(r.FormValue("exportCommunities")),
 		Drained:           r.FormValue("drained") == "on",
 		BFD:               r.FormValue("bfd") == "on",
+		GTSM:              r.FormValue("gtsm") == "on",
+		GracefulRestart:   r.FormValue("gracefulRestart"),
 	}
 }
 

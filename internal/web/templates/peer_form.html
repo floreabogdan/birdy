@@ -227,6 +227,19 @@
 									{{with index .Errs "importLimitAction"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
 							</div>
+							<div class="field-row">
+								<div class="field">
+									<label for="gracefulRestart">Graceful restart</label>
+									{{$gr := .Peer.GracefulRestart}}
+									<select id="gracefulRestart" name="gracefulRestart">
+										<option value="aware" {{if or (eq $gr "aware") (eq $gr "")}}selected{{end}}>aware &mdash; help a restarting neighbour (BIRD default)</option>
+										<option value="on" {{if eq $gr "on"}}selected{{end}}>on &mdash; negotiate in both directions</option>
+										<option value="off" {{if eq $gr "off"}}selected{{end}}>off &mdash; tear routes down immediately</option>
+									</select>
+									<div class="hint">Keep forwarding across a control-plane restart on either end instead of dropping routes at once.</div>
+									{{with index .Errs "gracefulRestart"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+							</div>
 							<div class="checks">
 								<label class="check"><input type="checkbox" name="enabled" {{if .Peer.Enabled}}checked{{end}}> Enabled</label>
 								<label class="check"><input type="checkbox" name="passive" {{if .Peer.Passive}}checked{{end}}> Passive — wait for the peer to connect</label>
@@ -235,6 +248,7 @@
 									<label class="check"><input type="checkbox" name="enforceFirstAs" {{if .Peer.EnforceFirstAS}}checked{{end}}> Require the peer to be the first AS in the path</label>
 									<label class="check"><input type="checkbox" name="originPeerOnly" {{if .Peer.OriginPeerOnly}}checked{{end}}> Accept only prefixes this peer originates &mdash; no downstreams</label>
 									<label class="check"><input type="checkbox" name="bgpRole" {{if .Peer.BGPRole}}checked{{end}}> RFC 9234 role &mdash; negotiate a BGP role and drop route leaks with the Only-To-Customer attribute</label>
+									<label class="check"><input type="checkbox" name="gtsm" {{if .Peer.GTSM}}checked{{end}}> GTSM (RFC 5082) &mdash; drop packets arriving with an unexpected TTL, so an off-path attacker cannot spoof the session</label>
 								</span>
 								<span data-role-only="ibgp" {{if ne .Peer.Role "ibgp"}}hidden{{end}} class="checks">
 									<label class="check"><input type="checkbox" name="nextHopSelf" {{if .Peer.NextHopSelf}}checked{{end}}> Next-hop-self &mdash; announce these routes with our own address as the next hop</label>

@@ -27,6 +27,18 @@ var limitActions = map[string]bool{
 	"warn": true, "block": true, "restart": true, "disable": true,
 }
 
+// Graceful restart negotiation, per BIRD's `graceful restart` switch. "aware"
+// (BIRD's default) helps a restarting neighbour keep its routes through our
+// side without asking it to preserve ours; "on" negotiates it in both roles;
+// "off" disables it.
+const (
+	GROff   = "off"
+	GRAware = "aware"
+	GROn    = "on"
+)
+
+var gracefulRestartModes = map[string]bool{GROff: true, GRAware: true, GROn: true}
+
 // birdIdent is deliberately strict. Every peer name is interpolated straight
 // into bird.conf as a protocol name and into generated filter names, so it is
 // the one field that could smuggle syntax into the config. Anything that is
@@ -94,6 +106,17 @@ type Peer struct {
 	// hold timer. Requires a BFD-capable path to the neighbor.
 	BFD bool
 
+	// GTSM turns on the Generalized TTL Security Mechanism (RFC 5082): BIRD sends
+	// with a maximal TTL and drops received packets whose TTL is lower than
+	// expected, so a spoofed session from an off-path attacker is rejected. eBGP
+	// only. For a multihop session the hop count (Multihop) must be set correctly
+	// so BIRD computes the right expected TTL.
+	GTSM bool
+	// GracefulRestart negotiates BGP graceful restart: "off", "aware" (BIRD's
+	// default) or "on". It lets forwarding continue across a control-plane
+	// restart on either end instead of tearing routes down immediately.
+	GracefulRestart string
+
 	// Ordered policy chains, filled by the caller from SetPeerPolicies/PeerPolicies.
 	ImportPolicies []Policy
 	ExportPolicies []Policy
@@ -138,6 +161,15 @@ func (p *Peer) Validate() map[string]string {
 		// RFC 9234 roles are an eBGP concept; BIRD rejects `local role` on an
 		// internal session.
 		p.BGPRole = false
+		// GTSM is offered as eBGP protection; iBGP sessions are inside the trust
+		// boundary and often multihop to loopbacks where it does not fit.
+		p.GTSM = false
+	}
+	if p.GracefulRestart == "" {
+		p.GracefulRestart = GRAware
+	}
+	if !gracefulRestartModes[p.GracefulRestart] {
+		errs["gracefulRestart"] = "Choose off, aware or on."
 	}
 	if p.PrependCount < 0 || p.PrependCount > 10 {
 		errs["prependCount"] = "Prepend between 0 and 10 times."
@@ -198,7 +230,7 @@ func (s *Store) ListPeers() ([]Peer, error) {
 		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
 		       origin_peer_only, next_hop_self, rr_client,
-		       prepend_count, export_communities, drained, bfd, bgp_role
+		       prepend_count, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart
 		FROM peers ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list peers: %w", err)
@@ -220,7 +252,7 @@ func (s *Store) GetPeer(id int64) (Peer, error) {
 		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
 		       origin_peer_only, next_hop_self, rr_client,
-		       prepend_count, export_communities, drained, bfd, bgp_role
+		       prepend_count, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart
 		FROM peers WHERE id = ?`, id)
 	p, err := scanPeer(row)
 	if err == sql.ErrNoRows {
@@ -237,7 +269,7 @@ func (s *Store) GetPeerByName(name string) (Peer, error) {
 		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
 		       origin_peer_only, next_hop_self, rr_client,
-		       prepend_count, export_communities, drained, bfd, bgp_role
+		       prepend_count, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart
 		FROM peers WHERE name = ?`, name)
 	p, err := scanPeer(row)
 	if err == sql.ErrNoRows {
@@ -254,7 +286,7 @@ func scanPeer(sc scanner) (Peer, error) {
 		&p.RemoteASN, &p.LocalIP, &p.Multihop, &p.Passive, &p.Password,
 		&p.ImportLimit, &p.ImportLimitAction, &p.EnforceFirstAS, &p.OriginPeerOnly,
 		&p.NextHopSelf, &p.RRClient,
-		&p.PrependCount, &p.ExportCommunities, &p.Drained, &p.BFD, &p.BGPRole)
+		&p.PrependCount, &p.ExportCommunities, &p.Drained, &p.BFD, &p.BGPRole, &p.GTSM, &p.GracefulRestart)
 	return p, err
 }
 
@@ -264,12 +296,12 @@ func (s *Store) CreatePeer(p Peer) (int64, error) {
 		INSERT INTO peers (name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		                   multihop, passive, password, import_limit, import_limit_action,
 		                   enforce_first_as, origin_peer_only, next_hop_self, rr_client,
-		                   prepend_count, export_communities, drained, bfd, bgp_role, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   prepend_count, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
-		p.PrependCount, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, ts, ts)
+		p.PrependCount, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create peer: %w", err)
 	}
@@ -282,12 +314,13 @@ func (s *Store) UpdatePeer(p Peer) error {
 		                 remote_asn = ?, local_ip = ?, multihop = ?, passive = ?, password = ?,
 		                 import_limit = ?, import_limit_action = ?, enforce_first_as = ?,
 		                 origin_peer_only = ?, next_hop_self = ?, rr_client = ?,
-		                 prepend_count = ?, export_communities = ?, drained = ?, bfd = ?, bgp_role = ?, updated_at = ?
+		                 prepend_count = ?, export_communities = ?, drained = ?, bfd = ?, bgp_role = ?,
+			                 gtsm = ?, graceful_restart = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
-		p.PrependCount, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, now(), p.ID)
+		p.PrependCount, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, now(), p.ID)
 	if err != nil {
 		return fmt.Errorf("store: update peer: %w", err)
 	}

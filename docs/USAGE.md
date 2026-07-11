@@ -253,7 +253,13 @@ Creates the database and the admin user. Fails if an account already exists.
 
 ### `birdy doctor`
 
-Runs preflight checks and exits non-zero if any hard check fails. Read-only.
+Runs preflight checks and exits non-zero if any hard check fails. Read-only. The
+checks cover the BIRD binary, the control socket, the config directory,
+apply-readiness (including that `--bird-conf` is the file BIRD actually loads),
+and — before you drop `--read-only` — that **BIRD can read what birdy writes**:
+the split layout writes `0640` files in a `0750 birdy.d/`, so if birdy is neither
+BIRD's user nor in BIRD's group, the first apply produces a config BIRD cannot
+read. Run `doctor` as the user birdy will run as to make this check meaningful.
 
 | Flag | Default | What it does |
 |------|---------|--------------|
@@ -313,7 +319,11 @@ Editing the model changes nothing on the router. When you visit **Changes**, bir
 3. shows a unified **diff** against the running config,
 4. runs a **linter** for things `bird -p` cannot catch — route leaks, a session
    that would accept nothing, unreachable filter branches, an RTR server nobody
-   validates against.
+   validates against,
+5. flags any **live BGP session the model does not include** — because birdy
+   renders the whole config, applying would tear those sessions down. This is the
+   guardrail for pointing birdy at a router whose sessions you have not modelled
+   yet: add each as a peer of the same name first, or expect it to be removed.
 
 If birdy is **not** read-only, you can then **Apply**: it snapshots the current
 config, writes the new one, runs `configure check`, then `configure timeout`. BIRD
@@ -377,6 +387,8 @@ apply to the role you pick.
 | **Next-hop-self** | iBGP | Readvertise routes with your own address as the next hop. On by default: without it, an eBGP route carries the *external* peer's address, which the far end of the iBGP session usually cannot reach. Leave it on unless your IGP carries the peering subnets. |
 | **Route reflector client** | iBGP | Reflect iBGP routes to this peer, lifting the rule that stops readvertising iBGP routes to other iBGP peers. Set a cluster ID under Settings if you run more than one reflector. |
 | **BFD** | all | Bidirectional Forwarding Detection — tear the session down within a second of a link failure instead of waiting out the hold timer. Needs a BFD-capable path. |
+| **GTSM** | eBGP | Generalized TTL Security Mechanism (RFC 5082): send with a maximal TTL and drop received packets whose TTL is lower than expected, so an off-path attacker cannot spoof the session. For a multihop peer, set **Multihop TTL** correctly so BIRD computes the right expected TTL. |
+| **Graceful restart** | all | Negotiate BGP graceful restart so forwarding continues across a control-plane restart on either end: **aware** (help a restarting neighbour — BIRD's default), **on** (negotiate in both directions), or **off** (drop routes immediately). |
 | **Import / export policy chains** | eBGP | Ordered lists of policies. **Imports compose with AND** (a route must survive every import policy); **exports compose with OR** (a route is announced if any export policy permits it). With no export policy the session is receive-only (RFC 8212 default-deny). |
 
 **Clone a peer** to use one as a template: birdy copies the role, policy chains,

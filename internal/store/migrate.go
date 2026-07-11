@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 19
+const schemaVersion = 20
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -263,6 +263,17 @@ func migrate(db *sql.DB) error {
 		// per-section includes. A pending apply records the exact file set so
 		// confirm and re-apply write what was armed, not a fresh render.
 		if err := ensureColumn(tx, "config_versions", "config_files", `ALTER TABLE config_versions ADD COLUMN config_files TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 20 {
+		// Per-peer GTSM (RFC 5082) and graceful-restart negotiation. GTSM defaults
+		// off; graceful restart defaults to "aware", which is BIRD's own default.
+		if err := ensureColumn(tx, "peers", "gtsm", `ALTER TABLE peers ADD COLUMN gtsm INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "peers", "graceful_restart", `ALTER TABLE peers ADD COLUMN graceful_restart TEXT NOT NULL DEFAULT 'aware'`); err != nil {
 			return err
 		}
 	}

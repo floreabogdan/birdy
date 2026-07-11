@@ -58,6 +58,7 @@ func Run(cfg Config) []Result {
 		checkSocket(cfg),
 		checkConfigDir(cfg),
 		checkApplyReady(cfg),
+		checkConfigReadable(cfg),
 		checkSystemd(cfg),
 		checkDBDir(cfg),
 	}

@@ -831,6 +831,12 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 	if p.Multihop > 0 {
 		fmt.Fprintf(b, "\tmultihop %d;\n", p.Multihop)
 	}
+	if p.GTSM {
+		// GTSM (RFC 5082): send with a maximal TTL and drop received packets whose
+		// TTL is lower than expected, so an off-path attacker cannot spoof the
+		// session. For a multihop peer the hop count above sets the expected TTL.
+		b.WriteString("\tttl security on;\n")
+	}
 	if p.Passive {
 		b.WriteString("\tpassive;\n")
 	}
@@ -838,6 +844,14 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 		// Sub-second failure detection: BIRD tears the session down the moment BFD
 		// stops hearing the neighbour, rather than waiting out the hold timer.
 		b.WriteString("\tbfd;\n")
+	}
+	// graceful restart "aware" is BIRD's own default, so only the explicit
+	// on/off choices are written.
+	switch p.GracefulRestart {
+	case store.GROn:
+		b.WriteString("\tgraceful restart on;\n")
+	case store.GROff:
+		b.WriteString("\tgraceful restart off;\n")
 	}
 	if p.Password != "" {
 		pw := p.Password
