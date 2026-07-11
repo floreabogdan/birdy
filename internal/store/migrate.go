@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 17
+const schemaVersion = 18
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -245,6 +245,15 @@ func migrate(db *sql.DB) error {
 		// Which BGP sessions were established when a config was applied, so the
 		// pending panel can flag any that regressed.
 		if err := ensureColumn(tx, "config_versions", "baseline_sessions", `ALTER TABLE config_versions ADD COLUMN baseline_sessions TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 18 {
+		// RFC 9234 BGP roles / Only-To-Customer. Off by default: turning it on for
+		// an existing peer can reset the session if the far end has a conflicting
+		// role, so it stays a deliberate per-peer opt-in.
+		if err := ensureColumn(tx, "peers", "bgp_role", `ALTER TABLE peers ADD COLUMN bgp_role INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return err
 		}
 	}

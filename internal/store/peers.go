@@ -56,6 +56,15 @@ type Peer struct {
 	// compares the route's origin AS against this peer's own ASN.
 	OriginPeerOnly bool
 
+	// BGPRole turns on RFC 9234 role negotiation and the Only-To-Customer (OTC)
+	// attribute: BIRD tags routes with OTC and drops any that arrive in a way
+	// that would be a route leak, at the protocol level. The BGP role birdy
+	// sends is derived from this peer's relationship role — upstream means we
+	// are their customer, customer means we are their provider, an IX peer is a
+	// lateral peer. eBGP only, and opt-in: enabling it can reset a session whose
+	// far end has a conflicting role configured.
+	BGPRole bool
+
 	// NextHopSelf rewrites the next hop to our own address before announcing.
 	// iBGP only, and on by default: a route learned from an eBGP peer keeps that
 	// peer's address as its next hop, which the router at the other end of an
@@ -126,6 +135,9 @@ func (p *Peer) Validate() map[string]string {
 		p.PrependCount = 0
 		p.ExportCommunities = ""
 		p.Drained = false
+		// RFC 9234 roles are an eBGP concept; BIRD rejects `local role` on an
+		// internal session.
+		p.BGPRole = false
 	}
 	if p.PrependCount < 0 || p.PrependCount > 10 {
 		errs["prependCount"] = "Prepend between 0 and 10 times."
@@ -186,7 +198,7 @@ func (s *Store) ListPeers() ([]Peer, error) {
 		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
 		       origin_peer_only, next_hop_self, rr_client,
-		       prepend_count, export_communities, drained, bfd
+		       prepend_count, export_communities, drained, bfd, bgp_role
 		FROM peers ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list peers: %w", err)
@@ -208,7 +220,7 @@ func (s *Store) GetPeer(id int64) (Peer, error) {
 		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
 		       origin_peer_only, next_hop_self, rr_client,
-		       prepend_count, export_communities, drained, bfd
+		       prepend_count, export_communities, drained, bfd, bgp_role
 		FROM peers WHERE id = ?`, id)
 	p, err := scanPeer(row)
 	if err == sql.ErrNoRows {
@@ -225,7 +237,7 @@ func (s *Store) GetPeerByName(name string) (Peer, error) {
 		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
 		       origin_peer_only, next_hop_self, rr_client,
-		       prepend_count, export_communities, drained, bfd
+		       prepend_count, export_communities, drained, bfd, bgp_role
 		FROM peers WHERE name = ?`, name)
 	p, err := scanPeer(row)
 	if err == sql.ErrNoRows {
@@ -242,7 +254,7 @@ func scanPeer(sc scanner) (Peer, error) {
 		&p.RemoteASN, &p.LocalIP, &p.Multihop, &p.Passive, &p.Password,
 		&p.ImportLimit, &p.ImportLimitAction, &p.EnforceFirstAS, &p.OriginPeerOnly,
 		&p.NextHopSelf, &p.RRClient,
-		&p.PrependCount, &p.ExportCommunities, &p.Drained, &p.BFD)
+		&p.PrependCount, &p.ExportCommunities, &p.Drained, &p.BFD, &p.BGPRole)
 	return p, err
 }
 
@@ -252,12 +264,12 @@ func (s *Store) CreatePeer(p Peer) (int64, error) {
 		INSERT INTO peers (name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		                   multihop, passive, password, import_limit, import_limit_action,
 		                   enforce_first_as, origin_peer_only, next_hop_self, rr_client,
-		                   prepend_count, export_communities, drained, bfd, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   prepend_count, export_communities, drained, bfd, bgp_role, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
-		p.PrependCount, p.ExportCommunities, p.Drained, p.BFD, ts, ts)
+		p.PrependCount, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create peer: %w", err)
 	}
@@ -270,12 +282,12 @@ func (s *Store) UpdatePeer(p Peer) error {
 		                 remote_asn = ?, local_ip = ?, multihop = ?, passive = ?, password = ?,
 		                 import_limit = ?, import_limit_action = ?, enforce_first_as = ?,
 		                 origin_peer_only = ?, next_hop_self = ?, rr_client = ?,
-		                 prepend_count = ?, export_communities = ?, drained = ?, bfd = ?, updated_at = ?
+		                 prepend_count = ?, export_communities = ?, drained = ?, bfd = ?, bgp_role = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
-		p.PrependCount, p.ExportCommunities, p.Drained, p.BFD, now(), p.ID)
+		p.PrependCount, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, now(), p.ID)
 	if err != nil {
 		return fmt.Errorf("store: update peer: %w", err)
 	}

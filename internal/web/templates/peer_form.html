@@ -234,6 +234,7 @@
 								<span data-role-only="ebgp" {{if eq .Peer.Role "ibgp"}}hidden{{end}} class="checks">
 									<label class="check"><input type="checkbox" name="enforceFirstAs" {{if .Peer.EnforceFirstAS}}checked{{end}}> Require the peer to be the first AS in the path</label>
 									<label class="check"><input type="checkbox" name="originPeerOnly" {{if .Peer.OriginPeerOnly}}checked{{end}}> Accept only prefixes this peer originates &mdash; no downstreams</label>
+									<label class="check"><input type="checkbox" name="bgpRole" {{if .Peer.BGPRole}}checked{{end}}> RFC 9234 role &mdash; negotiate a BGP role and drop route leaks with the Only-To-Customer attribute</label>
 								</span>
 								<span data-role-only="ibgp" {{if ne .Peer.Role "ibgp"}}hidden{{end}} class="checks">
 									<label class="check"><input type="checkbox" name="nextHopSelf" {{if .Peer.NextHopSelf}}checked{{end}}> Next-hop-self &mdash; announce these routes with our own address as the next hop</label>
@@ -263,6 +264,12 @@
 									Use it when you sell someone transit but do not carry their downstreams. Their own prepending still works.
 									To carry their downstreams too, leave it off and point an import policy at an
 									<a href="/library/as-sets">AS set</a> holding their expanded AS-SET.
+								</div>
+								<div class="hint">
+									<strong>RFC 9234</strong> pushes leak prevention into the protocol. birdy derives the role it sends from the one above &mdash;
+									we are a <span class="mono">customer</span> of an upstream, a <span class="mono">provider</span> to a customer, a lateral
+									<span class="mono">peer</span> at an IX &mdash; and BIRD then tags routes with the Only-To-Customer attribute and rejects any that
+									arrive as a leak. Turning it on can briefly reset the session if the far end has a conflicting role configured.
 								</div>
 							</div>
 						</div>

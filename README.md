@@ -87,6 +87,9 @@ moment you ran it. See [LICENSE](LICENSE).
 
 ## Install
 
+> 📖 **Full guide:** [`docs/USAGE.md`](docs/USAGE.md) walks through installing every
+> dependency, each command-line flag, and what every peer and policy knob does.
+
 birdy runs on the router, next to BIRD. Pick one of these.
 
 <details open>

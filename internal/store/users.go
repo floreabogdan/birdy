@@ -35,6 +35,31 @@ func (s *Store) GetUserByUsername(username string) (User, bool, error) {
 	return u, true, nil
 }
 
+// GetUserByID returns (User{}, false, nil) if no such user exists. It backs the
+// profile page, which knows the logged-in user by the id carried in the session.
+func (s *Store) GetUserByID(id int64) (User, bool, error) {
+	var u User
+	row := s.db.QueryRow(`SELECT id, username, password_hash FROM users WHERE id = ?`, id)
+	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash)
+	if err == sql.ErrNoRows {
+		return User{}, false, nil
+	}
+	if err != nil {
+		return User{}, false, fmt.Errorf("store: get user by id: %w", err)
+	}
+	return u, true, nil
+}
+
+// SetUsername renames an existing user. The username column is UNIQUE, so a
+// clash surfaces as the driver's unique-violation error for the caller to map.
+func (s *Store) SetUsername(id int64, username string) error {
+	_, err := s.db.Exec(`UPDATE users SET username = ? WHERE id = ?`, username, id)
+	if err != nil {
+		return fmt.Errorf("store: set username: %w", err)
+	}
+	return nil
+}
+
 // HasAnyUser reports whether at least one user account exists (used to decide
 // whether `birdy init` still needs to run).
 func (s *Store) HasAnyUser() (bool, error) {

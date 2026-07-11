@@ -320,11 +320,14 @@ h1, h2, h3 { font-weight: 700; color: var(--text); margin: 0; }
 }
 .profile-panel .profile-user { padding: 6px 8px 10px; border-bottom: 1px solid var(--border); margin-bottom: 6px; font-size: 0.75rem; color: var(--text-muted); }
 .profile-panel form { margin: 0; }
-.profile-panel button {
-	width: 100%; text-align: left; background: none; border: none; padding: 8px; border-radius: var(--radius-nav);
-	color: var(--danger-deep); font-size: 0.8125rem; font-weight: 500; cursor: pointer; font-family: var(--font-sans);
+.profile-panel a, .profile-panel button {
+	display: block; box-sizing: border-box; width: 100%; text-align: left; background: none; border: none;
+	padding: 8px; border-radius: var(--radius-nav); font-size: 0.8125rem; font-weight: 500;
+	cursor: pointer; font-family: var(--font-sans);
 }
-.profile-panel button:hover { background: var(--surface-alt); }
+.profile-panel a { color: var(--text); text-decoration: none; }
+.profile-panel button { color: var(--danger-deep); }
+.profile-panel a:hover, .profile-panel button:hover { background: var(--surface-alt); text-decoration: none; }
 
 .page { padding: 22px 28px 60px; width: 100%; }
 

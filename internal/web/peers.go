@@ -89,12 +89,13 @@ func (s *Server) handlePeerNew(w http.ResponseWriter, r *http.Request) {
 		// Source gone — fall through to a blank form rather than 404.
 	}
 
-	// A new session is an eBGP upstream, enabled, with the first-AS check on
-	// and BIRD restarting it if the peer floods us past the import limit.
-	// NextHopSelf is pre-ticked for the moment the operator switches to iBGP:
-	// it is ignored for every other role, and off is the setting that blackholes.
+	// A new session is an eBGP upstream, enabled, with the first-AS check on,
+	// RFC 9234 leak prevention on, and BIRD restarting it if the peer floods us
+	// past the import limit. NextHopSelf is pre-ticked for the moment the operator
+	// switches to iBGP: it is ignored for every other role, and off is the setting
+	// that blackholes.
 	p := store.Peer{Role: store.RoleUpstream, Enabled: true, EnforceFirstAS: true,
-		NextHopSelf: true, ImportLimitAction: "restart"}
+		BGPRole: true, NextHopSelf: true, ImportLimitAction: "restart"}
 	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: true, Peer: p})
 }
 
@@ -137,6 +138,7 @@ func peerFromForm(r *http.Request) store.Peer {
 		ImportLimitAction: r.FormValue("importLimitAction"),
 		EnforceFirstAS:    r.FormValue("enforceFirstAs") == "on",
 		OriginPeerOnly:    r.FormValue("originPeerOnly") == "on",
+		BGPRole:           r.FormValue("bgpRole") == "on",
 		NextHopSelf:       r.FormValue("nextHopSelf") == "on",
 		RRClient:          r.FormValue("rrClient") == "on",
 		PrependCount:      atoi("prependCount"),

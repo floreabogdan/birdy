@@ -243,6 +243,46 @@ func TestRoleDecidesTheTag(t *testing.T) {
 	}
 }
 
+func TestBGPRoleRendersLocalRole(t *testing.T) {
+	// The relationship role decides which RFC 9234 role we send: we are a
+	// customer of an upstream, a provider to a customer, a lateral peer at an IX.
+	for role, want := range map[string]string{
+		store.RoleUpstream: "customer",
+		store.RoleCustomer: "provider",
+		store.RoleIXPeer:   "peer",
+	} {
+		p := ebgpPeer()
+		p.Role, p.BGPRole = role, true
+		in := baseInput()
+		in.PrefixSets, in.Peers = bogonSets(), []store.Peer{p}
+		proto := block(t, mustRender(t, in), "protocol bgp edge_v4 {")
+		if !strings.Contains(proto, "local role "+want+";") {
+			t.Errorf("role %q with RFC 9234 on should render `local role %s`:\n%s", role, want, proto)
+		}
+	}
+
+	// Opt-in: no role unless the operator asks for it.
+	p := ebgpPeer()
+	in := baseInput()
+	in.PrefixSets, in.Peers = bogonSets(), []store.Peer{p}
+	if proto := block(t, mustRender(t, in), "protocol bgp edge_v4 {"); strings.Contains(proto, "local role") {
+		t.Error("RFC 9234 role must be off unless enabled")
+	}
+
+	// iBGP never carries a role — RFC 9234 is an eBGP concept, and BIRD rejects
+	// `local role` on an internal session.
+	ib := store.Peer{
+		ID: 2, Name: "ibgp_core", Role: store.RoleIBGP, Enabled: true,
+		NeighborIP: "10.0.0.2", RemoteASN: 65551, BGPRole: true,
+		NextHopSelf: true, ImportLimitAction: "restart",
+	}
+	in = baseInput()
+	in.PrefixSets, in.Peers = bogonSets(), []store.Peer{ib}
+	if proto := block(t, mustRender(t, in), "protocol bgp ibgp_core {"); strings.Contains(proto, "local role") {
+		t.Error("iBGP sessions must never carry an RFC 9234 role")
+	}
+}
+
 func TestEnforceFirstAS(t *testing.T) {
 	p := ebgpPeer()
 	in := baseInput()

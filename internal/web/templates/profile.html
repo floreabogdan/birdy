@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — profile</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Profile</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">Profile</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>Your account</h1>
+					<div class="page-sub">The username and password you sign in with. These are local to this birdy instance.</div>
+				</div>
+			</div>
+
+			{{if .Msg}}<div class="flash">{{.Msg}}</div>{{end}}
+
+			<div class="card">
+				<div class="card-header"><span class="card-title">{{template "icon-user"}}Username</span></div>
+				<div class="card-body">
+					<p class="text-muted" style="margin-top:0">This is the name you type at the login screen. Changing it does not sign you out.</p>
+					<form method="post" action="/profile/identity">
+						<div class="field">
+							<label for="username">Username</label>
+							<input type="text" id="username" name="username" class="mono" value="{{.Username}}" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+							<div class="hint">Letters, digits and punctuation, up to 64 characters. No spaces.</div>
+							{{with index .AccountErrs "username"}}<div class="field-error">{{.}}</div>{{end}}
+						</div>
+						<button type="submit" class="btn btn-primary">Save username</button>
+					</form>
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="card-header"><span class="card-title">{{template "icon-key"}}Password</span></div>
+				<div class="card-body">
+					<p class="text-muted" style="margin-top:0">Confirming your current password is required &mdash; a stolen session alone should not be enough to change it.</p>
+					<form method="post" action="/profile/password" autocomplete="off">
+						<div class="field">
+							<label for="currentPassword">Current password</label>
+							<input type="password" id="currentPassword" name="currentPassword" autocomplete="current-password" required>
+							{{with index .PasswordErrs "currentPassword"}}<div class="field-error">{{.}}</div>{{end}}
+						</div>
+						<div class="field-row">
+							<div class="field">
+								<label for="newPassword">New password</label>
+								<input type="password" id="newPassword" name="newPassword" autocomplete="new-password" required>
+								<div class="hint">At least 8 characters.</div>
+								{{with index .PasswordErrs "newPassword"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="field">
+								<label for="confirmPassword">Confirm new password</label>
+								<input type="password" id="confirmPassword" name="confirmPassword" autocomplete="new-password" required>
+								{{with index .PasswordErrs "confirmPassword"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+						</div>
+						<button type="submit" class="btn btn-primary">Change password</button>
+					</form>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

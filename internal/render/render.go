@@ -49,6 +49,17 @@ var roleTag = map[string]struct {
 	store.RoleCustomer: {tagCustomer, "FROM_CUSTOMER"},
 }
 
+// bgpRoleName maps a peer's relationship role to the RFC 9234 role BIRD sends as
+// `local role`. The role is our own position in the relationship: an upstream
+// sells us transit, so to them we are a customer; a customer buys transit from
+// us, so to them we are a provider; an IX peer is a lateral peer. iBGP has no
+// entry — RFC 9234 roles are eBGP only.
+var bgpRoleName = map[string]string{
+	store.RoleUpstream: "customer",
+	store.RoleCustomer: "provider",
+	store.RoleIXPeer:   "peer",
+}
+
 type Input struct {
 	RouterID    string
 	LocalASN    int64
@@ -714,6 +725,14 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 		b.WriteString("\tlocal as LOCAL_ASN;\n")
 	}
 	fmt.Fprintf(b, "\tneighbor %s as %d;\n", p.NeighborIP, p.RemoteASN)
+	if p.BGPRole {
+		if role, ok := bgpRoleName[p.Role]; ok {
+			// RFC 9234: BIRD tags exported routes with the Only-To-Customer
+			// attribute and rejects imports that carry it in a way that would be a
+			// route leak — leak prevention negotiated in the protocol itself.
+			fmt.Fprintf(b, "\tlocal role %s;\n", role)
+		}
+	}
 	if p.Multihop > 0 {
 		fmt.Fprintf(b, "\tmultihop %d;\n", p.Multihop)
 	}

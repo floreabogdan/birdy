@@ -240,6 +240,11 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /alerts/{id}/edit", s.requireAuth(s.handleAlertSave))
 	s.mux.Handle("POST /alerts/{id}/delete", s.requireAuth(s.handleAlertDelete))
 	s.mux.Handle("POST /alerts/{id}/test", s.requireAuth(s.handleAlertTest))
+
+	// The logged-in operator's own account: username and password.
+	s.mux.Handle("GET /profile", s.requireAuth(s.handleProfilePage))
+	s.mux.Handle("POST /profile/identity", s.requireAuth(s.handleProfileIdentity))
+	s.mux.Handle("POST /profile/password", s.requireAuth(s.handleProfilePassword))
 	s.mux.Handle("POST /logout", s.requireAuth(s.handleLogout))
 
 	// Live preview: render a form's BIRD code without saving. Read-only-safe.
