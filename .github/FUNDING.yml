@@ -1,0 +1,5 @@
+# Adds a "Sponsor" button to the repo. Keys map to funding platforms;
+# the value is your username/handle on each (not the full URL).
+buy_me_a_coffee: floreabogdan
+# After you enrol in GitHub Sponsors (see the README/PR notes), uncomment:
+# github: [floreabogdan]

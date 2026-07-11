@@ -14,6 +14,7 @@ _No agents. No controller. No fleet. One router, done well._
 [![Release](https://img.shields.io/github/v/release/floreabogdan/birdy?sort=semver)](https://github.com/floreabogdan/birdy/releases)
 [![Go](https://img.shields.io/github/go-mod/go-version/floreabogdan/birdy)](go.mod)
 [![License: 0BSD](https://img.shields.io/badge/license-0BSD-blue.svg)](LICENSE)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_a_Coffee-support-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/floreabogdan)
 
 <br>
 
