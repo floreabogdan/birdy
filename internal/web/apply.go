@@ -317,7 +317,7 @@ func copyFile(src, dst string, perm os.FileMode) error {
 // hard boundary between viewing and touching the router.
 func (s *Server) writeGuard(w http.ResponseWriter) bool {
 	if s.readOnly {
-		http.Error(w, "birdy is running in read-only mode; apply is disabled", http.StatusForbidden)
+		http.Error(w, "birdy is running in read-only mode; writes are disabled", http.StatusForbidden)
 		return false
 	}
 	return true

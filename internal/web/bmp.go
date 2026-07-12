@@ -2,7 +2,6 @@ package web
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/floreabogdan/birdy/internal/store"
@@ -46,32 +45,23 @@ func (s *Server) handleBMPNew(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBMPEdit(w http.ResponseWriter, r *http.Request) {
-	st, err := s.store.GetBMPStationByName(r.PathValue("name"))
-	if err == store.ErrNotFound {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.serverError(w, "get BMP station", err)
+	st, ok := namedEntity(s, w, r, s.store.GetBMPStationByName, "BMP station")
+	if !ok {
 		return
 	}
 	render(w, s.log, "bmp_form.html", bmpFormView{Active: "bmp", ReadOnly: s.readOnly, Station: st})
 }
 
 func bmpFromForm(r *http.Request) store.BMPStation {
-	atoi := func(k string) int {
-		n, _ := strconv.Atoi(strings.TrimSpace(r.FormValue(k)))
-		return n
-	}
 	return store.BMPStation{
 		Name:          r.FormValue("name"),
 		Description:   strings.TrimSpace(r.FormValue("description")),
 		Address:       r.FormValue("address"),
-		Port:          atoi("port"),
+		Port:          formInt(r, "port"),
 		Enabled:       r.FormValue("enabled") == "on",
 		PrePolicy:     r.FormValue("monitorPre") == "on",
 		PostPolicy:    r.FormValue("monitorPost") == "on",
-		TxBufferLimit: atoi("txBufferLimit"),
+		TxBufferLimit: formInt(r, "txBufferLimit"),
 	}
 }
 
@@ -84,13 +74,8 @@ func (s *Server) handleBMPSave(w http.ResponseWriter, r *http.Request) {
 	st := bmpFromForm(r)
 
 	if !isNew {
-		existing, err := s.store.GetBMPStationByName(r.PathValue("name"))
-		if err == store.ErrNotFound {
-			http.NotFound(w, r)
-			return
-		}
-		if err != nil {
-			s.serverError(w, "get BMP station", err)
+		existing, ok := namedEntity(s, w, r, s.store.GetBMPStationByName, "BMP station")
+		if !ok {
 			return
 		}
 		st.ID = existing.ID
@@ -121,19 +106,13 @@ func (s *Server) handleBMPSave(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleBMPDelete(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	st, err := s.store.GetBMPStationByName(name)
-	if err == store.ErrNotFound {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.serverError(w, "get BMP station", err)
+	st, ok := namedEntity(s, w, r, s.store.GetBMPStationByName, "BMP station")
+	if !ok {
 		return
 	}
 	if err := s.store.DeleteBMPStation(st.ID); err != nil {
 		s.serverError(w, "delete BMP station", err)
 		return
 	}
-	http.Redirect(w, r, "/bmp?flash="+flash("Deleted "+name), http.StatusSeeOther)
+	http.Redirect(w, r, "/bmp?flash="+flash("Deleted "+st.Name), http.StatusSeeOther)
 }

@@ -132,7 +132,7 @@ func (s *Server) handleAlertTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func alertFromForm(r *http.Request) store.Destination {
-	port, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("smtpPort")))
+	port := formInt(r, "smtpPort")
 	return store.Destination{
 		Name:         strings.TrimSpace(r.FormValue("name")),
 		Type:         r.FormValue("type"),

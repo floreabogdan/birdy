@@ -2,7 +2,6 @@ package web
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	// Aliased: this package already has a render() helper for templates.
@@ -100,13 +99,8 @@ func (s *Server) handlePeerNew(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePeerEdit(w http.ResponseWriter, r *http.Request) {
-	p, err := s.store.GetPeerByName(r.PathValue("name"))
-	if err == store.ErrNotFound {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.serverError(w, "get peer", err)
+	p, ok := namedEntity(s, w, r, s.store.GetPeerByName, "peer")
+	if !ok {
 		return
 	}
 	if err := s.loadPeerChains(&p); err != nil {
@@ -119,29 +113,25 @@ func (s *Server) handlePeerEdit(w http.ResponseWriter, r *http.Request) {
 // peerFromForm reads a peer out of the posted form. It never trusts anything:
 // the result goes straight to Validate before it can reach the database.
 func peerFromForm(r *http.Request) store.Peer {
-	atoi := func(k string) int {
-		n, _ := strconv.Atoi(strings.TrimSpace(r.FormValue(k)))
-		return n
-	}
 	return store.Peer{
 		Name:              r.FormValue("name"),
 		Description:       strings.TrimSpace(r.FormValue("description")),
 		Role:              r.FormValue("role"),
 		Enabled:           r.FormValue("enabled") == "on",
 		NeighborIP:        r.FormValue("neighborIp"),
-		RemoteASN:         int64(atoi("remoteAsn")),
+		RemoteASN:         int64(formInt(r, "remoteAsn")),
 		LocalIP:           r.FormValue("localIp"),
-		Multihop:          atoi("multihop"),
+		Multihop:          formInt(r, "multihop"),
 		Passive:           r.FormValue("passive") == "on",
 		Password:          r.FormValue("password"),
-		ImportLimit:       atoi("importLimit"),
+		ImportLimit:       formInt(r, "importLimit"),
 		ImportLimitAction: r.FormValue("importLimitAction"),
 		EnforceFirstAS:    r.FormValue("enforceFirstAs") == "on",
 		OriginPeerOnly:    r.FormValue("originPeerOnly") == "on",
 		BGPRole:           r.FormValue("bgpRole") == "on",
 		NextHopSelf:       r.FormValue("nextHopSelf") == "on",
 		RRClient:          r.FormValue("rrClient") == "on",
-		PrependCount:      atoi("prependCount"),
+		PrependCount:      formInt(r, "prependCount"),
 		ExportCommunities: strings.TrimSpace(r.FormValue("exportCommunities")),
 		Drained:           r.FormValue("drained") == "on",
 		BFD:               r.FormValue("bfd") == "on",
@@ -162,13 +152,8 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 	exportIDs := idList(r.Form["exportPolicyIds"])
 
 	if !isNew {
-		existing, err := s.store.GetPeerByName(r.PathValue("name"))
-		if err == store.ErrNotFound {
-			http.NotFound(w, r)
-			return
-		}
-		if err != nil {
-			s.serverError(w, "get peer", err)
+		existing, ok := namedEntity(s, w, r, s.store.GetPeerByName, "peer")
+		if !ok {
 			return
 		}
 		p.ID = existing.ID
@@ -207,8 +192,11 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Re-render with what the user typed, chains included.
-	p.ImportPolicies, p.ExportPolicies = s.policiesByID(importIDs), s.policiesByID(exportIDs)
+	// Re-render with what the user typed, chains included — one policy scan,
+	// resolved via the shared helper.
+	if all, aerr := s.store.ListPolicies(); aerr == nil {
+		p.ImportPolicies, p.ExportPolicies = s.resolvePolicies(all, importIDs), s.resolvePolicies(all, exportIDs)
+	}
 	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: isNew, Peer: p, Errs: errs})
 }
 
@@ -219,10 +207,20 @@ func (s *Server) checkChains(p store.Peer, importIDs, exportIDs []int64, errs ma
 		errs["policies"] = "iBGP sessions import and export everything and do not take policies yet."
 		return
 	}
+	// Resolve every referenced policy from one table scan, not one per id.
+	all, err := s.store.ListPolicies()
+	if err != nil {
+		errs["policies"] = "Could not load policies to validate the chain."
+		return
+	}
+	byID := make(map[int64]store.Policy, len(all))
+	for _, pol := range all {
+		byID[pol.ID] = pol
+	}
 	for dir, ids := range map[string][]int64{store.DirImport: importIDs, store.DirExport: exportIDs} {
 		for _, id := range ids {
-			pol, err := s.policyByID(id)
-			if err != nil {
+			pol, ok := byID[id]
+			if !ok {
 				errs["policies"] = "One of the selected policies no longer exists."
 				return
 			}
@@ -234,53 +232,16 @@ func (s *Server) checkChains(p store.Peer, importIDs, exportIDs []int64, errs ma
 	}
 }
 
-func (s *Server) policyByID(id int64) (store.Policy, error) {
-	all, err := s.store.ListPolicies()
-	if err != nil {
-		return store.Policy{}, err
-	}
-	for _, p := range all {
-		if p.ID == id {
-			return p, nil
-		}
-	}
-	return store.Policy{}, store.ErrNotFound
-}
-
-func (s *Server) policiesByID(ids []int64) []store.Policy {
-	all, err := s.store.ListPolicies()
-	if err != nil {
-		return nil
-	}
-	byID := map[int64]store.Policy{}
-	for _, p := range all {
-		byID[p.ID] = p
-	}
-	var out []store.Policy
-	for _, id := range ids {
-		if p, ok := byID[id]; ok {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
 func (s *Server) handlePeerDelete(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	p, err := s.store.GetPeerByName(name)
-	if err == store.ErrNotFound {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.serverError(w, "get peer", err)
+	p, ok := namedEntity(s, w, r, s.store.GetPeerByName, "peer")
+	if !ok {
 		return
 	}
 	if err := s.store.DeletePeer(p.ID); err != nil {
 		s.serverError(w, "delete peer", err)
 		return
 	}
-	http.Redirect(w, r, "/peers?flash="+flash("Deleted "+name), http.StatusSeeOther)
+	http.Redirect(w, r, "/peers?flash="+flash("Deleted "+p.Name), http.StatusSeeOther)
 }
 
 // renderPeerForm fills in the live BIRD-code preview and the lint findings

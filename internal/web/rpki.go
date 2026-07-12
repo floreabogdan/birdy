@@ -2,7 +2,6 @@ package web
 
 import (
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/floreabogdan/birdy/internal/store"
@@ -62,32 +61,23 @@ func (s *Server) handleRPKINew(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRPKIEdit(w http.ResponseWriter, r *http.Request) {
-	srv, err := s.store.GetRPKIServerByName(r.PathValue("name"))
-	if err == store.ErrNotFound {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.serverError(w, "get RPKI server", err)
+	srv, ok := namedEntity(s, w, r, s.store.GetRPKIServerByName, "RPKI server")
+	if !ok {
 		return
 	}
 	render(w, s.log, "rpki_form.html", rpkiFormView{Active: "rpki", ReadOnly: s.readOnly, Server: srv})
 }
 
 func rpkiFromForm(r *http.Request) store.RPKIServer {
-	atoi := func(k string) int {
-		n, _ := strconv.Atoi(strings.TrimSpace(r.FormValue(k)))
-		return n
-	}
 	return store.RPKIServer{
 		Name:        r.FormValue("name"),
 		Description: strings.TrimSpace(r.FormValue("description")),
 		Host:        r.FormValue("host"),
-		Port:        atoi("port"),
+		Port:        formInt(r, "port"),
 		Enabled:     r.FormValue("enabled") == "on",
-		Refresh:     atoi("refresh"),
-		Retry:       atoi("retry"),
-		Expire:      atoi("expire"),
+		Refresh:     formInt(r, "refresh"),
+		Retry:       formInt(r, "retry"),
+		Expire:      formInt(r, "expire"),
 	}
 }
 
@@ -100,13 +90,8 @@ func (s *Server) handleRPKISave(w http.ResponseWriter, r *http.Request) {
 	srv := rpkiFromForm(r)
 
 	if !isNew {
-		existing, err := s.store.GetRPKIServerByName(r.PathValue("name"))
-		if err == store.ErrNotFound {
-			http.NotFound(w, r)
-			return
-		}
-		if err != nil {
-			s.serverError(w, "get RPKI server", err)
+		existing, ok := namedEntity(s, w, r, s.store.GetRPKIServerByName, "RPKI server")
+		if !ok {
 			return
 		}
 		srv.ID = existing.ID
@@ -174,19 +159,13 @@ func (s *Server) lastEnabledServerGuard(srv store.RPKIServer) string {
 }
 
 func (s *Server) handleRPKIDelete(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	srv, err := s.store.GetRPKIServerByName(name)
-	if err == store.ErrNotFound {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.serverError(w, "get RPKI server", err)
+	srv, ok := namedEntity(s, w, r, s.store.GetRPKIServerByName, "RPKI server")
+	if !ok {
 		return
 	}
 	if srv.Enabled {
 		if msg := s.lastEnabledServerGuard(srv); msg != "" {
-			http.Redirect(w, r, "/rpki?flash="+flash("Could not delete "+name+": "+msg), http.StatusSeeOther)
+			http.Redirect(w, r, "/rpki?flash="+flash("Could not delete "+srv.Name+": "+msg), http.StatusSeeOther)
 			return
 		}
 	}
@@ -194,5 +173,5 @@ func (s *Server) handleRPKIDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "delete RPKI server", err)
 		return
 	}
-	http.Redirect(w, r, "/rpki?flash="+flash("Deleted "+name), http.StatusSeeOther)
+	http.Redirect(w, r, "/rpki?flash="+flash("Deleted "+srv.Name), http.StatusSeeOther)
 }

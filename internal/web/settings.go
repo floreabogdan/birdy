@@ -326,8 +326,7 @@ func (s *Server) apiSnapshotDownload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) apiSnapshotRestore(w http.ResponseWriter, r *http.Request) {
-	if s.readOnly {
-		http.Error(w, "birdy is running in read-only mode", http.StatusForbidden)
+	if !s.writeGuard(w) {
 		return
 	}
 	if s.snap == nil {

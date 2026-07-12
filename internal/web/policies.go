@@ -94,23 +94,14 @@ func (s *Server) handlePolicyNew(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePolicyEdit(w http.ResponseWriter, r *http.Request) {
-	p, err := s.store.GetPolicyByName(r.PathValue("name"))
-	if err == store.ErrNotFound {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.serverError(w, "get policy", err)
+	p, ok := namedEntity(s, w, r, s.store.GetPolicyByName, "policy")
+	if !ok {
 		return
 	}
 	s.renderPolicyForm(w, policyFormView{Active: "policies", ReadOnly: s.readOnly, Policy: p})
 }
 
 func policyFromForm(r *http.Request) store.Policy {
-	atoi := func(k string) int {
-		n, _ := strconv.Atoi(strings.TrimSpace(r.FormValue(k)))
-		return n
-	}
 	// Local preference is a 32-bit unsigned value, wider than a 32-bit int.
 	atoi64 := func(k string) int64 {
 		n, _ := strconv.ParseInt(strings.TrimSpace(r.FormValue(k)), 10, 64)
@@ -122,12 +113,12 @@ func policyFromForm(r *http.Request) store.Policy {
 		Direction:   r.FormValue("direction"),
 
 		DefaultRoute: r.FormValue("defaultRoute"),
-		MinLenV4:     atoi("minLenV4"),
-		MaxLenV4:     atoi("maxLenV4"),
-		MinLenV6:     atoi("minLenV6"),
-		MaxLenV6:     atoi("maxLenV6"),
+		MinLenV4:     formInt(r, "minLenV4"),
+		MaxLenV4:     formInt(r, "maxLenV4"),
+		MinLenV6:     formInt(r, "minLenV6"),
+		MaxLenV6:     formInt(r, "maxLenV6"),
 		RejectOwnASN: r.FormValue("rejectOwnAsn") == "on",
-		MaxASPathLen: atoi("maxAsPathLen"),
+		MaxASPathLen: formInt(r, "maxAsPathLen"),
 		BogonASNs:    r.FormValue("bogonAsns"),
 		ROV:          r.FormValue("rov"),
 		SetLocalPref: atoi64("setLocalPref"),
@@ -177,13 +168,8 @@ func (s *Server) handlePolicySave(w http.ResponseWriter, r *http.Request) {
 	p := policyFromForm(r)
 
 	if !isNew {
-		existing, err := s.store.GetPolicyByName(r.PathValue("name"))
-		if err == store.ErrNotFound {
-			http.NotFound(w, r)
-			return
-		}
-		if err != nil {
-			s.serverError(w, "get policy", err)
+		existing, ok := namedEntity(s, w, r, s.store.GetPolicyByName, "policy")
+		if !ok {
 			return
 		}
 		p.ID, p.Builtin = existing.ID, existing.Builtin
@@ -218,21 +204,15 @@ func (s *Server) handlePolicySave(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePolicyDelete(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	p, err := s.store.GetPolicyByName(name)
-	if err == store.ErrNotFound {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.serverError(w, "get policy", err)
+	p, ok := namedEntity(s, w, r, s.store.GetPolicyByName, "policy")
+	if !ok {
 		return
 	}
 	if err := s.store.DeletePolicy(p.ID); err != nil {
-		http.Redirect(w, r, "/policies?flash="+flash("Could not delete "+name+": "+err.Error()), http.StatusSeeOther)
+		http.Redirect(w, r, "/policies?flash="+flash("Could not delete "+p.Name+": "+err.Error()), http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/policies?flash="+flash("Deleted "+name), http.StatusSeeOther)
+	http.Redirect(w, r, "/policies?flash="+flash("Deleted "+p.Name), http.StatusSeeOther)
 }
 
 func (s *Server) renderPolicyForm(w http.ResponseWriter, v policyFormView) {

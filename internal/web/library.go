@@ -57,13 +57,8 @@ func (s *Server) handlePrefixSetNew(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePrefixSetEdit(w http.ResponseWriter, r *http.Request) {
-	ps, err := s.store.GetPrefixSetByName(r.PathValue("name"))
-	if err == store.ErrNotFound {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.serverError(w, "get prefix set", err)
+	ps, ok := namedEntity(s, w, r, s.store.GetPrefixSetByName, "prefix set")
+	if !ok {
 		return
 	}
 	s.renderPrefixSetForm(w, prefixSetFormView{Active: "library", ReadOnly: s.readOnly, Set: ps})
@@ -111,13 +106,8 @@ func (s *Server) handlePrefixSetSave(w http.ResponseWriter, r *http.Request) {
 	ps := prefixSetFromForm(r)
 
 	if !isNew {
-		existing, err := s.store.GetPrefixSetByName(r.PathValue("name"))
-		if err == store.ErrNotFound {
-			http.NotFound(w, r)
-			return
-		}
-		if err != nil {
-			s.serverError(w, "get prefix set", err)
+		existing, ok := namedEntity(s, w, r, s.store.GetPrefixSetByName, "prefix set")
+		if !ok {
 			return
 		}
 		ps.ID = existing.ID
@@ -154,23 +144,17 @@ func (s *Server) handlePrefixSetSave(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handlePrefixSetDelete(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	ps, err := s.store.GetPrefixSetByName(name)
-	if err == store.ErrNotFound {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.serverError(w, "get prefix set", err)
+	ps, ok := namedEntity(s, w, r, s.store.GetPrefixSetByName, "prefix set")
+	if !ok {
 		return
 	}
 	if err := s.store.DeletePrefixSet(ps.ID); err != nil {
 		// Expected failures: still referenced by a policy, or a system set.
 		// Both are the user's to resolve, not a server fault.
-		http.Redirect(w, r, "/library/prefix-sets?flash="+flash("Could not delete "+name+": "+err.Error()), http.StatusSeeOther)
+		http.Redirect(w, r, "/library/prefix-sets?flash="+flash("Could not delete "+ps.Name+": "+err.Error()), http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/library/prefix-sets?flash="+flash("Deleted "+name), http.StatusSeeOther)
+	http.Redirect(w, r, "/library/prefix-sets?flash="+flash("Deleted "+ps.Name), http.StatusSeeOther)
 }
 
 func (s *Server) renderPrefixSetForm(w http.ResponseWriter, v prefixSetFormView) {

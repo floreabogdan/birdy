@@ -53,13 +53,8 @@ func (s *Server) handleASSetNew(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleASSetEdit(w http.ResponseWriter, r *http.Request) {
-	as, err := s.store.GetASSetByName(r.PathValue("name"))
-	if err == store.ErrNotFound {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.serverError(w, "get AS set", err)
+	as, ok := namedEntity(s, w, r, s.store.GetASSetByName, "AS set")
+	if !ok {
 		return
 	}
 	s.renderASSetForm(w, asSetFormView{
@@ -85,13 +80,8 @@ func (s *Server) handleASSetSave(w http.ResponseWriter, r *http.Request) {
 	as.Entries = entries
 
 	if !isNew {
-		existing, err := s.store.GetASSetByName(r.PathValue("name"))
-		if err == store.ErrNotFound {
-			http.NotFound(w, r)
-			return
-		}
-		if err != nil {
-			s.serverError(w, "get AS set", err)
+		existing, ok := namedEntity(s, w, r, s.store.GetASSetByName, "AS set")
+		if !ok {
 			return
 		}
 		as.ID = existing.ID
@@ -128,21 +118,15 @@ func (s *Server) handleASSetSave(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleASSetDelete(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	as, err := s.store.GetASSetByName(name)
-	if err == store.ErrNotFound {
-		http.NotFound(w, r)
-		return
-	}
-	if err != nil {
-		s.serverError(w, "get AS set", err)
+	as, ok := namedEntity(s, w, r, s.store.GetASSetByName, "AS set")
+	if !ok {
 		return
 	}
 	if err := s.store.DeleteASSet(as.ID); err != nil {
-		http.Redirect(w, r, "/library/as-sets?flash="+flash("Could not delete "+name+": "+err.Error()), http.StatusSeeOther)
+		http.Redirect(w, r, "/library/as-sets?flash="+flash("Could not delete "+as.Name+": "+err.Error()), http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/library/as-sets?flash="+flash("Deleted "+name), http.StatusSeeOther)
+	http.Redirect(w, r, "/library/as-sets?flash="+flash("Deleted "+as.Name), http.StatusSeeOther)
 }
 
 func (s *Server) renderASSetForm(w http.ResponseWriter, v asSetFormView) {
