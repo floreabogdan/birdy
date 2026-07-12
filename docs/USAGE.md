@@ -498,6 +498,11 @@ usual production answer; a public RTR endpoint is fine to start with. Timers lef
 at `0` mean "leave BIRD's default alone". Validation itself is turned on per
 import policy via the **RPKI ROV** knob (log-only or drop-invalid).
 
+While any policy is in **log-only** mode, the RPKI page also lists a live sample of
+the routes BIRD is currently tagging invalid (capped at 200). That is the dry-run:
+it shows the blast radius — which prefixes, from which peers — so you can size the
+impact before switching a policy from log-only to drop-invalid.
+
 ---
 
 ## 11. BMP monitoring
@@ -592,16 +597,24 @@ birdy is a thin, single-user admin panel. Treat it as sensitive as `bird.conf`
 itself.
 
 - **Bind it to loopback and reach it over SSH.** It listens on `127.0.0.1:8080` by
-  default. It has **no TLS and no audit log**; a session cookie and a bcrypt
-  password hash are the only things between a caller and your BGP config. Never put
-  it on a public address. If you must bind to a LAN address, understand exactly
+  default. It has **no TLS**; a session cookie and a bcrypt password hash are the
+  login's only defence (though every write action is recorded — see the audit trail
+  below). Prefer the tunnel; if you must bind to a LAN address, understand exactly
   what you are exposing.
+- **Restrict access by IP** with the allow-list under Settings → Access control
+  (§13). It refuses every request from an address you did not list — the connection
+  is closed with **no response at all**, and it covers the unauthenticated
+  `/metrics` too. Loopback is always allowed, so an SSH tunnel can never lock you
+  out, and the page shows your connecting IP so you can add it before restricting.
+- **Every operator action is audited.** Peer, policy, community and settings
+  changes, config applies and reverts are written to the event timeline attributed
+  to the user who made them — a record of who changed what, and when.
 - **BGP MD5 passwords are stored in the clear** in birdy's SQLite database, because
   that is the form BIRD needs them in. The database file is therefore as sensitive
   as `bird.conf`. Passwords are never rendered back into the browser: the peer form
   shows a blank "unchanged" field, and both sides of the config diff are masked.
 - **The `/metrics` endpoint is unauthenticated** when enabled. Put it behind your
-  own network controls.
+  own network controls, or the access allow-list above.
 - **Run with `--read-only`** until you have a specific reason to let birdy write
   `bird.conf`. Applying is gated behind the authorship guard and the armed
   auto-revert, but read-only removes the possibility entirely.

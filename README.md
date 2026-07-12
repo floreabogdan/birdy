@@ -191,7 +191,10 @@ group `bird`, with `ProtectSystem=strict`.
 - Per-peer detail: BGP state, channels, import limits, and the raw control-socket output
 - Route browser per session — imports, exports, and what was rejected on export
 - On-demand looking glass (`show route for …`)
-- Timeline of session transitions, flaps, and prefix-limit hits
+- Ping and traceroute from the router itself (opt-in, `--netdiag`) — a reachability looking glass to
+  go alongside the route one
+- Timeline of session transitions, flaps, and prefix-limit hits — interleaved with an audit trail of
+  operator actions: who changed which peer or policy, and every config apply or revert
 - Alerts to any number of destinations — Slack, Discord, email (SMTP), or a generic JSON webhook —
   when a session drops, recovers, flaps, hits its limit, or a config is applied/reverted; with
   per-destination event filtering and repeat-suppression
@@ -217,7 +220,8 @@ group `bird`, with `ProtectSystem=strict`.
 - RFC 7999 customer blackhole (RTBH); PeeringDB lookups on the peer form (opt-in, `--peeringdb`)
 - BMP monitoring stations (RFC 7854) — stream every session's pre- and post-policy RIB to a collector
 - Bogon prefixes and bogon ASNs, editable, in Settings
-- RPKI: RTR servers and per-policy validation (log-only or drop-invalid)
+- RPKI: RTR servers and per-policy validation (log-only or drop-invalid), with a live list of the
+  routes BIRD is currently tagging invalid — the dry-run for sizing the impact before you enforce
 - A raw config block for everything birdy does not model, checked by `bird -p` before it saves
 
 **Preview and apply**
@@ -242,8 +246,14 @@ still masked everywhere in the browser.
 
 birdy listens on `127.0.0.1:8080` by default. **Reach it over an SSH tunnel.** If you bind it to a
 LAN address, understand what you are exposing: a session cookie and a bcrypt password hash are the
-only things between the internet and your BGP config. It has no TLS and no audit log. Never put it on
-a public address.
+login's only defence, and birdy has no TLS.
+
+Two things narrow that exposure. An **application-level IP allow-list** (Settings → Access control)
+refuses every request from an address you did not list — including the unauthenticated `/metrics` —
+by closing the connection with no response at all; loopback is always allowed, so an SSH tunnel can
+never lock you out. And an **audit log** on the timeline records every operator action, attributed to
+the user who made it. Neither is a substitute for the tunnel: prefer loopback, and think hard before
+you put birdy on a public address.
 
 BGP MD5 session passwords are stored **in the clear** in birdy's SQLite database, because that is the
 form BIRD needs them in. The database file is therefore as sensitive as `bird.conf` itself. Passwords

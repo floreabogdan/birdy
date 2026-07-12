@@ -33,9 +33,11 @@ Some properties are documented and by design, not vulnerabilities:
   requires them in that form. The database file is as sensitive as `bird.conf` itself — protect
   it accordingly.
 - **`/metrics` is unauthenticated** and only served when `--metrics` is passed. Keep it off the
-  public internet (birdy binds loopback by default).
-- **There is no TLS and no audit log.** birdy is meant to be reached over an SSH tunnel and
-  never bound to a public address.
+  public internet (birdy binds loopback by default), or gate it with the IP allow-list below.
+- **There is no TLS.** birdy is meant to be reached over an SSH tunnel and bound to loopback. If it
+  must listen more broadly, the IP allow-list (Settings → Access control) can refuse every request
+  from an unlisted address, `/metrics` included. Operator actions are recorded in an audit trail on
+  the event timeline.
 
 Reports that amount to "you can do damage if you already have the birdy database, the login
 cookie, or root on the router" are out of scope — those are equivalent to already controlling
