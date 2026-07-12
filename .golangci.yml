@@ -1,0 +1,25 @@
+version: "2"
+
+# birdy keeps a small, correctness-focused linter set. The default v2 linters
+# (errcheck, govet, ineffassign, staticcheck, unused) plus misspell — no style
+# nags that would fight the deliberately explicit house style.
+linters:
+  enable:
+    - misspell
+  settings:
+    errcheck:
+      exclude-functions:
+        # flag.FlagSet is created with ExitOnError, so Parse exits on error itself.
+        - (*flag.FlagSet).Parse
+  exclusions:
+    rules:
+      # Ignoring the error from a deferred/best-effort cleanup call — Close on a
+      # read path, a post-commit Rollback, removing a temp/probe file — is
+      # idiomatic; checking it at every site would only add noise. Write-path
+      # Close (where the flush error matters) is still checked in the code.
+      - linters: [errcheck]
+        text: 'Error return value of `[^`]*\.(Close|Rollback|Remove|RemoveAll)` is not checked'
+      # Test scaffolding drives in-memory pipes where unchecked Read/Write/Close
+      # is fine.
+      - path: _test\.go
+        linters: [errcheck]

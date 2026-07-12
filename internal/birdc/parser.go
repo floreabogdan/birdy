@@ -180,7 +180,6 @@ func ParseProtocolDetail(r Reply) (ProtocolDetail, error) {
 }
 
 var reRouteCount = regexp.MustCompile(`^(\d+) of (\d+) routes for (\d+) networks in table (\S+)`)
-var reRouteCountTotal = regexp.MustCompile(`^Total:\s*(\d+) of (\d+) routes for (\d+) networks in (\d+) tables`)
 
 // ParseRouteCount parses the reply to "show route count": per-table counts
 // plus the grand total.

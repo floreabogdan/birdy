@@ -31,8 +31,13 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.1.6
+
       - name: go test
-        run: go test ./...
+        run: go test -race ./...
 
       - name: build
         run: CGO_ENABLED=0 go build ./cmd/birdy

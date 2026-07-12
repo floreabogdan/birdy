@@ -121,7 +121,7 @@ func checkConfigDir(cfg Config) Result {
 	if err := os.WriteFile(probe, []byte("ok"), 0o640); err != nil {
 		return Result{"config directory", Warn, fmt.Sprintf("%s exists but is not writable: %v (fine in read-only mode)", dir, err)}
 	}
-	os.Remove(probe)
+	_ = os.Remove(probe) // best-effort cleanup of the write probe
 	return Result{"config directory", OK, dir + " is writable"}
 }
 
@@ -142,7 +142,7 @@ func checkApplyReady(cfg Config) Result {
 	if err := os.WriteFile(probe, []byte("ok"), 0o640); err != nil {
 		writable = false
 	} else {
-		os.Remove(probe)
+		_ = os.Remove(probe) // best-effort cleanup of the write probe
 	}
 
 	c, err := birdc.Dial(cfg.SocketPath, 3*time.Second)
