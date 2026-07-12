@@ -125,6 +125,21 @@ const fixtureShowRouteAllFor = "1007-Table master4:\n" +
 	"1008-\tType: static univ\n" +
 	"0000 \n"
 
+// A BGP route as "show route for X all" renders it: a summary line followed by
+// the per-route attribute detail block, including standard and large communities.
+const fixtureShowRouteAllBGP = "1007-Table master4:\n" +
+	" 203.0.113.0/24     unicast [edge_v4 2026-07-08] * (100) [AS64496i]\n" +
+	" \tvia 203.0.113.57 on eno1\n" +
+	"1008-\tType: BGP univ\n" +
+	"1008-\tBGP.origin: IGP\n" +
+	"1008-\tBGP.as_path: 64496\n" +
+	"1008-\tBGP.next_hop: 203.0.113.57\n" +
+	"1008-\tBGP.local_pref: 100\n" +
+	"1008-\tBGP.community: (65000,100) (65535,666)\n" +
+	"1008-\tBGP.large_community: (64496, 1, 1000) (64496, 2, 1)\n" +
+	"1008-\tBGP.med: 0\n" +
+	"0000 \n"
+
 const fixtureShowRouteExport = "1007-Table master4:\n" +
 	" 192.0.2.0/24      unicast [direct1 2026-07-08] * (240)\n" +
 	" \tdev eno1\n" +

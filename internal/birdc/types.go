@@ -1,5 +1,7 @@
 package birdc
 
+import "fmt"
+
 // Status is the result of "show status".
 type Status struct {
 	Version      string
@@ -74,7 +76,30 @@ type RouteEntry struct {
 	Preference int
 	ASPath     string // raw bracketed AS-path/origin text, e.g. "AS64496i"
 	NextHop    string // "via <ip> on <iface>" or "dev <iface>", raw
-	Attrs      []string
+
+	// The fields below are only populated by "show route ... all", which emits
+	// per-route BGP attribute detail lines. They are zero for a summary query.
+	Origin      string      // BGP.origin, e.g. "IGP" / "Incomplete"
+	LocalPref   string      // BGP.local_pref, kept as text (absent on eBGP-learned)
+	MED         string      // BGP.med
+	Communities []Community // BGP.community + BGP.large_community, in wire order
+
+	Attrs []string
+}
+
+// Community is a BGP community read off a route's detail lines. A standard
+// community has two parts (A:B); a large community has three (A:B:C).
+type Community struct {
+	Large   bool
+	A, B, C int64
+}
+
+// String renders the tuple the way BIRD writes it, e.g. "(65535, 666)".
+func (c Community) String() string {
+	if c.Large {
+		return fmt.Sprintf("(%d, %d, %d)", c.A, c.B, c.C)
+	}
+	return fmt.Sprintf("(%d, %d)", c.A, c.B)
 }
 
 // RouteTable groups routes returned for one BIRD routing table.

@@ -85,13 +85,13 @@ func (e *notFoundErr) Error() string { return "unknown protocol " + e.name }
 func (f *fakeClient) RoutesForPage(prefixOrIP string, all bool, offset, limit int) (birdc.RoutePage, error) {
 	return f.lookup("for:" + prefixOrIP)
 }
-func (f *fakeClient) RoutesByProtocolPage(name string, offset, limit int) (birdc.RoutePage, error) {
+func (f *fakeClient) RoutesByProtocolPage(name string, all bool, offset, limit int) (birdc.RoutePage, error) {
 	return f.lookup("protocol:" + name)
 }
-func (f *fakeClient) RoutesExportPage(name string, offset, limit int) (birdc.RoutePage, error) {
+func (f *fakeClient) RoutesExportPage(name string, all bool, offset, limit int) (birdc.RoutePage, error) {
 	return f.lookup("export:" + name)
 }
-func (f *fakeClient) RoutesNoExportPage(name string, offset, limit int) (birdc.RoutePage, error) {
+func (f *fakeClient) RoutesNoExportPage(name string, all bool, offset, limit int) (birdc.RoutePage, error) {
 	return f.lookup("noexport:" + name)
 }
 func (f *fakeClient) RoutesRPKIInvalidPage(localASN int64, offset, limit int) (birdc.RoutePage, error) {

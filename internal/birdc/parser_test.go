@@ -211,6 +211,47 @@ func TestParseRoutesAllWithAttrs(t *testing.T) {
 	}
 }
 
+func TestParseRoutesAllBGPCommunities(t *testing.T) {
+	tables, err := ParseRoutes(mustFrame(t, fixtureShowRouteAllBGP))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tables) != 1 || len(tables[0].Routes) != 1 {
+		t.Fatalf("tables = %+v", tables)
+	}
+	r := tables[0].Routes[0]
+	if r.Origin != "IGP" {
+		t.Errorf("origin = %q, want IGP", r.Origin)
+	}
+	if r.LocalPref != "100" {
+		t.Errorf("local_pref = %q, want 100", r.LocalPref)
+	}
+	if r.MED != "0" {
+		t.Errorf("med = %q, want 0", r.MED)
+	}
+	want := []Community{
+		{A: 65000, B: 100},
+		{A: 65535, B: 666},
+		{Large: true, A: 64496, B: 1, C: 1000},
+		{Large: true, A: 64496, B: 2, C: 1},
+	}
+	if len(r.Communities) != len(want) {
+		t.Fatalf("communities = %+v, want %+v", r.Communities, want)
+	}
+	for i, c := range r.Communities {
+		if c != want[i] {
+			t.Errorf("community[%d] = %v, want %v", i, c, want[i])
+		}
+	}
+	// The recognised BGP.* detail lines must be pulled out of the raw Attrs;
+	// only the unrecognised ones (Type, as_path, next_hop) remain there.
+	for _, a := range r.Attrs {
+		if strings.HasPrefix(a, "BGP.community:") || strings.HasPrefix(a, "BGP.local_pref:") {
+			t.Errorf("recognised attr left in Attrs: %q", a)
+		}
+	}
+}
+
 func TestParseRoutesExportProtocolNoExport(t *testing.T) {
 	exp, err := ParseRoutes(mustFrame(t, fixtureShowRouteExport))
 	if err != nil {

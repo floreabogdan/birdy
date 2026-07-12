@@ -251,9 +251,69 @@ func attachRouteDetail(e *RouteEntry, line string) {
 		e.NextHop = trimmed
 	case len(fields) >= 2 && fields[0] == "dev":
 		e.NextHop = trimmed
+	case strings.HasPrefix(trimmed, "BGP.community:"):
+		e.Communities = append(e.Communities, parseCommunityList(afterColon(trimmed), false)...)
+	case strings.HasPrefix(trimmed, "BGP.large_community:"):
+		e.Communities = append(e.Communities, parseCommunityList(afterColon(trimmed), true)...)
+	case strings.HasPrefix(trimmed, "BGP.local_pref:"):
+		e.LocalPref = afterColon(trimmed)
+	case strings.HasPrefix(trimmed, "BGP.origin:"):
+		e.Origin = afterColon(trimmed)
+	case strings.HasPrefix(trimmed, "BGP.med:"):
+		e.MED = afterColon(trimmed)
 	default:
 		e.Attrs = append(e.Attrs, trimmed)
 	}
+}
+
+// afterColon returns the trimmed text following the first colon in s.
+func afterColon(s string) string {
+	if _, after, ok := strings.Cut(s, ":"); ok {
+		return strings.TrimSpace(after)
+	}
+	return ""
+}
+
+// parseCommunityList parses a whitespace-separated list of parenthesised
+// community tuples, e.g. "(65000,100) (65000, 200)" or "(64496, 1, 1000)".
+// Tuples whose arity does not match large (3) / standard (2) are skipped
+// rather than guessed at.
+func parseCommunityList(s string, large bool) []Community {
+	var out []Community
+	for len(s) > 0 {
+		i := strings.IndexByte(s, '(')
+		if i < 0 {
+			break
+		}
+		j := strings.IndexByte(s[i:], ')')
+		if j < 0 {
+			break
+		}
+		body := s[i+1 : i+j]
+		s = s[i+j+1:]
+
+		parts := strings.Split(body, ",")
+		nums := make([]int64, 0, len(parts))
+		ok := true
+		for _, p := range parts {
+			n, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
+			if err != nil {
+				ok = false
+				break
+			}
+			nums = append(nums, n)
+		}
+		if !ok {
+			continue
+		}
+		switch {
+		case large && len(nums) == 3:
+			out = append(out, Community{Large: true, A: nums[0], B: nums[1], C: nums[2]})
+		case !large && len(nums) == 2:
+			out = append(out, Community{A: nums[0], B: nums[1]})
+		}
+	}
+	return out
 }
 
 var routeTypes = map[string]bool{"unicast": true, "unreachable": true, "blackhole": true, "prohibit": true}

@@ -247,6 +247,35 @@ func TestPreview(t *testing.T) {
 	}
 	timelineV := TimelineView{Active: "timeline", Events: dash.RecentEvents, NextID: 42}
 
+	// Looking glass with "show all" attributes: decoded communities of every kind.
+	lgV := LGView{
+		Active: "lg", ReadOnly: true, Type: "for", Target: "203.0.113.0/24", All: true, Ran: true,
+		FirstRow: 1, LastRow: 2,
+		Tables: []lgTable{{
+			Name: "master4",
+			Routes: []lgRoute{
+				{RouteEntry: birdc.RouteEntry{
+					Network: "203.0.113.0/24", Type: "unicast", Protocol: "edge_v4", Since: "2026-07-08",
+					Primary: true, Preference: 100, ASPath: "64496 64500", NextHop: "via 198.51.100.1 on eno1",
+					LocalPref: "100", Origin: "IGP", MED: "0",
+				}, Comms: []commChip{
+					{Text: "(65000, 100)", Name: "CUSTOMER_EU", Kind: "named"},
+					{Text: "(65535, 666)", Name: "BLACKHOLE", Kind: "wellknown"},
+					{Text: "(65551, 1, 3000)", Name: "FROM_CUSTOMER", Kind: "origin"},
+					{Text: "(65551, 2, 1)", Name: "RPKI_INVALID", Kind: "rpki"},
+					{Text: "(65001, 7)"},
+				}},
+				{RouteEntry: birdc.RouteEntry{
+					Network: "203.0.113.0/24", Type: "unicast", Protocol: "ibgp_core", Since: "2026-07-09",
+					Preference: 100, ASPath: "64496 64500", NextHop: "via 10.0.0.2 on eno2", From: "10.0.0.2",
+					LocalPref: "100", Origin: "IGP",
+				}, Comms: []commChip{
+					{Text: "(65551, 1, 2000)", Name: "FROM_IX", Kind: "origin"},
+				}},
+			},
+		}},
+	}
+
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", staticHandler()))
 	mux.HandleFunc("/", page("dashboard.html", dash))
@@ -263,6 +292,7 @@ func TestPreview(t *testing.T) {
 	mux.HandleFunc("/policy-form", page("policy_form.html", polFormV))
 	mux.HandleFunc("/export-policy-form", page("policy_form.html", expFormV))
 	mux.HandleFunc("/peer-form-lint", page("peer_form.html", leakyV))
+	mux.HandleFunc("/lg", page("lg.html", lgV))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -284,6 +314,8 @@ func TestPreview(t *testing.T) {
 		{"peer-form-lint", "/peer-form-lint", "1600,1500"},
 		{"settings", "/settings", "1600,1100"},
 		{"timeline", "/timeline", "1600,700"},
+		{"lg", "/lg", "1600,700"},
+		{"lg-dark", "/lg?dark", "1600,700"},
 	}
 	for _, s := range shots {
 		png := out + "/" + s.name + ".png"

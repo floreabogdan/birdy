@@ -28,9 +28,9 @@ import (
 type birdClient interface {
 	ProtocolDetail(name string) (birdc.ProtocolDetail, error)
 	RoutesForPage(prefixOrIP string, all bool, offset, limit int) (birdc.RoutePage, error)
-	RoutesByProtocolPage(name string, offset, limit int) (birdc.RoutePage, error)
-	RoutesExportPage(name string, offset, limit int) (birdc.RoutePage, error)
-	RoutesNoExportPage(name string, offset, limit int) (birdc.RoutePage, error)
+	RoutesByProtocolPage(name string, all bool, offset, limit int) (birdc.RoutePage, error)
+	RoutesExportPage(name string, all bool, offset, limit int) (birdc.RoutePage, error)
+	RoutesNoExportPage(name string, all bool, offset, limit int) (birdc.RoutePage, error)
 	RoutesRPKIInvalidPage(localASN int64, offset, limit int) (birdc.RoutePage, error)
 
 	// The apply pipeline. These act on BIRD's own configured config file, which

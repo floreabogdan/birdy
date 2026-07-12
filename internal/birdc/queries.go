@@ -157,20 +157,22 @@ func (c *Client) RoutesForPage(prefixOrIP string, all bool, offset, limit int) (
 	return paginate(c.path, pageQueryTimeout, cmd, offset, limit)
 }
 
-// RoutesByProtocolPage is the paginated form of RoutesByProtocol.
-func (c *Client) RoutesByProtocolPage(name string, offset, limit int) (RoutePage, error) {
+// RoutesByProtocolPage is the paginated form of RoutesByProtocol. With all=true
+// it requests per-route attributes ("show route protocol X all"), so the caller
+// can see communities and path attributes.
+func (c *Client) RoutesByProtocolPage(name string, all bool, offset, limit int) (RoutePage, error) {
 	if err := validIdent(name); err != nil {
 		return RoutePage{}, err
 	}
-	return paginate(c.path, pageQueryTimeout, fmt.Sprintf("show route protocol %s", name), offset, limit)
+	return paginate(c.path, pageQueryTimeout, routeCmd("show route protocol %s", name, all), offset, limit)
 }
 
 // RoutesExportPage is the paginated form of RoutesExport.
-func (c *Client) RoutesExportPage(name string, offset, limit int) (RoutePage, error) {
+func (c *Client) RoutesExportPage(name string, all bool, offset, limit int) (RoutePage, error) {
 	if err := validIdent(name); err != nil {
 		return RoutePage{}, err
 	}
-	return paginate(c.path, pageQueryTimeout, fmt.Sprintf("show route export %s", name), offset, limit)
+	return paginate(c.path, pageQueryTimeout, routeCmd("show route export %s", name, all), offset, limit)
 }
 
 // RoutesRPKIInvalidPage pages the routes carrying the RPKI_INVALID large
@@ -186,9 +188,19 @@ func (c *Client) RoutesRPKIInvalidPage(localASN int64, offset, limit int) (Route
 }
 
 // RoutesNoExportPage is the paginated form of RoutesNoExport.
-func (c *Client) RoutesNoExportPage(name string, offset, limit int) (RoutePage, error) {
+func (c *Client) RoutesNoExportPage(name string, all bool, offset, limit int) (RoutePage, error) {
 	if err := validIdent(name); err != nil {
 		return RoutePage{}, err
 	}
-	return paginate(c.path, pageQueryTimeout, fmt.Sprintf("show route noexport %s", name), offset, limit)
+	return paginate(c.path, pageQueryTimeout, routeCmd("show route noexport %s", name, all), offset, limit)
+}
+
+// routeCmd formats a "show route ..." command, appending " all" to request the
+// per-route attribute block when wanted.
+func routeCmd(format, name string, all bool) string {
+	cmd := fmt.Sprintf(format, name)
+	if all {
+		cmd += " all"
+	}
+	return cmd
 }

@@ -566,6 +566,15 @@ td.num, th.num { text-align: right; }
 .chip-secondary { background: color-mix(in srgb, var(--secondary) 12%, var(--surface)); border-color: color-mix(in srgb, var(--secondary) 40%, transparent); color: var(--secondary-deep); }
 .chip-info { background: color-mix(in srgb, var(--info) 12%, var(--surface)); border-color: color-mix(in srgb, var(--info) 40%, transparent); color: var(--info-deep); }
 
+/* looking-glass route attribute row: decoded communities + path attributes */
+.route-attrs td { padding-top: 0; border-top: none; }
+.attr-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 8px; }
+.attr-chips .chip b { font-weight: 600; margin-right: 4px; }
+.comm-named { background: color-mix(in srgb, var(--primary) 12%, var(--surface)); border-color: color-mix(in srgb, var(--primary) 40%, transparent); color: var(--primary-deep); }
+.comm-origin { background: color-mix(in srgb, var(--info) 12%, var(--surface)); border-color: color-mix(in srgb, var(--info) 40%, transparent); color: var(--info-deep); }
+.comm-wellknown { background: color-mix(in srgb, var(--warning) 14%, var(--surface)); border-color: color-mix(in srgb, var(--warning) 40%, transparent); color: var(--warning-deep); }
+.comm-rpki { background: color-mix(in srgb, var(--danger) 14%, var(--surface)); border-color: color-mix(in srgb, var(--danger) 40%, transparent); color: var(--danger-deep); }
+
 /* ---------- buttons ---------- */
 .btn {
 	display: inline-flex;

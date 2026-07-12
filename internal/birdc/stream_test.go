@@ -163,7 +163,7 @@ func TestStreamRoutesStopsEarly(t *testing.T) {
 func TestPaginateValidation(t *testing.T) {
 	dir := t.TempDir()
 	c := &Client{path: filepath.Join(dir, "no-such.sock"), timeout: time.Second}
-	if _, err := c.RoutesByProtocolPage("not a valid ident", 0, 10); err == nil {
+	if _, err := c.RoutesByProtocolPage("not a valid ident", false, 0, 10); err == nil {
 		t.Fatal("expected identifier validation error")
 	}
 	if _, err := c.RoutesForPage("not-a-prefix", false, 0, 10); err == nil {

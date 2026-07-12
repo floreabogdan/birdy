@@ -40,7 +40,7 @@
 						<div class="field" style="margin:0">
 							<label style="visibility:hidden">all</label>
 							<label style="font-weight:400;display:flex;align-items:center;gap:6px;color:var(--text)">
-								<input type="checkbox" name="all" value="1" style="width:auto" {{if .All}}checked{{end}}> show all (not just best)
+								<input type="checkbox" name="all" value="1" style="width:auto" {{if .All}}checked{{end}}> show all + attributes (communities, local-pref)
 							</label>
 						</div>
 						<button class="btn btn-primary" type="submit">{{template "icon-search"}}Query</button>
@@ -74,6 +74,19 @@
 								<td class="mono">{{.ASPath}}</td>
 								<td class="mono">{{.NextHop}}{{if .From}} (from {{.From}}){{end}}</td>
 							</tr>
+							{{if or .Comms .LocalPref .Origin .MED}}
+							<tr class="route-attrs">
+								<td></td>
+								<td colspan="7">
+									<div class="attr-chips">
+										{{if .LocalPref}}<span class="chip">local-pref {{.LocalPref}}</span>{{end}}
+										{{if .Origin}}<span class="chip">origin {{.Origin}}</span>{{end}}
+										{{if .MED}}<span class="chip">MED {{.MED}}</span>{{end}}
+										{{range .Comms}}<span class="chip comm-{{.Kind}}" title="{{.Text}}">{{if .Name}}<b>{{.Name}}</b> {{end}}{{.Text}}</span>{{end}}
+									</div>
+								</td>
+							</tr>
+							{{end}}
 							{{end}}
 						</tbody>
 					</table>
