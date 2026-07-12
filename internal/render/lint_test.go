@@ -236,3 +236,45 @@ func ibgpPeer(localASN int64) store.Peer {
 		NextHopSelf: true, ImportLimitAction: "restart",
 	}
 }
+
+// A community referenced by name but not defined in the library is flagged as a
+// danger — it would render an undefined BIRD symbol.
+func TestLintFlagsDanglingCommunityReference(t *testing.T) {
+	in := baseInput()
+	in.Policies = nil // start clean of the base fixtures' policies
+
+	p := ebgpPeer()
+	p.ExportCommunities = "GHOST_COMMUNITY"
+	in.Peers = []store.Peer{p}
+	in.Policies = []store.Policy{{
+		ID: 9, Name: "P_MATCH", Direction: store.DirImport,
+		DefaultRoute: store.DefaultReject, MatchCommunity: "ANOTHER_GHOST",
+	}}
+
+	var peerFlag, polFlag bool
+	for _, w := range Lint(in) {
+		if w.Severity == SeverityDanger && strings.Contains(w.Message, "GHOST_COMMUNITY") {
+			peerFlag = true
+		}
+		if w.Severity == SeverityDanger && strings.Contains(w.Message, "ANOTHER_GHOST") {
+			polFlag = true
+		}
+	}
+	if !peerFlag {
+		t.Error("a peer export referencing an undefined community should be flagged")
+	}
+	if !polFlag {
+		t.Error("a policy matching an undefined community should be flagged")
+	}
+
+	// Defining both clears the findings.
+	in.Communities = []store.CommunityDef{
+		{Name: "GHOST_COMMUNITY", A: 1, B: 1},
+		{Name: "ANOTHER_GHOST", A: 1, B: 2},
+	}
+	for _, w := range Lint(in) {
+		if strings.Contains(w.Message, "GHOST_COMMUNITY") || strings.Contains(w.Message, "ANOTHER_GHOST") {
+			t.Errorf("a defined community must not be flagged: %s", w.Message)
+		}
+	}
+}

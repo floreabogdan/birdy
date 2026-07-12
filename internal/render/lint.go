@@ -41,6 +41,34 @@ func Lint(in Input) []Warning {
 		prefixSets[ps.ID] = ps
 	}
 
+	// A community referenced by name that is not defined in the library would
+	// render as an undefined BIRD symbol. Deleting a referenced community is
+	// prevented in the UI, but a snapshot restore or a hand-edited database can
+	// still leave a reference dangling — catch it here, before bird -p does at
+	// apply time.
+	communityNames := map[string]bool{}
+	for _, cd := range in.Communities {
+		communityNames[cd.Name] = true
+	}
+	for _, p := range in.Peers {
+		for _, name := range store.NamedCommunityRefs(p.ExportCommunities) {
+			if !communityNames[name] {
+				add(SeverityDanger, p.Name,
+					"Export communities reference %q, which is not defined in the library — bird -p would reject the config with an undefined symbol. Define it under Library → Communities, or remove the reference.",
+					name)
+			}
+		}
+	}
+	for _, pol := range in.Policies {
+		for _, name := range store.NamedCommunityRefs(pol.MatchCommunity) {
+			if !communityNames[name] {
+				add(SeverityDanger, "",
+					"Policy %s matches community %q, which is not defined in the library. Define it under Library → Communities, or remove the reference.",
+					pol.Name, name)
+			}
+		}
+	}
+
 	// An eBGP peer whose ASN is our own is an iBGP session wearing the wrong
 	// label: it gets the role tagging, the first-AS check and the bogon filters,
 	// none of which make sense inside our own AS.
