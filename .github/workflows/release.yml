@@ -33,7 +33,15 @@ jobs:
             tar -czf "dist/birdy_${VERSION}_${GOOS}_${GOARCH}.tar.gz" birdy LICENSE README.md
             rm -f birdy
           done
-          ( cd dist && sha256sum *.tar.gz > SHA256SUMS.txt )
+          ls -la dist
+
+      - name: Build Linux packages (.deb/.rpm/.apk)
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          NFPM="$(go env GOPATH)/bin/nfpm" sh deploy/build-packages.sh "$VERSION"
+          ( cd dist && sha256sum *.tar.gz *.deb *.rpm *.apk > SHA256SUMS.txt )
           ls -la dist
 
       - name: Publish release

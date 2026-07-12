@@ -105,6 +105,31 @@ sudo install birdy /usr/local/bin/birdy
 </details>
 
 <details>
+<summary><b>Linux package (.deb / .rpm / .apk)</b></summary>
+
+Each release ships packages for amd64, arm64 and armhf. They install the binary to
+`/usr/bin/birdy`, a systemd unit, and create a `birdy` system user in the `bird` group:
+
+```sh
+# Debian / Ubuntu
+sudo apt install ./birdy_*_amd64.deb
+# RHEL / Fedora
+sudo dnf install ./birdy-*.x86_64.rpm
+```
+
+The package does **not** start birdy — set it up first, as the post-install message explains:
+
+```sh
+sudo -u birdy birdy init --db /var/lib/birdy/birdy.db --asn 64496 --router-id 192.0.2.1
+sudo systemctl enable --now birdy
+```
+
+It recommends `bird2` but does not force it. `apt purge` removes the database (which holds
+BGP passwords); a plain `apt remove` keeps it. (The `.apk` is provided for convenience; Alpine
+uses OpenRC, so you supply your own service under it.)
+</details>
+
+<details>
 <summary><b>go install</b></summary>
 
 Requires Go 1.25+. The binary is static (`CGO_ENABLED=0`); SQLite is

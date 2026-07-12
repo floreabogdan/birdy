@@ -1,0 +1,56 @@
+# nfpm packaging for birdy — builds .deb / .rpm / .apk from a pre-built binary.
+# https://nfpm.goreleaser.com  —  run via deploy/build-packages.sh (locally or CI).
+#
+# Expects, in ./dist: the target binary as `birdy` and the systemd unit as
+# `birdy.service` (with its ExecStart pointing at /usr/bin/birdy). ARCH and
+# VERSION come from the environment.
+name: birdy
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+maintainer: "Bogdan Florea <ixsplit@gmail.com>"
+description: |
+  Web UI for BIRD 2.x that runs on your router.
+  birdy manages eBGP/iBGP sessions, import/export policy, RPKI, RTBH and BFD from
+  a database, renders the whole bird.conf and applies it with an armed
+  auto-revert, plus live visibility into what every session is doing. It ships
+  read-only and stays a viewer until you let it write. Reach it over an SSH
+  tunnel; never bind it to a public address.
+vendor: birdy
+homepage: https://github.com/floreabogdan/birdy
+license: 0BSD
+section: net
+priority: optional
+
+contents:
+  - src: ./dist/birdy
+    dst: /usr/bin/birdy
+    file_info:
+      mode: 0755
+  - src: ./dist/birdy.service
+    dst: /lib/systemd/system/birdy.service
+    file_info:
+      mode: 0644
+  - src: ./LICENSE
+    dst: /usr/share/doc/birdy/copyright
+    file_info:
+      mode: 0644
+  - src: ./README.md
+    dst: /usr/share/doc/birdy/README.md
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: ./deploy/postinstall.sh
+  preremove: ./deploy/preremove.sh
+  postremove: ./deploy/postremove.sh
+
+# birdy needs BIRD next to it, but people run bird from source too, so it is a
+# recommendation, not a hard dependency. The package name differs per distro.
+overrides:
+  deb:
+    recommends:
+      - bird2
+  rpm:
+    recommends:
+      - bird

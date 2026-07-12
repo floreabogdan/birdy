@@ -1,0 +1,6 @@
+# Normalize line endings in the repo, and force LF for files that must be LF on
+# the systems they run on — shell scripts (the package maintainer scripts run on
+# Debian/RPM/Alpine) and the systemd unit.
+* text=auto
+*.sh text eol=lf
+*.service text eol=lf
