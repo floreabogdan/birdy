@@ -31,10 +31,12 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      # Build golangci-lint from source with this job's Go, so its toolchain is
+      # never older than the go.mod target (a prebuilt binary refuses that).
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.1.6
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6
+          golangci-lint run ./...
 
       - name: go test
         run: go test -race ./...
