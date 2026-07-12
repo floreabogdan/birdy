@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in birdy behaves incorrectly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. birdy is beta software — please include the versions and
+        `birdy doctor` output below; they save a round-trip. **Do not report security issues
+        here** — see [SECURITY.md](https://github.com/floreabogdan/birdy/blob/main/SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: Steps to reproduce, and the difference between expected and actual behaviour.
+    validations:
+      required: true
+  - type: input
+    id: birdy-version
+    attributes:
+      label: birdy version
+      description: Output of `birdy version`.
+      placeholder: "birdy 0.1.0-dev+abc1234"
+    validations:
+      required: true
+  - type: input
+    id: bird-version
+    attributes:
+      label: BIRD version
+      description: Output of `birdc show status` (first line), or your BIRD package version.
+      placeholder: "BIRD 2.17.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Mode
+      description: Was birdy running read-only or with apply enabled?
+      options:
+        - "--read-only (viewer)"
+        - "apply enabled (writes bird.conf)"
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`birdy doctor` output"
+      description: Run `birdy doctor` as the user birdy runs as, and paste the output.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Any relevant lines from birdy's log (`journalctl -u birdy`). Redact secrets.
+      render: text

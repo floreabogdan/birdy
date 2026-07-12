@@ -1,0 +1,27 @@
+# https://editorconfig.org — keep contributor editors consistent across the
+# mix of Go, JS, CSS, HTML, YAML and Markdown in this repo.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Go is gofmt'd: hard tabs.
+[*.go]
+indent_style = tab
+
+[Makefile]
+indent_style = tab
+
+# Web assets and config: two-space indent.
+[*.{js,css,html,json,yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+indent_style = space
+indent_size = 2
+# Markdown uses trailing whitespace for hard line breaks.
+trim_trailing_whitespace = false

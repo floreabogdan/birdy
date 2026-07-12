@@ -1,0 +1,29 @@
+name: Feature request
+description: Suggest something birdy should do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        birdy is **deliberately opinionated and narrow in scope** (one router, done well). Requests
+        that fit the existing grain are far more likely to land than ones that broaden scope. Please
+        describe the use case, not just the feature — see [CONTRIBUTING.md](https://github.com/floreabogdan/birdy/blob/main/CONTRIBUTING.md).
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The operational problem you have, not the solution you have in mind.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like birdy to do?
+      description: How you imagine it working, and how it fits birdy's "opinionated, one router" design.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: What you do today, or other ways this could be solved (including hand-writing bird.conf).
