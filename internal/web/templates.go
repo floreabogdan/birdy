@@ -63,6 +63,8 @@ var funcs = template.FuncMap{
 			class, label = "badge-warning", "drift"
 		case store.EventIRRRefresh:
 			class, label = "badge-info", "irr"
+		case store.EventModelChange:
+			class, label = "badge", "change"
 		case store.EventBirdUnreach:
 			class, label = "badge-danger", "bird down"
 		case store.EventBirdReachable:

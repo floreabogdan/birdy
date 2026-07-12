@@ -347,6 +347,18 @@ func (s *Server) emitEvent(kind, protocol, message string) {
 	}
 }
 
+// emitAuditedEvent is emitEvent for an operator-initiated config action: it
+// records the acting user on the timeline (the audit trail for who touched the
+// router) and still alerts.
+func (s *Server) emitAuditedEvent(r *http.Request, kind, message string) {
+	if err := s.store.InsertAudit(s.actor(r), kind, message); err != nil {
+		s.log.Warn("failed to record event", "error", err)
+	}
+	if s.notifier != nil {
+		s.notifier.Notify(kind, "", message)
+	}
+}
+
 // reconcilePending catches up with an auto-revert BIRD performed on its own. If a
 // pending apply's deadline has passed, BIRD has already reverted to the previous
 // config; birdy just records it. bird.conf on disk is already the previous
@@ -522,7 +534,7 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 		s.serverError(w, "record config version", err)
 		return
 	}
-	s.emitEvent(store.EventConfigApply, "",
+	s.emitAuditedEvent(r, store.EventConfigApply,
 		fmt.Sprintf("Config applied with a %ds safety timeout (version %d)", s.applyTimeout, id))
 
 	s.redirectChanges(w, r, fmt.Sprintf("Applied. Confirm within %ds to keep it, or it reverts on its own.", s.applyTimeout))
@@ -579,7 +591,7 @@ func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "resolve version", err)
 		return
 	}
-	s.emitEvent(store.EventConfigApply, "", fmt.Sprintf("Config apply confirmed (version %d)", pending.ID))
+	s.emitAuditedEvent(r, store.EventConfigApply, fmt.Sprintf("Config apply confirmed (version %d)", pending.ID))
 	// Keep an off-box copy: mail the applied config, password-masked, to any
 	// email destinations. A disk failure then does not lose what was running.
 	if s.notifier != nil {
@@ -620,7 +632,7 @@ func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "resolve version", err)
 		return
 	}
-	s.emitEvent(store.EventConfigRevert, "", fmt.Sprintf("Config apply rolled back (version %d)", pending.ID))
+	s.emitAuditedEvent(r, store.EventConfigRevert, fmt.Sprintf("Config apply rolled back (version %d)", pending.ID))
 	s.redirectChanges(w, r, msg)
 }
 
@@ -666,7 +678,7 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "set applied hash", err)
 		return
 	}
-	_ = s.store.InsertEvent(store.EventConfigApply, "", "Adopted the existing config")
+	_ = s.store.InsertAudit(s.actor(r), store.EventConfigApply, "Adopted the existing config")
 	msg := "Adopted. birdy now manages this config; the previous config is backed up."
 	if backup != "" {
 		msg = "Adopted. The existing config is backed up to " + filepath.Base(backup) + "."

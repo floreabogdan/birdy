@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 21
+const schemaVersion = 22
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -289,6 +289,14 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 		if err := ensureColumn(tx, "prefix_sets", "refresh_error", `ALTER TABLE prefix_sets ADD COLUMN refresh_error TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 22 {
+		// The audit trail: an event can now record the operator who caused it (a
+		// config apply, a model edit). System/BIRD events leave it empty.
+		if err := ensureColumn(tx, "events", "actor", `ALTER TABLE events ADD COLUMN actor TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
 	}

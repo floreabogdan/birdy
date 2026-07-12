@@ -197,6 +197,11 @@ func (s *Server) handlePolicySave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(errs) == 0 {
+		verb := "updated"
+		if isNew {
+			verb = "created"
+		}
+		s.audit(r, verb+" policy "+p.Name)
 		http.Redirect(w, r, "/policies?flash="+flash("Saved "+p.Name), http.StatusSeeOther)
 		return
 	}
@@ -212,6 +217,7 @@ func (s *Server) handlePolicyDelete(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/policies?flash="+flash("Could not delete "+p.Name+": "+err.Error()), http.StatusSeeOther)
 		return
 	}
+	s.audit(r, "deleted policy "+p.Name)
 	http.Redirect(w, r, "/policies?flash="+flash("Deleted "+p.Name), http.StatusSeeOther)
 }
 

@@ -188,6 +188,11 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 			s.serverError(w, "attach policies", err)
 			return
 		}
+		verb := "updated"
+		if isNew {
+			verb = "created"
+		}
+		s.audit(r, verb+" peer "+p.Name)
 		http.Redirect(w, r, "/peers?flash="+flash("Saved "+p.Name), http.StatusSeeOther)
 		return
 	}
@@ -241,6 +246,7 @@ func (s *Server) handlePeerDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "delete peer", err)
 		return
 	}
+	s.audit(r, "deleted peer "+p.Name)
 	http.Redirect(w, r, "/peers?flash="+flash("Deleted "+p.Name), http.StatusSeeOther)
 }
 

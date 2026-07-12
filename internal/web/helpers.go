@@ -40,6 +40,29 @@ func formInt(r *http.Request, key string) int {
 	return n
 }
 
+// actor resolves the username of the operator behind a request, for the audit
+// trail. Best-effort: returns "" if it cannot be determined, since auditing must
+// never fail a request.
+func (s *Server) actor(r *http.Request) string {
+	id, ok := r.Context().Value(ctxUserID).(int64)
+	if !ok {
+		return ""
+	}
+	u, found, err := s.store.GetUserByID(id)
+	if err != nil || !found {
+		return ""
+	}
+	return u.Username
+}
+
+// audit records an operator's model change on the timeline, attributed to them.
+// Best-effort: a failed audit write is logged, never surfaced to the operator.
+func (s *Server) audit(r *http.Request, message string) {
+	if err := s.store.InsertAudit(s.actor(r), store.EventModelChange, message); err != nil {
+		s.log.Warn("failed to record audit event", "error", err)
+	}
+}
+
 // flash builds the ?flash= value for a post-redirect-get confirmation.
 func flash(msg string) string { return url.QueryEscape(msg) }
 

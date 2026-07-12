@@ -5,8 +5,14 @@
 		session_down: ["badge-danger", "down"],
 		flap: ["badge-warning", "flap"],
 		limit_hit: ["badge-warning", "limit"],
+		prefix_drop: ["badge-danger", "drop"],
 		config_apply: ["badge-info", "config"],
 		config_revert: ["badge-info", "revert"],
+		config_drift: ["badge-warning", "drift"],
+		irr_refresh: ["badge-info", "irr"],
+		model_change: ["badge", "change"],
+		bird_unreachable: ["badge-danger", "bird down"],
+		bird_reachable: ["badge-success", "bird up"],
 	};
 
 	function esc(s) {
@@ -137,10 +143,11 @@
 		}
 		el.innerHTML = events.map(function (e) {
 			var b = KIND_BADGE[e.kind] || ["", e.kind];
+			var who = e.actor ? ' <span class="text-muted">by ' + esc(e.actor) + "</span>" : "";
 			return (
 				'<div class="timeline-item">' +
 				'<div class="timeline-time" data-ts="' + esc(e.ts) + '" title="' + esc(fmtTime(e.ts)) + '">' + esc(fmtTime(e.ts)) + "</div>" +
-				'<div><span class="badge ' + b[0] + '">' + esc(b[1]) + '</span> <span class="mono">' + esc(e.protocol) + "</span> — " + esc(e.message) + "</div>" +
+				'<div><span class="badge ' + b[0] + '">' + esc(b[1]) + '</span> <span class="mono">' + esc(e.protocol) + "</span> — " + esc(e.message) + who + "</div>" +
 				"</div>"
 			);
 		}).join("");

@@ -169,7 +169,7 @@
 					{{range .RecentEvents}}
 					<div class="timeline-item">
 						<div class="timeline-time" data-ts="{{isotime .Ts}}" title="{{fmttime .Ts}}">{{fmttime .Ts}}</div>
-						<div>{{eventBadge .Kind}} <span class="mono">{{.Protocol}}</span> — {{.Message}}</div>
+						<div>{{eventBadge .Kind}} <span class="mono">{{.Protocol}}</span> — {{.Message}}{{if .Actor}} <span class="text-muted">by {{.Actor}}</span>{{end}}</div>
 					</div>
 					{{else}}
 					<div class="empty">No events yet.</div>
