@@ -41,5 +41,10 @@ jobs:
       - name: go test
         run: go test -race ./...
 
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
       - name: build
         run: CGO_ENABLED=0 go build ./cmd/birdy

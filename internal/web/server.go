@@ -148,7 +148,26 @@ func New(cfg Config) *Server {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	setSecurityHeaders(w)
 	s.mux.ServeHTTP(w, r)
+}
+
+// setSecurityHeaders hardens every response. birdy serves only its own embedded
+// assets and is never framed, so the policy can be tight: no external resource
+// loads, no framing, forms post only to birdy itself. 'unsafe-inline' is allowed
+// for scripts and styles because the templates carry inline handlers (delete
+// confirmations, row navigation) and inline style attributes; html/template's
+// contextual escaping is the primary XSS defense, with this as depth. Tightening
+// script-src to 'self' would mean moving those inline handlers into the JS files.
+func setSecurityHeaders(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "same-origin")
+	h.Set("Content-Security-Policy",
+		"default-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "+
+			"frame-ancestors 'none'; img-src 'self' data:; "+
+			"style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'")
 }
 
 func (s *Server) routes() {

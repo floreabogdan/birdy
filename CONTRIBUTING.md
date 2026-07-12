@@ -23,14 +23,15 @@ Requires Go 1.25+. There is no frontend build step — the UI is server-rendered
 with `go:embed` and a little vanilla JavaScript, and there will not be a node toolchain.
 
 ```sh
-go test ./...          # the whole suite
+go test -race ./...    # the whole suite, under the race detector
 gofmt -l .             # must print nothing
 go vet ./...           # must pass
 golangci-lint run      # if you have it installed; CI runs it
+govulncheck ./...      # known-vulnerability scan; CI runs it
 ```
 
-Before opening a PR, make sure `gofmt`, `go vet`, `golangci-lint` and `go test ./...` all pass —
-CI runs exactly these and will reject a red build.
+Before opening a PR, make sure `gofmt`, `go vet`, `golangci-lint`, `go test -race ./...` and
+`govulncheck ./...` all pass — CI runs exactly these and will reject a red build.
 
 Cross-compile to try it on a router (static binary, no cgo):
 
