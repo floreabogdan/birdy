@@ -16,7 +16,7 @@
 			</div>
 
 			<form method="post" action="{{if .IsNew}}/library/communities/new{{else}}/library/communities/{{.Def.Name}}/edit{{end}}">
-			<div class="card" style="max-width:38rem">
+			<div class="card">
 				<div class="card-body">
 					{{if .Def.Builtin}}<p class="card-intro">This community ships with birdy. Your edits are kept.</p>{{end}}
 					<div class="field">

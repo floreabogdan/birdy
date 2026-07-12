@@ -577,7 +577,7 @@ button.
 
 ## 14. Your profile
 
-Reach it from the avatar menu at the top right → **Profile & password**.
+Reach it from the avatar menu at the top right → **Profile**.
 
 - **Username** — the name you log in with. Changing it does not sign you out.
 - **Password** — changing it requires your current password plus a confirmation,
