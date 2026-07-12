@@ -119,6 +119,43 @@
 					{{end}}
 				</div>
 			</div>
+
+			{{if .Logging}}
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">{{template "icon-alert"}}RPKI-invalid routes (dry run)</span>
+					<span class="chip">{{len .Invalids}}{{if .InvalidsMore}}+{{end}}</span>
+				</div>
+				<p class="card-intro">
+					Routes BIRD is tagging <span class="chip">RPKI_INVALID</span> right now under log-only mode &mdash; exactly
+					what a <span class="badge badge-danger">reject invalid</span> policy would drop. Count them before you switch.
+				</p>
+				{{if .InvalidsErr}}
+					<div class="card-body error-text">Could not read invalid routes from BIRD: {{.InvalidsErr}}</div>
+				{{else if .Invalids}}
+					<div class="table-scroll">
+					<table>
+						<thead><tr><th>Prefix</th><th>From protocol</th><th>AS path / origin</th></tr></thead>
+						<tbody data-search-target>
+							{{range .Invalids}}
+							<tr>
+								<td class="mono">{{.Network}}</td>
+								<td class="mono">{{.Protocol}}</td>
+								<td class="mono">{{if .ASPath}}{{.ASPath}}{{else}}<span class="text-muted">&mdash;</span>{{end}}</td>
+							</tr>
+							{{end}}
+						</tbody>
+					</table>
+					</div>
+					{{if .InvalidsMore}}<div class="card-body preview-note">Showing the first {{len .Invalids}}; there are more. A sample to size the switch, not the full list.</div>{{end}}
+				{{else}}
+					<div class="card-body text-muted">
+						BIRD is tagging no invalid routes right now &mdash; either there are none, or the config carrying
+						log-only validation has not been applied to the router yet.
+					</div>
+				{{end}}
+			</div>
+			{{end}}
 		</div>
 	</div>
 </div>

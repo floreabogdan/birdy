@@ -29,6 +29,7 @@ type birdClient interface {
 	RoutesByProtocolPage(name string, offset, limit int) (birdc.RoutePage, error)
 	RoutesExportPage(name string, offset, limit int) (birdc.RoutePage, error)
 	RoutesNoExportPage(name string, offset, limit int) (birdc.RoutePage, error)
+	RoutesRPKIInvalidPage(localASN int64, offset, limit int) (birdc.RoutePage, error)
 
 	// The apply pipeline. These act on BIRD's own configured config file, which
 	// birdy writes before calling them. ConfigureCheck never changes the running

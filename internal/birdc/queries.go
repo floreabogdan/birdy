@@ -173,6 +173,18 @@ func (c *Client) RoutesExportPage(name string, offset, limit int) (RoutePage, er
 	return paginate(c.path, pageQueryTimeout, fmt.Sprintf("show route export %s", name), offset, limit)
 }
 
+// RoutesRPKIInvalidPage pages the routes carrying the RPKI_INVALID large
+// community birdy tags in log-only mode — i.e. what a policy would drop if it
+// were switched from log-only to reject. The community must match the
+// RPKI_INVALID define the renderer emits, (localASN, 2, 1).
+func (c *Client) RoutesRPKIInvalidPage(localASN int64, offset, limit int) (RoutePage, error) {
+	if localASN < 1 || localASN > 4294967295 {
+		return RoutePage{}, fmt.Errorf("birdc: invalid local ASN %d", localASN)
+	}
+	cmd := fmt.Sprintf("show route where (%d, 2, 1) ~ bgp_large_community", localASN)
+	return paginate(c.path, pageQueryTimeout, cmd, offset, limit)
+}
+
 // RoutesNoExportPage is the paginated form of RoutesNoExport.
 func (c *Client) RoutesNoExportPage(name string, offset, limit int) (RoutePage, error) {
 	if err := validIdent(name); err != nil {

@@ -4,8 +4,13 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/floreabogdan/birdy/internal/birdc"
 	"github.com/floreabogdan/birdy/internal/store"
 )
+
+// rpkiInvalidLimit caps the live-invalids list shown on the RPKI page. A router
+// with many invalids only needs a representative sample to decide about enforce.
+const rpkiInvalidLimit = 200
 
 type rpkiView struct {
 	Active   string
@@ -19,6 +24,13 @@ type rpkiView struct {
 	Rejecting []string
 	Logging   []string
 	Flash     string
+
+	// Invalids are the routes BIRD is currently tagging RPKI-invalid in log-only
+	// mode — exactly what a policy would drop if switched to reject. Populated
+	// only when a policy is in log-only mode (that is what tags them).
+	Invalids     []birdc.RouteEntry
+	InvalidsMore bool
+	InvalidsErr  string
 }
 
 type rpkiFormView struct {
@@ -50,6 +62,24 @@ func (s *Server) handleRPKIPage(w http.ResponseWriter, r *http.Request) {
 			v.Logging = append(v.Logging, p.Name)
 		}
 	}
+
+	// The dry-run: while a policy is in log-only mode, BIRD tags invalids with
+	// RPKI_INVALID instead of dropping them. List them so the operator can count
+	// what they would lose before switching to reject.
+	if len(v.Logging) > 0 {
+		if settings, ok, err := s.store.GetSettings(); err == nil && ok && settings.LocalASN.Valid {
+			page, err := s.client.RoutesRPKIInvalidPage(settings.LocalASN.Int64, 0, rpkiInvalidLimit)
+			if err != nil {
+				v.InvalidsErr = err.Error()
+			} else {
+				for _, tbl := range page.Tables {
+					v.Invalids = append(v.Invalids, tbl.Routes...)
+				}
+				v.InvalidsMore = page.HasMore
+			}
+		}
+	}
+
 	render(w, s.log, "rpki.html", v)
 }
 

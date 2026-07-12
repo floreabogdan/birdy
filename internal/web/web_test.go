@@ -94,6 +94,9 @@ func (f *fakeClient) RoutesExportPage(name string, offset, limit int) (birdc.Rou
 func (f *fakeClient) RoutesNoExportPage(name string, offset, limit int) (birdc.RoutePage, error) {
 	return f.lookup("noexport:" + name)
 }
+func (f *fakeClient) RoutesRPKIInvalidPage(localASN int64, offset, limit int) (birdc.RoutePage, error) {
+	return f.lookup("rpki-invalid")
+}
 func (f *fakeClient) lookup(key string) (birdc.RoutePage, error) {
 	if f.routeErr != nil {
 		return birdc.RoutePage{}, f.routeErr

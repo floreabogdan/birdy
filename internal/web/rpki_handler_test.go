@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/floreabogdan/birdy/internal/birdc"
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
@@ -159,5 +160,37 @@ func TestPeersListSaysNotApplied(t *testing.T) {
 	}
 	if strings.Contains(body, "not running") {
 		t.Error(`"not running" reads like a failure; it is an unapplied config`)
+	}
+}
+
+// With a policy in log-only mode, the RPKI page lists the routes BIRD is
+// currently tagging invalid — the dry run before switching to reject.
+func TestRPKIInvalidsDryRun(t *testing.T) {
+	env := applyReady(t)
+	if _, err := env.store.CreatePolicy(store.Policy{
+		Name: "IMPORT_LOG", Direction: store.DirImport, ROV: store.ROVLog,
+		DefaultRoute: store.DefaultReject, BogonASNs: store.BogonASNsAll,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	env.fc.routes["rpki-invalid"] = []birdc.RouteTable{{
+		Name:   "master4",
+		Routes: []birdc.RouteEntry{{Network: "203.0.113.0/24", Protocol: "edge_v4", ASPath: "AS64500"}},
+	}}
+
+	body := env.do(t, "GET", "/rpki", nil).Body.String()
+	if !strings.Contains(body, "RPKI-invalid routes") {
+		t.Error("a log-only policy should show the invalids dry-run panel")
+	}
+	if !strings.Contains(body, "203.0.113.0/24") {
+		t.Error("the live invalid route should be listed")
+	}
+}
+
+// Without a log-only policy, the dry-run panel is absent (nothing tags invalids).
+func TestRPKINoInvalidsPanelWithoutLogOnly(t *testing.T) {
+	env := applyReady(t)
+	if body := env.do(t, "GET", "/rpki", nil).Body.String(); strings.Contains(body, "dry run") {
+		t.Error("the invalids panel should not appear without a log-only policy")
 	}
 }
