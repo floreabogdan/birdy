@@ -30,6 +30,8 @@ type policyFormView struct {
 	Errs       map[string]string
 	Preview    string
 	PreviewErr string
+	// Communities feed the match-community input's autocomplete datalist.
+	Communities []store.CommunityDef
 }
 
 func (s *Server) handlePoliciesList(w http.ResponseWriter, r *http.Request) {
@@ -259,6 +261,9 @@ func (s *Server) renderPolicyForm(w http.ResponseWriter, v policyFormView) {
 	var localASN int64
 	if settings, ok, err := s.store.GetSettings(); err == nil && ok && settings.LocalASN.Valid {
 		localASN = settings.LocalASN.Int64
+	}
+	if defs, err := s.store.ListCommunityDefs(); err == nil {
+		v.Communities = defs
 	}
 	v.Preview, v.PreviewErr = previewPolicy(v.Policy, allSets, asSets, rpkiServers, bogonASNs, localASN)
 	render(w, s.log, "policy_form.html", v)

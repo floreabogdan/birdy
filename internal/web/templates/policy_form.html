@@ -162,8 +162,9 @@
 							</div>
 							<div class="field">
 								<label for="matchCommunity">Reject routes carrying community</label>
-								<input type="text" id="matchCommunity" name="matchCommunity" class="mono" value="{{.Policy.MatchCommunity}}" placeholder="e.g. 65000:666 (blank = off)" autocomplete="off">
-								<div class="hint">Drop any route tagged with this community &mdash; a blocklist signal. One community: <span class="mono">ASN:value</span> or <span class="mono">ASN:x:y</span>.</div>
+								<input type="text" id="matchCommunity" name="matchCommunity" class="mono" value="{{.Policy.MatchCommunity}}" placeholder="e.g. 65000:666 or BLACKHOLE (blank = off)" autocomplete="off" list="community-names">
+								{{template "community-datalist" .Communities}}
+								<div class="hint">Drop any route tagged with this community &mdash; a blocklist signal. A literal (<span class="mono">ASN:value</span> or <span class="mono">ASN:x:y</span>) or a <a href="/library/communities">named community</a>.</div>
 								{{with index .Errs "matchCommunity"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
 							<div class="checks">
@@ -208,8 +209,9 @@
 
 							<div class="field" style="margin-top:16px">
 								<label for="matchCommunity">Or announce routes carrying community</label>
-								<input type="text" id="matchCommunity" name="matchCommunity" class="mono" value="{{.Policy.MatchCommunity}}" placeholder="e.g. 65000:100 (blank = off)" autocomplete="off">
-								<div class="hint">Announce a route if it carries this community &mdash; how a customer signals &ldquo;announce this one&rdquo; with a community you publish. One community: <span class="mono">ASN:value</span> or <span class="mono">ASN:x:y</span>.</div>
+								<input type="text" id="matchCommunity" name="matchCommunity" class="mono" value="{{.Policy.MatchCommunity}}" placeholder="e.g. 65000:100 or A_NAME (blank = off)" autocomplete="off" list="community-names">
+								{{template "community-datalist" .Communities}}
+								<div class="hint">Announce a route if it carries this community &mdash; how a customer signals &ldquo;announce this one&rdquo; with a community you publish. A literal (<span class="mono">ASN:value</span> or <span class="mono">ASN:x:y</span>) or a <a href="/library/communities">named community</a>.</div>
 								{{with index .Errs "matchCommunity"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
 

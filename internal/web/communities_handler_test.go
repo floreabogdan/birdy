@@ -43,6 +43,21 @@ func TestCommunityLibraryFlow(t *testing.T) {
 	}
 }
 
+// The peer and policy forms surface the defined community names for discovery —
+// a hint on the peer export textarea, a datalist on the policy match input.
+func TestCommunityFormsShowDefinedNames(t *testing.T) {
+	env := applyReady(t)
+	env.do(t, "POST", "/library/communities/new", url.Values{"name": {"MY_TAG"}, "value": {"65000:7"}})
+
+	if body := env.do(t, "GET", "/peers/new", nil).Body.String(); !strings.Contains(body, "MY_TAG") {
+		t.Error("peer form should list the defined community names")
+	}
+	body := env.do(t, "GET", "/policies/new?direction=import", nil).Body.String()
+	if !strings.Contains(body, `id="community-names"`) || !strings.Contains(body, `value="MY_TAG"`) {
+		t.Error("policy form should offer the defined communities in an autocomplete datalist")
+	}
+}
+
 // A large community round-trips through the form.
 func TestCommunityLarge(t *testing.T) {
 	env := applyReady(t)

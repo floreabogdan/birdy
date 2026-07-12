@@ -38,6 +38,9 @@ type peerFormView struct {
 	Preview    string
 	PreviewErr string
 	Warnings   []birdconf.Warning
+	// Communities are the library's named communities, shown as a hint so the
+	// operator knows which names the export field will resolve.
+	Communities []store.CommunityDef
 }
 
 // loadPeerChains fills in a peer's ordered import and export policy lists.
@@ -297,6 +300,9 @@ func (s *Server) renderPeerForm(w http.ResponseWriter, v peerFormView) {
 			localASN = settings.LocalASN.Int64
 		}
 		rrClusterID = settings.RRClusterID
+	}
+	if defs, err := s.store.ListCommunityDefs(); err == nil {
+		v.Communities = defs
 	}
 	v.Preview, v.PreviewErr, v.Warnings = previewPeer(v.Peer, sets, asSets, policies, rpkiServers, bogonASNs, localASN, rrClusterID)
 	render(w, s.log, "peer_form.html", v)

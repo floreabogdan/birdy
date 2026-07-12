@@ -178,7 +178,8 @@
 							<div class="field">
 								<label for="exportCommunities">Export communities</label>
 								<textarea id="exportCommunities" name="exportCommunities" rows="3" class="mono" spellcheck="false" placeholder="65000:666&#10;65551:1:2">{{.Peer.ExportCommunities}}</textarea>
-								<div class="hint">Attached to every route we announce here. One per line: <span class="mono">ASN:value</span> (standard) or <span class="mono">ASN:x:y</span> (large). Upstreams publish these to mean things like &ldquo;do not export to your other peers&rdquo;.</div>
+								<div class="hint">Attached to every route we announce here. One per line: a literal <span class="mono">ASN:value</span> / <span class="mono">ASN:x:y</span>, or a <a href="/library/communities">named community</a>.
+									{{if .Communities}}<br>Defined: {{range .Communities}}<span class="chip mono" title="{{.Pattern}}">{{.Name}}</span> {{end}}{{end}}</div>
 								{{with index .Errs "exportCommunities"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
 							</div>
 							<div class="checks">
