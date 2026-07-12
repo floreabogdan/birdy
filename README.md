@@ -190,6 +190,7 @@ group `bird`, with `ProtectSystem=strict`.
 - Seed peers from the running BIRD — scaffold the model from the sessions BIRD already runs, so adopting
   a router is a review-and-import rather than re-typing every session by hand
 - RFC 7999 customer blackhole (RTBH); PeeringDB lookups on the peer form (opt-in, `--peeringdb`)
+- BMP monitoring stations (RFC 7854) — stream every session's pre- and post-policy RIB to a collector
 - Bogon prefixes and bogon ASNs, editable, in Settings
 - RPKI: RTR servers and per-policy validation (log-only or drop-invalid)
 - A raw config block for everything birdy does not model, checked by `bird -p` before it saves
@@ -237,8 +238,9 @@ documentation ranges of [RFC 5398](https://www.rfc-editor.org/rfc/rfc5398),
 [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737) and [RFC 3849](https://www.rfc-editor.org/rfc/rfc3849).
 
 The UI is server-rendered `html/template` with `go:embed` and a little vanilla JavaScript. There is
-no node build step and there will not be one. [`PLAN.md`](PLAN.md) has the roadmap and the reasoning
-behind the data model.
+no node build step and there will not be one. [`PLAN.md`](PLAN.md) is the original design document —
+the reasoning behind the data model and the milestone thinking — kept as a record; the product has
+since moved past it, so read it as design intent, not current truth.
 
 ## Contributors
 

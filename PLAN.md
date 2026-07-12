@@ -1,4 +1,23 @@
-# birdy — single-router BIRD2 manager
+# birdy — original design & roadmap (2026)
+
+> [!NOTE]
+> **This is the original design document, written at the project's start.** All four
+> milestones below have shipped and birdy has moved past this plan. It is kept as a record
+> of the design intent and the reasoning behind the data model — **not** as a description of
+> the current feature set or schema. For what birdy does today, see the
+> [README](README.md) and [`docs/USAGE.md`](docs/USAGE.md).
+>
+> A few things diverged from what actually shipped:
+> - **Prometheus metrics** and **PeeringDB lookups** were shipped (both opt-in), though the
+>   plan listed metrics as out of scope and never anticipated PeeringDB.
+> - **Alerting** grew far past "one webhook, no SMTP": Slack, Discord, SMTP email and generic
+>   webhooks, multiple destinations with per-kind filtering and cooldown, plus BIRD-unreachable,
+>   config-drift and IRR-refresh alerts.
+> - The **data model** below lists `communities`, `functions` and `peer_templates` tables that
+>   were never built as tables (communities became inline value parsing; peer templates became
+>   "clone a peer"). Several shipped features — BMP, IRR/bgpq4 expansion and auto-refresh, RTBH,
+>   BFD, GTSM, graceful restart, route-history sampling, the split `birdy.d/` layout, and
+>   seed-from-BIRD — are not mentioned here at all.
 
 One Go binary that runs **on the router** and gives you a web UI to manage BIRD 2.x:
 eBGP/iBGP sessions, import/export policy, RPKI validation — plus live visibility into

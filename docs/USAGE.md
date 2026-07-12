@@ -219,7 +219,7 @@ sudo systemctl enable --now birdy
 ```
 
 **4. Open the UI.** birdy listens on `127.0.0.1:8080` by default. Reach it over an
-SSH tunnel — never expose it directly (see [Security](#14-security)):
+SSH tunnel — never expose it directly (see [Security](#15-security)):
 
 ```sh
 ssh -L 8080:127.0.0.1:8080 user@router
