@@ -26,6 +26,29 @@ func openStore(t *testing.T) *store.Store {
 	return st
 }
 
+// Config apply/revert are subscribable event kinds the apply pipeline really
+// dispatches, so they must render a specific title and severity rather than the
+// generic "birdy alert"/info fallthrough.
+func TestConfigEventTitleAndSeverity(t *testing.T) {
+	cases := []struct {
+		kind     string
+		title    string
+		severity string
+	}{
+		{store.EventConfigApply, "Config applied", "info"},
+		{store.EventConfigRevert, "Config reverted", "warning"},
+	}
+	for _, c := range cases {
+		a := alert{Kind: c.kind}
+		if got := a.title(); got != c.title {
+			t.Errorf("%s title = %q, want %q", c.kind, got, c.title)
+		}
+		if got := a.severity(); got != c.severity {
+			t.Errorf("%s severity = %q, want %q", c.kind, got, c.severity)
+		}
+	}
+}
+
 // A generic webhook gets text (Slack-ish) and content (Discord-ish) plus fields.
 func TestWebhookPayload(t *testing.T) {
 	var got map[string]any
