@@ -48,3 +48,23 @@ jobs:
 
       - name: build
         run: CGO_ENABLED=0 go build ./cmd/birdy
+
+  # A separate job so a BIRD-version quirk here never masks the unit signal
+  # above. It renders birdy's config and runs the real `bird -p` parser over it.
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          check-latest: true
+
+      - name: Install BIRD
+        run: sudo apt-get update && sudo apt-get install -y bird2
+
+      - name: integration tests
+        run: |
+          bird --version || true
+          go test -tags integration -run TestIntegration ./...
