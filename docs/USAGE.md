@@ -559,6 +559,15 @@ button.
   rendered `bird.conf`, for anything birdy does not model (extra tables, BFD
   tuning, graceful-restart options). birdy understands none of it; its only gate is
   `bird -p`, which runs before it saves.
+- **Access control** — an application-level IP allow-list: one IP or CIDR per line,
+  and only those may reach birdy at all. A blocked client gets **no response** — the
+  connection is closed — and the gate covers *every* request, including the
+  unauthenticated `/metrics`. Useful when birdy is bound to a public address with no
+  host firewall. It defaults to `0.0.0.0/0` (allow all), and both an empty list and a
+  `0.0.0.0/0` entry mean no restriction; the gate matches the real TCP peer, never a
+  spoofable `X-Forwarded-For`. **You cannot lock yourself out**: loopback is always
+  allowed, so an SSH tunnel (`ssh -L 8080:127.0.0.1:8080`) always works, and the page
+  shows your connecting IP so you can add it before restricting.
 - **Database snapshots** — birdy's entire state is one SQLite file. A consistent
   snapshot is taken nightly and can be downloaded on demand; the **backup bundle**
   also includes the rendered config. A snapshot can be staged for restore (applied

@@ -38,10 +38,19 @@ type SettingsView struct {
 	RawConfig string
 	RawErr    string
 	RawOutput string // what bird -p said, when it rejected the config
+
+	// AccessWhitelist is the IP allow-list; ConnectingIP is the operator's own
+	// address, shown so they can add it before restricting and not lock out.
+	AccessWhitelist string
+	AccessErr       string
+	ConnectingIP    string
 }
 
 func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
-	s.renderSettings(w, SettingsView{Active: "settings", ReadOnly: s.readOnly, Msg: r.URL.Query().Get("flash")})
+	s.renderSettings(w, SettingsView{
+		Active: "settings", ReadOnly: s.readOnly, Msg: r.URL.Query().Get("flash"),
+		ConnectingIP: clientAddr(r).String(),
+	})
 }
 
 func (s *Server) renderSettings(w http.ResponseWriter, v SettingsView) {
@@ -64,6 +73,11 @@ func (s *Server) renderSettings(w http.ResponseWriter, v SettingsView) {
 	if v.RawErr == "" {
 		if settings, ok, err := s.store.GetSettings(); err == nil && ok {
 			v.RawConfig = settings.RawConfig
+		}
+	}
+	if v.AccessErr == "" {
+		if settings, ok, err := s.store.GetSettings(); err == nil && ok {
+			v.AccessWhitelist = settings.AccessWhitelist
 		}
 	}
 	// A rejected bogon edit keeps the text the user typed; otherwise load stored.
@@ -296,6 +310,42 @@ func (s *Server) handleSettingsRaw(w http.ResponseWriter, r *http.Request) {
 	if unchecked {
 		msg = "Raw config saved, but not checked: " + reason
 	}
+	http.Redirect(w, r, "/settings?flash="+flash(msg), http.StatusSeeOther)
+}
+
+// handleSettingsAccess saves the access whitelist. It is a birdy setting, not a
+// BIRD write, so it is allowed in read-only mode (that is when the exposure it
+// closes matters most). The new list takes effect immediately, and if it would
+// exclude the operator's own address they are warned — though loopback (an SSH
+// tunnel) is never blocked, so they cannot truly lock themselves out.
+func (s *Server) handleSettingsAccess(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	text := strings.ReplaceAll(r.FormValue("accessWhitelist"), "\r\n", "\n")
+
+	prefixes, errs := store.ParseAccessWhitelist(text)
+	if len(errs) > 0 {
+		s.renderSettings(w, SettingsView{
+			Active: "settings", ReadOnly: s.readOnly,
+			AccessWhitelist: text, AccessErr: strings.Join(errs, "\n"),
+			ConnectingIP: clientAddr(r).String(),
+		})
+		return
+	}
+	if err := s.store.SaveAccessWhitelist(text); err != nil {
+		s.serverError(w, "save access whitelist", err)
+		return
+	}
+	s.reloadAccess() // take effect immediately
+
+	msg := "Access whitelist saved."
+	if ip := clientAddr(r); ip.IsValid() && !ip.IsLoopback() && !store.AccessAllowed(prefixes, ip) {
+		msg = "Access whitelist saved — heads up: your current IP " + ip.String() +
+			" is not in it. You can still reach birdy over an SSH tunnel (loopback is always allowed)."
+	}
+	s.audit(r, "updated the access whitelist")
 	http.Redirect(w, r, "/settings?flash="+flash(msg), http.StatusSeeOther)
 }
 

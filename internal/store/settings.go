@@ -36,6 +36,12 @@ type Settings struct {
 	// Empty means birdy has never written it — the authorship guard's cue that
 	// the router must be adopted before birdy may overwrite what is there.
 	AppliedConfigHash string
+
+	// AccessWhitelist is the IPs/CIDRs allowed to reach birdy at all — an
+	// application-level firewall. One per line or comma-separated. Loopback is
+	// always allowed and an empty list (or a 0.0.0.0/0 entry) means no
+	// restriction, so it defaults open and cannot lock out an SSH tunnel.
+	AccessWhitelist string
 }
 
 // ValidateRRClusterID accepts an empty value (use the router ID) or an IPv4
@@ -59,10 +65,10 @@ func (s *Store) GetSettings() (Settings, bool, error) {
 	var st Settings
 	row := s.db.QueryRow(`
 		SELECT router_label, local_asn, router_id, bird_socket_path, listen_addr, webhook_url,
-		       rr_cluster_id, raw_config, applied_config_hash
+		       rr_cluster_id, raw_config, applied_config_hash, access_whitelist
 		FROM settings WHERE id = 1`)
 	err := row.Scan(&st.RouterLabel, &st.LocalASN, &st.RouterID, &st.BirdSocketPath,
-		&st.ListenAddr, &st.WebhookURL, &st.RRClusterID, &st.RawConfig, &st.AppliedConfigHash)
+		&st.ListenAddr, &st.WebhookURL, &st.RRClusterID, &st.RawConfig, &st.AppliedConfigHash, &st.AccessWhitelist)
 	if err == sql.ErrNoRows {
 		return Settings{}, false, nil
 	}
@@ -95,6 +101,16 @@ func (s *Store) SaveSettings(st Settings) error {
 		return fmt.Errorf("store: save settings: %w", err)
 	}
 	return nil
+}
+
+// SaveAccessWhitelist updates only the access whitelist, so the settings forms
+// cannot clobber each other's fields.
+func (s *Store) SaveAccessWhitelist(text string) error {
+	res, err := s.db.Exec(`UPDATE settings SET access_whitelist = ?, updated_at = ? WHERE id = 1`, text, now())
+	if err != nil {
+		return fmt.Errorf("store: save access whitelist: %w", err)
+	}
+	return affectedOne(res)
 }
 
 // SaveRawConfig updates only the escape hatch, so the identity form and the raw

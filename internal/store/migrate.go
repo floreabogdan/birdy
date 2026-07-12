@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 23
+const schemaVersion = 24
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -305,6 +305,14 @@ func migrate(db *sql.DB) error {
 		// The named-communities library. Seed the well-known ones so it is not
 		// empty on an existing database.
 		if err := seedCommunities(tx); err != nil {
+			return err
+		}
+	}
+
+	if version < 24 {
+		// The access whitelist — an application-level IP allow-list. Defaults to
+		// 0.0.0.0/0 (allow all) so an upgrade never locks anyone out.
+		if err := ensureColumn(tx, "settings", "access_whitelist", `ALTER TABLE settings ADD COLUMN access_whitelist TEXT NOT NULL DEFAULT '0.0.0.0/0'`); err != nil {
 			return err
 		}
 	}

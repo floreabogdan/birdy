@@ -6,7 +6,9 @@ package web
 
 import (
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
@@ -74,6 +76,11 @@ type Server struct {
 
 	// login throttles failed logins per client IP.
 	login *loginLimiter
+
+	// accessMu guards accessList, the parsed access whitelist cached from
+	// settings so the per-request gate never hits the database.
+	accessMu   sync.RWMutex
+	accessList []netip.Prefix
 
 	mux *http.ServeMux
 }
@@ -148,12 +155,60 @@ func New(cfg Config) *Server {
 		mux:           http.NewServeMux(),
 	}
 	s.routes()
+	s.reloadAccess()
 	return s
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !s.accessAllowed(r) {
+		// A blocked client gets no HTTP response at all: the connection is closed,
+		// so a scanner cannot even tell there is a service listening. Falls back to
+		// a bare 403 when the connection cannot be hijacked (e.g. under test).
+		if hj, ok := w.(http.Hijacker); ok {
+			if conn, _, err := hj.Hijack(); err == nil {
+				_ = conn.Close()
+				return
+			}
+		}
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
 	setSecurityHeaders(w)
 	s.mux.ServeHTTP(w, r)
+}
+
+// reloadAccess refreshes the cached access whitelist from settings. Called at
+// startup and whenever the whitelist is edited.
+func (s *Server) reloadAccess() {
+	var list []netip.Prefix
+	if settings, ok, err := s.store.GetSettings(); err == nil && ok {
+		list, _ = store.ParseAccessWhitelist(settings.AccessWhitelist)
+	}
+	s.accessMu.Lock()
+	s.accessList = list
+	s.accessMu.Unlock()
+}
+
+func (s *Server) accessAllowed(r *http.Request) bool {
+	ip := clientAddr(r)
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
+	return store.AccessAllowed(s.accessList, ip)
+}
+
+// clientAddr is the request's real TCP peer address — never a spoofable
+// X-Forwarded-For header, since birdy is reached directly or over an SSH tunnel,
+// not behind a proxy. An invalid Addr (unparseable) fails open in AccessAllowed.
+func clientAddr(r *http.Request) netip.Addr {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return netip.Addr{}
+	}
+	return addr.Unmap()
 }
 
 // setSecurityHeaders hardens every response. birdy serves only its own embedded
@@ -278,6 +333,7 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /settings/identity", s.requireAuth(s.handleSettingsIdentity))
 	s.mux.Handle("POST /settings/bogons", s.requireAuth(s.handleSettingsBogons))
 	s.mux.Handle("POST /settings/raw", s.requireAuth(s.handleSettingsRaw))
+	s.mux.Handle("POST /settings/access", s.requireAuth(s.handleSettingsAccess))
 
 	// Alerts (destinations for session notifications).
 	s.mux.Handle("GET /alerts", s.requireAuth(s.handleAlertsList))

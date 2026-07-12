@@ -33,6 +33,9 @@ func TestSettingsRoundTrip(t *testing.T) {
 		BirdSocketPath: "/run/bird/bird.ctl",
 		ListenAddr:     "127.0.0.1:8080",
 		WebhookURL:     "",
+		// access_whitelist is managed by SaveAccessWhitelist, not SaveSettings, so
+		// a fresh row carries its column default.
+		AccessWhitelist: "0.0.0.0/0",
 	}
 	if err := s.SaveSettings(want); err != nil {
 		t.Fatal(err)
