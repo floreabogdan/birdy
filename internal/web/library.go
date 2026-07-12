@@ -80,6 +80,7 @@ func prefixSetFromForm(r *http.Request) store.PrefixSet {
 		Originate:       r.FormValue("originate") == "on",
 		OriginateAction: r.FormValue("originateAction"),
 		Source:          strings.TrimSpace(r.FormValue("source")),
+		AutoRefresh:     r.FormValue("autoRefresh") == "on",
 	}
 	for line := range strings.Lines(r.FormValue("entries")) {
 		line = strings.TrimSpace(line)

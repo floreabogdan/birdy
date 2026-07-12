@@ -51,8 +51,17 @@ type PrefixSet struct {
 	System bool
 	// Source is the IRR AS-SET this set's prefixes are expanded from (bgpq4),
 	// empty when maintained by hand.
-	Source  string
-	Entries []PrefixEntry
+	Source string
+	// AutoRefresh keeps the set current on a timer by re-expanding Source. It is
+	// only meaningful with a Source, and updates the model only — never the
+	// router, which stays a deliberate apply.
+	AutoRefresh bool
+	// LastRefreshed is when the timer last synced this set successfully;
+	// RefreshError holds the message from the most recent failed attempt. Both are
+	// managed by the refresh loop, not the edit form.
+	LastRefreshed string
+	RefreshError  string
+	Entries       []PrefixEntry
 }
 
 type PrefixEntry struct {
@@ -83,6 +92,11 @@ func (ps *PrefixSet) Validate() map[string]string {
 	}
 	if !originateActions[ps.OriginateAction] {
 		errs["originateAction"] = "Choose blackhole, unreachable or prohibit."
+	}
+	// Auto-refresh needs an IRR AS-SET to expand; without one there is nothing to
+	// refresh from, so silently clear it rather than reject the form.
+	if ps.Source == "" {
+		ps.AutoRefresh = false
 	}
 	if len(ps.Entries) == 0 {
 		errs["entries"] = "Add at least one prefix."
@@ -148,7 +162,7 @@ func validModifier(mod string, p netip.Prefix) string {
 
 func (s *Store) ListPrefixSets() ([]PrefixSet, error) {
 	rows, err := s.db.Query(`
-		SELECT id, name, description, family, originate, originate_action, builtin, system, source
+		SELECT id, name, description, family, originate, originate_action, builtin, system, source, auto_refresh, last_refreshed, refresh_error
 		FROM prefix_sets ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list prefix sets: %w", err)
@@ -157,7 +171,7 @@ func (s *Store) ListPrefixSets() ([]PrefixSet, error) {
 	var out []PrefixSet
 	for rows.Next() {
 		var ps PrefixSet
-		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System, &ps.Source); err != nil {
+		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System, &ps.Source, &ps.AutoRefresh, &ps.LastRefreshed, &ps.RefreshError); err != nil {
 			return nil, err
 		}
 		out = append(out, ps)
@@ -195,9 +209,9 @@ func (s *Store) ListSelectablePrefixSets() ([]PrefixSet, error) {
 func (s *Store) GetPrefixSet(id int64) (PrefixSet, error) {
 	var ps PrefixSet
 	row := s.db.QueryRow(`
-		SELECT id, name, description, family, originate, originate_action, builtin, system, source
+		SELECT id, name, description, family, originate, originate_action, builtin, system, source, auto_refresh, last_refreshed, refresh_error
 		FROM prefix_sets WHERE id = ?`, id)
-	if err := row.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System, &ps.Source); err != nil {
+	if err := row.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System, &ps.Source, &ps.AutoRefresh, &ps.LastRefreshed, &ps.RefreshError); err != nil {
 		if err == sql.ErrNoRows {
 			return PrefixSet{}, ErrNotFound
 		}
@@ -249,8 +263,8 @@ func (s *Store) CreatePrefixSet(ps PrefixSet) (int64, error) {
 	defer tx.Rollback()
 	ts := now()
 	res, err := tx.Exec(`
-		INSERT INTO prefix_sets (name, description, family, originate, originate_action, source, builtin, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`, ps.Name, ps.Description, ps.Family, ps.Originate, ps.OriginateAction, ps.Source, ts, ts)
+		INSERT INTO prefix_sets (name, description, family, originate, originate_action, source, auto_refresh, builtin, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`, ps.Name, ps.Description, ps.Family, ps.Originate, ps.OriginateAction, ps.Source, ps.AutoRefresh, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create prefix set: %w", err)
 	}
@@ -274,8 +288,8 @@ func (s *Store) UpdatePrefixSet(ps PrefixSet) error {
 	}
 	defer tx.Rollback()
 	res, err := tx.Exec(`
-		UPDATE prefix_sets SET name = ?, description = ?, family = ?, originate = ?, originate_action = ?, source = ?, updated_at = ?
-		WHERE id = ?`, ps.Name, ps.Description, ps.Family, ps.Originate, ps.OriginateAction, ps.Source, now(), ps.ID)
+		UPDATE prefix_sets SET name = ?, description = ?, family = ?, originate = ?, originate_action = ?, source = ?, auto_refresh = ?, updated_at = ?
+		WHERE id = ?`, ps.Name, ps.Description, ps.Family, ps.Originate, ps.OriginateAction, ps.Source, ps.AutoRefresh, now(), ps.ID)
 	if err != nil {
 		return fmt.Errorf("store: update prefix set: %w", err)
 	}
@@ -298,6 +312,62 @@ func replaceEntries(tx *sql.Tx, setID int64, entries []PrefixEntry) error {
 			VALUES (?, ?, ?, ?)`, setID, e.Prefix, e.Modifier, i); err != nil {
 			return fmt.Errorf("store: insert prefix entry: %w", err)
 		}
+	}
+	return nil
+}
+
+// ListAutoRefreshPrefixSets returns the sets opted into IRR auto-refresh (with a
+// source to expand from), for the refresh loop to walk.
+func (s *Store) ListAutoRefreshPrefixSets() ([]PrefixSet, error) {
+	all, err := s.ListPrefixSets()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PrefixSet, 0)
+	for _, ps := range all {
+		if ps.AutoRefresh && ps.Source != "" {
+			out = append(out, ps)
+		}
+	}
+	return out, nil
+}
+
+// RefreshPrefixSetEntries replaces a set's prefixes with a fresh IRR expansion
+// and stamps the success time, clearing any prior error. It touches only the
+// entries and refresh bookkeeping — never name, family or source — so it is safe
+// to call from the background loop without racing a form edit's other fields.
+func (s *Store) RefreshPrefixSetEntries(id int64, entries []PrefixEntry) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := replaceEntries(tx, id, entries); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE prefix_sets SET last_refreshed = ?, refresh_error = '', updated_at = ? WHERE id = ?`,
+		now(), now(), id); err != nil {
+		return fmt.Errorf("store: stamp prefix set refresh: %w", err)
+	}
+	return tx.Commit()
+}
+
+// MarkPrefixSetRefreshed records a successful refresh that produced no change,
+// so last_refreshed advances without churning the entries or the config diff.
+func (s *Store) MarkPrefixSetRefreshed(id int64) error {
+	_, err := s.db.Exec(`UPDATE prefix_sets SET last_refreshed = ?, refresh_error = '' WHERE id = ?`, now(), id)
+	if err != nil {
+		return fmt.Errorf("store: mark prefix set refreshed: %w", err)
+	}
+	return nil
+}
+
+// MarkPrefixSetRefreshError records why the last refresh failed, leaving the
+// existing prefixes in place.
+func (s *Store) MarkPrefixSetRefreshError(id int64, msg string) error {
+	_, err := s.db.Exec(`UPDATE prefix_sets SET refresh_error = ? WHERE id = ?`, msg, id)
+	if err != nil {
+		return fmt.Errorf("store: mark prefix set refresh error: %w", err)
 	}
 	return nil
 }

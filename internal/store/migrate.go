@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 20
+const schemaVersion = 21
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -274,6 +274,21 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 		if err := ensureColumn(tx, "peers", "graceful_restart", `ALTER TABLE peers ADD COLUMN graceful_restart TEXT NOT NULL DEFAULT 'aware'`); err != nil {
+			return err
+		}
+	}
+
+	if version < 21 {
+		// A prefix set expanded from an IRR AS-SET can be kept current on a timer.
+		// auto_refresh opts a set in; last_refreshed / refresh_error record the
+		// most recent successful sync and the last failure, for the form to show.
+		if err := ensureColumn(tx, "prefix_sets", "auto_refresh", `ALTER TABLE prefix_sets ADD COLUMN auto_refresh INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "prefix_sets", "last_refreshed", `ALTER TABLE prefix_sets ADD COLUMN last_refreshed TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "prefix_sets", "refresh_error", `ALTER TABLE prefix_sets ADD COLUMN refresh_error TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
 	}

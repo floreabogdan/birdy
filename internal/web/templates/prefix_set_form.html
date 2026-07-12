@@ -64,6 +64,15 @@
 								<div class="hint" id="irr-status" hidden></div>
 								<div class="hint">Expands with <span class="mono">bgpq4</span> for this set's address family, then fills the box below to review before saving.</div>
 							</div>
+							<div class="field">
+								<label class="check"><input type="checkbox" name="autoRefresh" {{if .Set.AutoRefresh}}checked{{end}}> Auto-refresh from IRR on a schedule</label>
+								<div class="hint">
+									birdy re-expands this AS-SET periodically and updates the set. It never applies on its own &mdash;
+									the change appears on <a href="/changes">Changes</a> for you to review and apply.
+									{{if .Set.LastRefreshed}}<div class="text-muted" style="margin-top:6px">Last refreshed: <span class="mono">{{.Set.LastRefreshed}}</span></div>{{end}}
+									{{if .Set.RefreshError}}<div class="field-error" style="margin-top:6px">Last refresh: {{.Set.RefreshError}}</div>{{end}}
+								</div>
+							</div>
 							{{else if .Set.Source}}
 							<input type="hidden" name="source" value="{{.Set.Source}}">
 							{{end}}

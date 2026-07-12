@@ -42,6 +42,7 @@ func cmdServer(args []string) error {
 	driftInterval := fs.Duration("drift-check-interval", 30*time.Second, "how often to check whether bird.conf changed outside birdy, alerting if it did (0 disables)")
 	sampleInterval := fs.Duration("sample-interval", time.Minute, "how often to record a per-session route-count point for the dashboard history sparklines (0 disables)")
 	sampleRetain := fs.Duration("sample-retain", 7*24*time.Hour, "how long to keep route-count history samples")
+	irrRefreshInterval := fs.Duration("irr-refresh-interval", 24*time.Hour, "how often to re-expand auto-refresh prefix sets from IRR via bgpq4 (0 disables; requires --bgpq4)")
 	fs.Parse(args)
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -96,6 +97,9 @@ func cmdServer(args []string) error {
 	// Alert if the config on disk changes out from under birdy (inert until birdy
 	// owns a config, so a read-only viewer never false-alarms).
 	go srv.WatchDrift(ctx, *driftInterval)
+
+	// Keep IRR-expanded prefix sets current (model only — never auto-applied).
+	go srv.RunIRRRefresh(ctx, *irrRefreshInterval)
 
 	httpServer := &http.Server{Addr: effListen, Handler: srv}
 	errCh := make(chan error, 1)
