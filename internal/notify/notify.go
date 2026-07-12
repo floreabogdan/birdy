@@ -93,6 +93,10 @@ func (a alert) title() string {
 		return "BIRD is unreachable"
 	case store.EventBirdReachable:
 		return "BIRD is reachable again"
+	case store.EventConfigDrift:
+		return "Config changed outside birdy"
+	case store.EventIRRRefresh:
+		return "Prefix set refreshed from IRR"
 	default:
 		return "birdy alert"
 	}
@@ -105,7 +109,7 @@ func (a alert) severity() string {
 		return "danger"
 	case store.EventSessionUp, store.EventBirdReachable:
 		return "good"
-	case store.EventFlap:
+	case store.EventFlap, store.EventConfigDrift:
 		return "warning"
 	default:
 		return "info"

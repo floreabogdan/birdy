@@ -39,6 +39,7 @@ func cmdServer(args []string) error {
 	metrics := fs.Bool("metrics", false, "expose an unauthenticated Prometheus /metrics endpoint (put it behind your own network controls)")
 	peeringDB := fs.Bool("peeringdb", false, "enable PeeringDB lookups on the peer form (dials out to peeringdb.com)")
 	bgpq4 := fs.String("bgpq4", "", "path to bgpq4 to enable IRR AS-SET expansion on prefix sets (empty disables; \"bgpq4\" uses PATH)")
+	driftInterval := fs.Duration("drift-check-interval", 30*time.Second, "how often to check whether bird.conf changed outside birdy, alerting if it did (0 disables)")
 	fs.Parse(args)
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -88,6 +89,10 @@ func cmdServer(args []string) error {
 		ApplyTimeout: *applyTimeout, Notifier: dispatcher, Metrics: *metrics, PeeringDB: *peeringDB,
 		Bgpq4Bin: *bgpq4,
 	})
+
+	// Alert if the config on disk changes out from under birdy (inert until birdy
+	// owns a config, so a read-only viewer never false-alarms).
+	go srv.WatchDrift(ctx, *driftInterval)
 
 	httpServer := &http.Server{Addr: effListen, Handler: srv}
 	errCh := make(chan error, 1)
