@@ -20,7 +20,10 @@
 			<div class="card">
 				<div class="card-header">
 					<span class="card-title">{{template "icon-peers"}}Configured peers</span>
-					<a class="btn btn-success" href="/peers/new">{{template "icon-plus"}}Add peer</a>
+					<div class="card-header-actions">
+						<a class="btn" href="/peers/seed" title="Create peers from the sessions BIRD is already running">{{template "icon-download"}}Import from BIRD</a>
+						<a class="btn btn-success" href="/peers/new">{{template "icon-plus"}}Add peer</a>
+					</div>
 				</div>
 				<p class="card-intro">
 					The BGP sessions birdy <strong>would configure</strong>. Nothing here is applied to the router yet &mdash;

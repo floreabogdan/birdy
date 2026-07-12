@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — import peers from BIRD</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Peers</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/peers">Peers</a><span class="sep">/</span><span class="current">Import from BIRD</span></div>
+			</div>
+
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">{{template "icon-peers"}}Import peers from the running router</span>
+					<a class="btn" href="/peers">Cancel</a>
+				</div>
+				<p class="card-intro">
+					These are the BGP sessions BIRD is running that birdy does not yet model. Importing one
+					creates an editable peer in birdy's model &mdash; it does <strong>not</strong> touch BIRD.
+					Nothing goes live until you review the generated config under <a href="/changes">Changes</a> and apply it.
+					birdy reads each session off the control socket; check the role, then fine-tune anything else on the
+					peer's edit form afterwards.
+				</p>
+
+				{{if .Message}}
+					<div class="empty" style="padding:2rem 1rem">{{.Message}}</div>
+				{{else}}
+				<form method="post" action="/peers/seed">
+					<div class="table-scroll">
+					<table>
+						<thead><tr>
+							<th style="width:2.2rem"></th>
+							<th>Name</th><th>AFI</th><th>Neighbor</th><th>Remote AS</th>
+							<th>Local address</th><th>Role</th><th>State</th><th>Notes</th>
+						</tr></thead>
+						<tbody>
+							{{range .Rows}}
+							<tr>
+								<td>
+									{{if .Invalid}}
+										<span title="{{.Invalid}}" class="text-muted">&mdash;</span>
+									{{else}}
+										<input type="checkbox" name="include" value="{{.Name}}" checked aria-label="Import {{.Name}}">
+									{{end}}
+								</td>
+								<td class="mono">{{.Name}}</td>
+								<td><span class="chip chip-primary">{{if .V6}}IPv6{{else}}IPv4{{end}}</span></td>
+								<td class="mono">{{.NeighborIP}}{{if .Multihop}}<div class="text-muted" style="font-size:0.75rem">multihop {{.Multihop}}</div>{{end}}</td>
+								<td><span class="chip">AS{{.RemoteASN}}</span></td>
+								<td class="mono">{{if .LocalIP}}{{.LocalIP}}{{else}}<span class="text-muted">auto</span>{{end}}</td>
+								<td>
+									{{if .Invalid}}
+										<span class="text-muted">&mdash;</span>
+									{{else}}
+									<select name="role_{{.Name}}" class="input-sm">
+										<option value="upstream" {{if eq .Role "upstream"}}selected{{end}}>upstream</option>
+										<option value="ix_peer" {{if eq .Role "ix_peer"}}selected{{end}}>IX peer</option>
+										<option value="customer" {{if eq .Role "customer"}}selected{{end}}>customer</option>
+										<option value="ibgp" {{if eq .Role "ibgp"}}selected{{end}}>iBGP</option>
+									</select>
+									{{end}}
+								</td>
+								<td>{{sessionBadge .Up .State}}</td>
+								<td class="text-muted" style="font-size:0.8rem">
+									{{if .Invalid}}<span class="badge badge-danger">can't import</span> {{.Invalid}}
+									{{else}}{{.Note}}{{end}}
+								</td>
+							</tr>
+							{{end}}
+						</tbody>
+					</table>
+					</div>
+					<div class="form-actions">
+						<button type="submit" class="btn btn-success" {{if not .Importable}}disabled{{end}}>
+							{{template "icon-plus"}}Import selected
+						</button>
+						<span class="text-muted">Roles are a starting guess &mdash; the community birdy stamps on a peer's routes depends on it, so check each one.</span>
+					</div>
+				</form>
+				{{end}}
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

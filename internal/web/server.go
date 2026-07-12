@@ -167,6 +167,10 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /peers", s.requireAuth(s.handlePeersList))
 	s.mux.Handle("GET /peers/new", s.requireAuth(s.handlePeerNew))
 	s.mux.Handle("POST /peers/new", s.requireAuth(s.handlePeerSave))
+	// Seed the model from the sessions BIRD is already running — the adoption
+	// warm start. Model-only, so it is allowed in read-only mode.
+	s.mux.Handle("GET /peers/seed", s.requireAuth(s.handleSeedPage))
+	s.mux.Handle("POST /peers/seed", s.requireAuth(s.handleSeedSave))
 	if s.peeringDB {
 		s.mux.Handle("GET /api/peeringdb/{asn}", s.requireAuth(s.handlePeeringDBLookup))
 	}
