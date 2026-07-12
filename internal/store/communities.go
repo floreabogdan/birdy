@@ -1,10 +1,148 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
 )
+
+// CommunityDef is a named BGP community in the library: define the value once,
+// give it a readable name, and reuse it. It renders to a BIRD `define`, so the
+// name is available as a symbol in the raw-config block and documents the
+// operator's community scheme in one place.
+type CommunityDef struct {
+	ID          int64
+	Name        string
+	Description string
+	Large       bool
+	A, B, C     int64
+	Builtin     bool
+}
+
+// Value is the underlying community tuple.
+func (cd CommunityDef) Value() Community {
+	return Community{Large: cd.Large, A: cd.A, B: cd.B, C: cd.C}
+}
+
+// Pattern renders the value the way BIRD writes it, e.g. "(65535, 666)".
+func (cd CommunityDef) Pattern() string { return cd.Value().BIRD() }
+
+// reservedSymbols are the define names birdy generates itself; a library
+// community must not shadow one, or the rendered config has two defines of the
+// same name.
+var reservedSymbols = map[string]bool{
+	"LOCAL_ASN": true, "FROM_UPSTREAM": true, "FROM_IX": true,
+	"FROM_CUSTOMER": true, "RPKI_INVALID": true,
+}
+
+// Validate checks the name and the community value, returning field-keyed errors.
+func (cd *CommunityDef) Validate() map[string]string {
+	name, errs := validateNameDesc(cd.Name, cd.Description)
+	cd.Name = name
+	if reservedSymbols[name] {
+		errs["name"] = name + " is a name birdy uses for a built-in define; pick another."
+	}
+
+	parts := []int64{cd.A, cd.B}
+	if cd.Large {
+		parts = append(parts, cd.C)
+		if bad := range32(parts); bad != "" {
+			errs["value"] = bad
+		}
+	} else {
+		cd.C = 0
+		if bad := range16(parts); bad != "" {
+			errs["value"] = bad
+		}
+	}
+	return errs
+}
+
+func (s *Store) ListCommunityDefs() ([]CommunityDef, error) {
+	rows, err := s.db.Query(`SELECT id, name, description, large, a, b, c, builtin FROM communities ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("store: list communities: %w", err)
+	}
+	defer rows.Close()
+	var out []CommunityDef
+	for rows.Next() {
+		var cd CommunityDef
+		if err := rows.Scan(&cd.ID, &cd.Name, &cd.Description, &cd.Large, &cd.A, &cd.B, &cd.C, &cd.Builtin); err != nil {
+			return nil, err
+		}
+		out = append(out, cd)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) GetCommunityDef(id int64) (CommunityDef, error) {
+	var cd CommunityDef
+	row := s.db.QueryRow(`SELECT id, name, description, large, a, b, c, builtin FROM communities WHERE id = ?`, id)
+	if err := row.Scan(&cd.ID, &cd.Name, &cd.Description, &cd.Large, &cd.A, &cd.B, &cd.C, &cd.Builtin); err != nil {
+		if err == sql.ErrNoRows {
+			return CommunityDef{}, ErrNotFound
+		}
+		return CommunityDef{}, fmt.Errorf("store: get community: %w", err)
+	}
+	return cd, nil
+}
+
+func (s *Store) GetCommunityDefByName(name string) (CommunityDef, error) {
+	var id int64
+	if err := s.db.QueryRow(`SELECT id FROM communities WHERE name = ?`, name).Scan(&id); err != nil {
+		if err == sql.ErrNoRows {
+			return CommunityDef{}, ErrNotFound
+		}
+		return CommunityDef{}, fmt.Errorf("store: get community by name: %w", err)
+	}
+	return s.GetCommunityDef(id)
+}
+
+func (s *Store) CreateCommunityDef(cd CommunityDef) (int64, error) {
+	ts := now()
+	res, err := s.db.Exec(`INSERT INTO communities (name, description, large, a, b, c, builtin, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`, cd.Name, cd.Description, cd.Large, cd.A, cd.B, cd.C, ts, ts)
+	if err != nil {
+		return 0, fmt.Errorf("store: create community: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) UpdateCommunityDef(cd CommunityDef) error {
+	res, err := s.db.Exec(`UPDATE communities SET name = ?, description = ?, large = ?, a = ?, b = ?, c = ?, updated_at = ?
+		WHERE id = ?`, cd.Name, cd.Description, cd.Large, cd.A, cd.B, cd.C, now(), cd.ID)
+	if err != nil {
+		return fmt.Errorf("store: update community: %w", err)
+	}
+	return affectedOne(res)
+}
+
+func (s *Store) DeleteCommunityDef(id int64) error {
+	res, err := s.db.Exec(`DELETE FROM communities WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("store: delete community: %w", err)
+	}
+	return affectedOne(res)
+}
+
+// seedCommunities plants the near-universal well-known communities as builtin
+// rows, idempotently (INSERT OR IGNORE keys on the unique name), so a fresh
+// library is not empty and the feature is discoverable.
+func seedCommunities(tx *sql.Tx) error {
+	defs := []CommunityDef{
+		{Name: "BLACKHOLE", Description: "RFC 7999 — ask the neighbor to blackhole this prefix", A: 65535, B: 666},
+		{Name: "GRACEFUL_SHUTDOWN", Description: "RFC 8326 — deprefer routes during maintenance", A: 65535, B: 0},
+	}
+	ts := now()
+	for _, d := range defs {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO communities (name, description, large, a, b, c, builtin, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`, d.Name, d.Description, d.Large, d.A, d.B, d.C, ts, ts); err != nil {
+			return fmt.Errorf("seed communities: %w", err)
+		}
+	}
+	return nil
+}
 
 // A Community is a BGP community birdy attaches to routes. Standard communities
 // are two 16-bit values (ASN:value); large communities are three 32-bit values

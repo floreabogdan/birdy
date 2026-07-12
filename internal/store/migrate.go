@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 22
+const schemaVersion = 23
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -297,6 +297,14 @@ func migrate(db *sql.DB) error {
 		// The audit trail: an event can now record the operator who caused it (a
 		// config apply, a model edit). System/BIRD events leave it empty.
 		if err := ensureColumn(tx, "events", "actor", `ALTER TABLE events ADD COLUMN actor TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 23 {
+		// The named-communities library. Seed the well-known ones so it is not
+		// empty on an existing database.
+		if err := seedCommunities(tx); err != nil {
 			return err
 		}
 	}

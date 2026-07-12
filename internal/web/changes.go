@@ -170,6 +170,10 @@ func (s *Server) renderInput(mask bool) (birdconf.Input, string, error) {
 	if err != nil {
 		return birdconf.Input{}, "", err
 	}
+	communities, err := s.store.ListCommunityDefs()
+	if err != nil {
+		return birdconf.Input{}, "", err
+	}
 
 	in := birdconf.Input{
 		RouterID:     settings.RouterID,
@@ -182,6 +186,7 @@ func (s *Server) renderInput(mask bool) (birdconf.Input, string, error) {
 		BogonASNs:    bogonASNs,
 		StaticRoutes: statics,
 		BMPStations:  bmpStations,
+		Communities:  communities,
 		RRClusterID:  settings.RRClusterID,
 		RawConfig:    settings.RawConfig,
 		Version:      buildinfo.Version,

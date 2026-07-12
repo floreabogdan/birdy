@@ -1,0 +1,63 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — communities</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Communities</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">Library</span></div>
+			</div>
+
+			{{template "library-nav" "communities"}}
+
+			{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">{{template "icon-library"}}Named communities</span>
+					<a class="btn btn-success" href="/library/communities/new">{{template "icon-plus"}}Add community</a>
+				</div>
+				<p class="card-intro">
+					Define a BGP community once, give it a name, and reuse it. Each renders to a BIRD
+					<code class="mono">define</code>, so the name documents your community scheme in one place and is usable
+					by name in the raw-config block.
+				</p>
+				<div class="table-scroll">
+				<table>
+					<thead><tr><th>Name</th><th>Value</th><th>Kind</th><th>Description</th><th class="num">Actions</th></tr></thead>
+					<tbody data-search-target>
+						{{range .Defs}}
+						<tr>
+							<td class="mono">
+								<a href="/library/communities/{{.Name}}/edit">{{.Name}}</a>
+								{{if .Builtin}}<span class="badge">built-in</span>{{end}}
+							</td>
+							<td class="mono">{{.Pattern}}</td>
+							<td>{{if .Large}}<span class="chip chip-primary">large</span>{{else}}<span class="chip">standard</span>{{end}}</td>
+							<td class="text-muted" style="font-size:0.8125rem">{{.Description}}</td>
+							<td class="row-actions">
+								<a class="icon-action a-primary" href="/library/communities/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
+								<form method="post" action="/library/communities/{{.Name}}/delete" onsubmit="return confirm('Delete community {{.Name}}?')">
+									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
+								</form>
+							</td>
+						</tr>
+						{{else}}
+						<tr><td colspan="5" class="empty">No communities yet. <a href="/library/communities/new">Add one</a>.</td></tr>
+						{{end}}
+					</tbody>
+				</table>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — {{if .IsNew}}new community{{else}}{{.Def.Name}}{{end}}</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">{{if .IsNew}}New community{{else}}Edit community{{end}}</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/library/communities">Library</a><span class="sep">/</span><span class="current mono">{{if .IsNew}}new{{else}}{{.Def.Name}}{{end}}</span></div>
+			</div>
+
+			<form method="post" action="{{if .IsNew}}/library/communities/new{{else}}/library/communities/{{.Def.Name}}/edit{{end}}">
+			<div class="card" style="max-width:38rem">
+				<div class="card-body">
+					{{if .Def.Builtin}}<p class="card-intro">This community ships with birdy. Your edits are kept.</p>{{end}}
+					<div class="field">
+						<label for="name">Name</label>
+						<input type="text" id="name" name="name" class="mono" value="{{.Def.Name}}" autocomplete="off" required>
+						<div class="hint">Becomes a BIRD <code class="mono">define</code>. Convention is upper case, e.g. BLACKHOLE or LEARNT_FROM_TRANSIT.</div>
+						{{with index .Errs "name"}}<div class="field-error">{{.}}</div>{{end}}
+					</div>
+					<div class="field">
+						<label for="value">Value</label>
+						<input type="text" id="value" name="value" class="mono" value="{{.Value}}" placeholder="65000:666 or 65551:1:2" autocomplete="off" required>
+						<div class="hint">
+							A standard community is <code class="mono">ASN:value</code> (two 16-bit parts); a large community
+							(RFC 8092) is <code class="mono">ASN:x:y</code> (three 32-bit parts), which a 32-bit ASN needs.
+						</div>
+						{{with index .Errs "value"}}<div class="field-error">{{.}}</div>{{end}}
+					</div>
+					<div class="field">
+						<label for="description">Description</label>
+						<input type="text" id="description" name="description" value="{{.Def.Description}}" autocomplete="off">
+						{{with index .Errs "description"}}<div class="field-error">{{.}}</div>{{end}}
+					</div>
+					{{if .Preview}}
+					<div class="field">
+						<label>Renders as</label>
+						<pre class="code-block">{{.Preview}}</pre>
+					</div>
+					{{end}}
+				</div>
+			</div>
+			<div class="form-actions">
+				{{if .IsNew}}<button type="submit" class="btn btn-success">{{template "icon-plus"}}Create community</button>{{else}}<button type="submit" class="btn btn-primary">Save changes</button>{{end}}
+				<a class="btn" href="/library/communities">Cancel</a>
+			</div>
+			</form>
+		</div>
+	</div>
+</div>
+</body>
+</html>

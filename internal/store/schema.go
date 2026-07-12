@@ -148,6 +148,23 @@ CREATE TABLE IF NOT EXISTS prefix_sets (
 	updated_at  TEXT NOT NULL
 );
 
+-- Named BGP communities: define a value once, name it, reuse it. Each renders to
+-- a BIRD define, so the name documents the operator's community scheme in one
+-- place and is available as a symbol in the raw-config block.
+CREATE TABLE IF NOT EXISTS communities (
+	id          INTEGER PRIMARY KEY AUTOINCREMENT,
+	name        TEXT NOT NULL UNIQUE,
+	description TEXT NOT NULL DEFAULT '',
+	-- large communities (RFC 8092) are three 32-bit values; standard are two 16-bit.
+	large       INTEGER NOT NULL DEFAULT 0,
+	a           INTEGER NOT NULL,
+	b           INTEGER NOT NULL,
+	c           INTEGER NOT NULL DEFAULT 0,
+	builtin     INTEGER NOT NULL DEFAULT 0,
+	created_at  TEXT NOT NULL,
+	updated_at  TEXT NOT NULL
+);
+
 -- A named list of AS numbers, used to decide which origins a peer may announce.
 --
 -- This is where an IRR AS-SET lands. BIRD has no concept of an AS-SET: the

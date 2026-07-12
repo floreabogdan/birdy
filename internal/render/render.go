@@ -64,12 +64,15 @@ var bgpRoleName = map[string]string{
 // bird.conf: the router identity, the peers, the library (sets, policies), RPKI
 // and BMP config, and rendering options like secret masking.
 type Input struct {
-	RouterID    string
-	LocalASN    int64
-	PrefixSets  []store.PrefixSet
-	ASSets      []store.ASSet
-	Policies    []store.Policy
-	Peers       []store.Peer
+	RouterID   string
+	LocalASN   int64
+	PrefixSets []store.PrefixSet
+	ASSets     []store.ASSet
+	Policies   []store.Policy
+	Peers      []store.Peer
+	// Communities are named community definitions from the library; each renders
+	// to a BIRD `define`, available as a symbol in the raw block.
+	Communities []store.CommunityDef
 	RPKIServers []store.RPKIServer
 	// BMPStations are RFC 7854 monitoring collectors BIRD streams session state
 	// to. Rendered as standalone protocols; they reference nothing else birdy
@@ -211,7 +214,7 @@ func Sections(in Input) ([]Section, error) {
 
 	add("header", "Header", func(b *strings.Builder) error { writeHeader(b, in); return nil })
 	add("globals", "Router identity & logging", func(b *strings.Builder) error { writeGlobals(b, in); return nil })
-	add("communities", "Origin communities", func(b *strings.Builder) error { writeCommunities(b, in.LocalASN); return nil })
+	add("communities", "Communities", func(b *strings.Builder) error { writeCommunities(b, in); return nil })
 	add("sets/prefixes", "Prefix sets", func(b *strings.Builder) error { writeSets(b, sets); return nil })
 	add("sets/as", "AS sets", func(b *strings.Builder) error { writeASSets(b, asSets); return nil })
 	add("bogons/asns", "Bogon AS numbers", func(b *strings.Builder) error { writeBogonASNs(b, bogons); return nil })
@@ -277,7 +280,8 @@ func writeGlobals(b *strings.Builder, in Input) {
 	fmt.Fprintf(b, "log syslog all;\nrouter id %s;\n\ndefine LOCAL_ASN = %d;\n\n", in.RouterID, in.LocalASN)
 }
 
-func writeCommunities(b *strings.Builder, localASN int64) {
+func writeCommunities(b *strings.Builder, in Input) {
+	localASN := in.LocalASN
 	fmt.Fprintf(b, `# Where a route came from, stamped on import and read on export. Large
 # communities because a 32-bit ASN does not fit in half of a standard one.
 define FROM_UPSTREAM = (%d, 1, %d);
@@ -289,6 +293,29 @@ define FROM_CUSTOMER = (%d, 1, %d);
 define RPKI_INVALID  = (%d, 2, 1);
 
 `, localASN, tagUpstream, localASN, tagIX, localASN, tagCustomer, localASN)
+
+	// Named communities from the library. Defined once here, usable by name in
+	// the raw-config block, and a single documented home for the operator's scheme.
+	defs := slices.Clone(in.Communities)
+	if len(defs) == 0 {
+		return
+	}
+	slices.SortFunc(defs, func(a, c store.CommunityDef) int { return strings.Compare(a.Name, c.Name) })
+	width := 0
+	for _, d := range defs {
+		if len(d.Name) > width {
+			width = len(d.Name)
+		}
+	}
+	b.WriteString("# Named communities from the library.\n")
+	for _, d := range defs {
+		fmt.Fprintf(b, "define %-*s = %s;", width, d.Name, d.Value().BIRD())
+		if d.Description != "" {
+			fmt.Fprintf(b, "\t# %s", d.Description)
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteByte('\n')
 }
 
 func writeSets(b *strings.Builder, sets []store.PrefixSet) {
