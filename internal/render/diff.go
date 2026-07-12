@@ -158,14 +158,6 @@ func buildHunk(seg []edit) Hunk {
 			h.NewCount++
 		}
 	}
-	// A hunk that is pure insertion has no old line to anchor to, and vice
-	// versa; unified diff writes the position it would be inserted after.
-	if h.OldStart == 0 && h.OldCount == 0 {
-		h.OldStart = 0
-	}
-	if h.NewStart == 0 && h.NewCount == 0 {
-		h.NewStart = 0
-	}
 	return h
 }
 

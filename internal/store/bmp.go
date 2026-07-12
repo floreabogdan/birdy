@@ -42,15 +42,8 @@ func (b BMPStation) IsIP() bool {
 }
 
 func (b *BMPStation) Validate() map[string]string {
-	errs := map[string]string{}
-
-	b.Name = strings.TrimSpace(b.Name)
-	if !birdIdent.MatchString(b.Name) {
-		errs["name"] = "Use letters, digits and underscore, starting with a letter or underscore (max 63)."
-	}
-	if strings.ContainsAny(b.Description, "\"\n\r") {
-		errs["description"] = "Quotes and line breaks are not allowed."
-	}
+	var errs map[string]string
+	b.Name, errs = validateNameDesc(b.Name, b.Description)
 
 	b.Address = strings.TrimSpace(b.Address)
 	switch {

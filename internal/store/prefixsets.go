@@ -74,15 +74,9 @@ type PrefixEntry struct {
 func (e PrefixEntry) Pattern() string { return e.Prefix + e.Modifier }
 
 func (ps *PrefixSet) Validate() map[string]string {
-	errs := map[string]string{}
+	var errs map[string]string
+	ps.Name, errs = validateNameDesc(ps.Name, ps.Description)
 
-	ps.Name = strings.TrimSpace(ps.Name)
-	if !birdIdent.MatchString(ps.Name) {
-		errs["name"] = "Use letters, digits and underscore, starting with a letter or underscore (max 63)."
-	}
-	if strings.ContainsAny(ps.Description, "\"\n\r") {
-		errs["description"] = "Quotes and line breaks are not allowed."
-	}
 	if ps.Family != FamilyV4 && ps.Family != FamilyV6 {
 		errs["family"] = "Choose IPv4 or IPv6."
 	}
@@ -389,11 +383,7 @@ func (s *Store) DeletePrefixSet(id int64) error {
 		return err
 	}
 	if uses > 0 {
-		noun := "policies"
-		if uses == 1 {
-			noun = "policy"
-		}
-		return fmt.Errorf("store: prefix set is used by %d %s", uses, noun)
+		return fmt.Errorf("store: prefix set is used by %d %s", uses, pluralize(uses, "policy", "policies"))
 	}
 	res, err := s.db.Exec(`DELETE FROM prefix_sets WHERE id = ?`, id)
 	if err != nil {

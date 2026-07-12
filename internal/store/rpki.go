@@ -47,15 +47,8 @@ func (s RPKIServer) IsIP() bool {
 }
 
 func (s *RPKIServer) Validate() map[string]string {
-	errs := map[string]string{}
-
-	s.Name = strings.TrimSpace(s.Name)
-	if !birdIdent.MatchString(s.Name) {
-		errs["name"] = "Use letters, digits and underscore, starting with a letter or underscore (max 63)."
-	}
-	if strings.ContainsAny(s.Description, "\"\n\r") {
-		errs["description"] = "Quotes and line breaks are not allowed."
-	}
+	var errs map[string]string
+	s.Name, errs = validateNameDesc(s.Name, s.Description)
 
 	s.Host = strings.TrimSpace(s.Host)
 	switch {

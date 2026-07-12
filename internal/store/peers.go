@@ -45,6 +45,23 @@ var gracefulRestartModes = map[string]bool{GROff: true, GRAware: true, GROn: tru
 // not a plain BIRD symbol is rejected at the model boundary, not escaped.
 var birdIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 
+// validateNameDesc checks the name (a BIRD identifier interpolated into the
+// config) and description shared by every named model object, returning the
+// trimmed name and a fresh error map keyed "name"/"description". Each Validate
+// adds its type-specific checks to the returned map, so the wording of these two
+// cannot drift between forms.
+func validateNameDesc(name, description string) (string, map[string]string) {
+	errs := map[string]string{}
+	name = strings.TrimSpace(name)
+	if !birdIdent.MatchString(name) {
+		errs["name"] = "Use letters, digits and underscore, starting with a letter or underscore (max 63)."
+	}
+	if strings.ContainsAny(description, "\"\n\r") {
+		errs["description"] = "Quotes and line breaks are not allowed."
+	}
+	return name, errs
+}
+
 // ErrNotFound is returned by the Get/Update/Delete helpers.
 var ErrNotFound = errors.New("store: not found")
 
@@ -136,15 +153,9 @@ func (p Peer) IsIBGP() bool { return p.Role == RoleIBGP }
 // Validate checks everything the renderer will trust. It returns a map keyed by
 // form field so the UI can mark the offending input.
 func (p *Peer) Validate() map[string]string {
-	errs := map[string]string{}
+	var errs map[string]string
+	p.Name, errs = validateNameDesc(p.Name, p.Description)
 
-	p.Name = strings.TrimSpace(p.Name)
-	if !birdIdent.MatchString(p.Name) {
-		errs["name"] = "Use letters, digits and underscore, starting with a letter or underscore (max 63)."
-	}
-	if strings.ContainsAny(p.Description, "\"\n\r") {
-		errs["description"] = "Quotes and line breaks are not allowed."
-	}
 	if !peerRoles[p.Role] {
 		errs["role"] = "Choose a role: upstream, IX peer, customer or iBGP."
 	}
@@ -225,13 +236,16 @@ func (p *Peer) Validate() map[string]string {
 	return errs
 }
 
+// peerCols is the column list for a peer row, in the order scanPeer expects.
+// Kept in one place because it is read by three queries and must stay aligned
+// with the scan, INSERT and UPDATE — the widest such surface in the store.
+const peerCols = `id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
+	multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
+	origin_peer_only, next_hop_self, rr_client,
+	prepend_count, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart`
+
 func (s *Store) ListPeers() ([]Peer, error) {
-	rows, err := s.db.Query(`
-		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
-		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
-		       origin_peer_only, next_hop_self, rr_client,
-		       prepend_count, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart
-		FROM peers ORDER BY name`)
+	rows, err := s.db.Query(`SELECT ` + peerCols + ` FROM peers ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list peers: %w", err)
 	}
@@ -248,12 +262,7 @@ func (s *Store) ListPeers() ([]Peer, error) {
 }
 
 func (s *Store) GetPeer(id int64) (Peer, error) {
-	row := s.db.QueryRow(`
-		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
-		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
-		       origin_peer_only, next_hop_self, rr_client,
-		       prepend_count, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart
-		FROM peers WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT `+peerCols+` FROM peers WHERE id = ?`, id)
 	p, err := scanPeer(row)
 	if err == sql.ErrNoRows {
 		return Peer{}, ErrNotFound
@@ -265,12 +274,7 @@ func (s *Store) GetPeer(id int64) (Peer, error) {
 // by name throughout the UI: the name is unique, stable and already the thing
 // the operator recognises from BIRD's own output.
 func (s *Store) GetPeerByName(name string) (Peer, error) {
-	row := s.db.QueryRow(`
-		SELECT id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
-		       multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
-		       origin_peer_only, next_hop_self, rr_client,
-		       prepend_count, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart
-		FROM peers WHERE name = ?`, name)
+	row := s.db.QueryRow(`SELECT `+peerCols+` FROM peers WHERE name = ?`, name)
 	p, err := scanPeer(row)
 	if err == sql.ErrNoRows {
 		return Peer{}, ErrNotFound

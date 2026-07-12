@@ -100,14 +100,8 @@ func FormatASNRanges(list []ASNRange) string {
 }
 
 func (as *ASSet) Validate() map[string]string {
-	errs := map[string]string{}
-	as.Name = strings.TrimSpace(as.Name)
-	if !birdIdent.MatchString(as.Name) {
-		errs["name"] = "Use letters, digits and underscore, starting with a letter or underscore (max 63)."
-	}
-	if strings.ContainsAny(as.Description, "\"\n\r") {
-		errs["description"] = "Quotes and line breaks are not allowed."
-	}
+	var errs map[string]string
+	as.Name, errs = validateNameDesc(as.Name, as.Description)
 	if strings.ContainsAny(as.Source, "\"\n\r") {
 		errs["source"] = "Quotes and line breaks are not allowed."
 	}
@@ -248,11 +242,7 @@ func (s *Store) DeleteASSet(id int64) error {
 		return err
 	}
 	if uses > 0 {
-		noun := "policies"
-		if uses == 1 {
-			noun = "policy"
-		}
-		return fmt.Errorf("store: AS set is used by %d %s", uses, noun)
+		return fmt.Errorf("store: AS set is used by %d %s", uses, pluralize(uses, "policy", "policies"))
 	}
 	res, err := s.db.Exec(`DELETE FROM as_sets WHERE id = ?`, id)
 	if err != nil {

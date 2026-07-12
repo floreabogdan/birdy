@@ -82,15 +82,9 @@ type Policy struct {
 func (p Policy) IsImport() bool { return p.Direction == DirImport }
 
 func (p *Policy) Validate() map[string]string {
-	errs := map[string]string{}
+	var errs map[string]string
+	p.Name, errs = validateNameDesc(p.Name, p.Description)
 
-	p.Name = strings.TrimSpace(p.Name)
-	if !birdIdent.MatchString(p.Name) {
-		errs["name"] = "Use letters, digits and underscore, starting with a letter or underscore (max 63)."
-	}
-	if strings.ContainsAny(p.Description, "\"\n\r") {
-		errs["description"] = "Quotes and line breaks are not allowed."
-	}
 	if p.Direction != DirImport && p.Direction != DirExport {
 		errs["direction"] = "Choose import or export."
 		return errs

@@ -11,13 +11,16 @@ import (
 // are shared with an originated prefix set's anchor route.
 const StaticVia = "via"
 
-func staticActions() map[string]bool {
+// staticActions is the set of valid static-route actions: via plus the
+// anchor-route verbs (blackhole/unreachable/prohibit) shared with an originated
+// prefix set. Built once, like every other allowed-value set in the package.
+var staticActions = func() map[string]bool {
 	m := map[string]bool{StaticVia: true}
 	for a := range originateActions {
 		m[a] = true
 	}
 	return m
-}
+}()
 
 // A StaticRoute is reachability that no protocol discovers on its own.
 //
@@ -58,7 +61,7 @@ func (r *StaticRoute) Validate() map[string]string {
 	if strings.ContainsAny(r.Description, "\n\r") {
 		errs["description"] = "Line breaks are not allowed."
 	}
-	if !staticActions()[r.Action] {
+	if !staticActions[r.Action] {
 		errs["action"] = "Choose via, blackhole, unreachable or prohibit."
 	}
 

@@ -52,3 +52,12 @@ func (s *Store) VacuumInto(path string) error {
 func now() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
 }
+
+// pluralize returns one when n == 1, else many — for "used by 1 policy" vs
+// "used by 3 policies" style messages.
+func pluralize(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
