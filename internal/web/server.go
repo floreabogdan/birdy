@@ -64,6 +64,7 @@ type Server struct {
 	metrics   bool
 	peeringDB bool
 	bgpq4Bin  string // non-empty enables IRR expansion via bgpq4
+	netdiag   bool   // enables ping/traceroute reachability diagnostics
 
 	// applyMu serialises everything that touches bird.conf and the pending-apply
 	// record. HTTP handlers run concurrently, and two applies at once could both
@@ -101,6 +102,7 @@ type Config struct {
 	Metrics       bool
 	PeeringDB     bool
 	Bgpq4Bin      string
+	NetDiag       bool
 }
 
 // New builds a Server from cfg, applying defaults for any unset paths and
@@ -141,6 +143,7 @@ func New(cfg Config) *Server {
 		metrics:       cfg.Metrics,
 		peeringDB:     cfg.PeeringDB,
 		bgpq4Bin:      cfg.Bgpq4Bin,
+		netdiag:       cfg.NetDiag,
 		login:         newLoginLimiter(),
 		mux:           http.NewServeMux(),
 	}
@@ -270,6 +273,7 @@ func (s *Server) routes() {
 
 	s.mux.Handle("GET /timeline", s.requireAuth(s.handleTimeline))
 	s.mux.Handle("GET /lg", s.requireAuth(s.handleLookingGlass))
+	s.mux.Handle("GET /diagnostics", s.requireAuth(s.handleDiagnostics))
 	s.mux.Handle("GET /settings", s.requireAuth(s.handleSettingsPage))
 	s.mux.Handle("POST /settings/identity", s.requireAuth(s.handleSettingsIdentity))
 	s.mux.Handle("POST /settings/bogons", s.requireAuth(s.handleSettingsBogons))

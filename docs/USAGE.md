@@ -294,6 +294,7 @@ Runs the web UI and the background poller.
 | `--metrics` | `false` | Expose an **unauthenticated** Prometheus `/metrics` endpoint. Put it behind your own network controls. |
 | `--peeringdb` | `false` | Enable PeeringDB lookups on the peer form (dials out to peeringdb.com). |
 | `--bgpq4` | *(empty)* | Path to `bgpq4` to enable IRR `AS-SET` expansion on prefix sets. Empty disables it; `bgpq4` uses `PATH`. |
+| `--netdiag` | `false` | Enable the **Diagnostics** page: ping/traceroute from the router. Runs external tools, so it is opt-in; a read-only operation, safe in read-only mode. |
 | `--drift-check-interval` | `30s` | How often to check whether `bird.conf` changed outside birdy, alerting if it did (`0` disables). Inert until birdy owns a config. |
 | `--sample-interval` | `1m` | How often to record a per-session route-count point for the dashboard history sparklines (`0` disables). |
 | `--sample-retain` | `168h` | How long to keep route-count history samples. |
