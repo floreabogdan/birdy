@@ -195,6 +195,88 @@ func ParseCommunities(text string) ([]Community, []string) {
 	return out, errs
 }
 
+// A CommunityRef is one entry in a peer-export or policy-match field: either a
+// literal community value, or a reference to a named community in the library
+// (rendered as the define symbol, so the config reads by name).
+type CommunityRef struct {
+	Name  string    // non-empty for a named reference
+	Value Community // the literal, when Name is empty
+}
+
+// parseCommunityRef reads one token. A BIRD identifier (letter-led) is a named
+// reference; a digit-led token is a literal community.
+func parseCommunityRef(tok string) (CommunityRef, string) {
+	tok = strings.TrimSpace(tok)
+	if birdIdent.MatchString(tok) {
+		return CommunityRef{Name: tok}, ""
+	}
+	c, msg := parseCommunity(tok)
+	if msg != "" {
+		return CommunityRef{}, msg
+	}
+	return CommunityRef{Value: c}, ""
+}
+
+// ParseCommunityRefs reads a textarea of community references — names and/or
+// literals, one per line or comma-separated, blank lines and # comments ignored.
+func ParseCommunityRefs(text string) ([]CommunityRef, []string) {
+	var out []CommunityRef
+	var errs []string
+	line := 0
+	for raw := range strings.Lines(text) {
+		line++
+		s := strings.TrimSpace(raw)
+		if i := strings.IndexByte(s, '#'); i >= 0 {
+			s = strings.TrimSpace(s[:i])
+		}
+		if s == "" {
+			continue
+		}
+		for _, tok := range strings.Split(s, ",") {
+			if strings.TrimSpace(tok) == "" {
+				continue
+			}
+			ref, msg := parseCommunityRef(tok)
+			if msg != "" {
+				errs = append(errs, fmt.Sprintf("Line %d: %s", line, msg))
+				continue
+			}
+			out = append(out, ref)
+		}
+	}
+	return out, errs
+}
+
+// ParseMatchCommunityRef parses a single policy-match community reference (a name
+// or a literal). Empty is a valid "no match".
+func ParseMatchCommunityRef(text string) (ref CommunityRef, set bool, errMsg string) {
+	text = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(text), ","))
+	if text == "" {
+		return CommunityRef{}, false, ""
+	}
+	if strings.ContainsAny(text, ",\n") {
+		return CommunityRef{}, false, "Enter a single community or name, e.g. 65000:666 or BLACKHOLE."
+	}
+	ref, msg := parseCommunityRef(text)
+	if msg != "" {
+		return CommunityRef{}, false, msg
+	}
+	return ref, true, ""
+}
+
+// NamedCommunityRefs returns the names referenced in a community-refs textarea,
+// for existence and usage checks.
+func NamedCommunityRefs(text string) []string {
+	refs, _ := ParseCommunityRefs(text)
+	var names []string
+	for _, r := range refs {
+		if r.Name != "" {
+			names = append(names, r.Name)
+		}
+	}
+	return names
+}
+
 // ParseMatchCommunity parses a single community for a policy match. Empty is a
 // valid "no match"; anything else must be exactly one community.
 func ParseMatchCommunity(text string) (c Community, set bool, errMsg string) {

@@ -54,6 +54,38 @@ func TestCommunityLarge(t *testing.T) {
 	}
 }
 
+// A peer referencing an undefined community by name is rejected at save; one
+// referencing a defined community saves and blocks the community's deletion.
+func TestCommunityReferenceGuards(t *testing.T) {
+	env := applyReady(t)
+
+	// Unknown name: the peer save is rejected and says why.
+	f := peerForm()
+	f.Set("name", "edge_v4")
+	f.Set("neighborIp", "198.51.100.1")
+	f.Set("remoteAsn", "64500")
+	f.Set("exportCommunities", "DOES_NOT_EXIST")
+	rec := env.do(t, "POST", "/peers/new", f)
+	if rec.Code == 303 {
+		t.Error("a peer referencing an undefined community must not save")
+	}
+	if !strings.Contains(rec.Body.String(), "Unknown community") {
+		t.Error("the error should name the unknown community")
+	}
+
+	// Define it, then the same peer saves.
+	env.do(t, "POST", "/library/communities/new", url.Values{"name": {"DOES_NOT_EXIST"}, "value": {"65000:1"}})
+	if rec := env.do(t, "POST", "/peers/new", f); rec.Code != 303 {
+		t.Fatalf("peer should save once the community exists: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// Now the community cannot be deleted while the peer references it.
+	env.do(t, "POST", "/library/communities/DOES_NOT_EXIST/delete", nil)
+	if _, err := env.store.GetCommunityDefByName("DOES_NOT_EXIST"); err != nil {
+		t.Error("a referenced community must not be deletable")
+	}
+}
+
 // A reserved name and a malformed value are rejected without creating anything.
 func TestCommunityValidation(t *testing.T) {
 	env := applyReady(t)

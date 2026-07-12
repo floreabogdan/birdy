@@ -619,7 +619,7 @@ func writePolicy(b *strings.Builder, in Input, pol store.Policy, sets map[int64]
 		if pol.IsImport() {
 			err = writeImportBody(b, in, pol, fam, sets, asSets)
 		} else {
-			err = writeExportBody(b, pol, fam, sets)
+			err = writeExportBody(b, in, pol, fam, sets)
 		}
 		if err != nil {
 			return err
@@ -706,8 +706,9 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 	}
 	// An import policy rejects routes carrying the matched community — a blocklist
 	// signal, e.g. a peer or customer tagging routes you agreed not to accept.
-	if c, ok, _ := store.ParseMatchCommunity(pol.MatchCommunity); ok {
-		fmt.Fprintf(b, "\tif %s ~ %s then reject \"matched community %s\";\n", c.BIRD(), communityVar(c), pol.MatchCommunity)
+	if ref, ok, _ := store.ParseMatchCommunityRef(pol.MatchCommunity); ok {
+		attr, expr := communityRefExpr(ref, in.communityByName())
+		fmt.Fprintf(b, "\tif %s ~ %s then reject \"matched community %s\";\n", expr, attr, pol.MatchCommunity)
 	}
 	if pol.AcceptOnlySetID.Valid {
 		name := sets[pol.AcceptOnlySetID.Int64].Name
@@ -757,7 +758,7 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 
 // writeExportBody emits only accepts (plus an optional bogon veto). Falling off
 // the end means "not permitted by this policy"; the caller rejects.
-func writeExportBody(b *strings.Builder, pol store.Policy, fam family, sets map[int64]store.PrefixSet) error {
+func writeExportBody(b *strings.Builder, in Input, pol store.Policy, fam family, sets map[int64]store.PrefixSet) error {
 	if pol.RejectBogonPrefixes {
 		fmt.Fprintf(b, "\tif net ~ %s then reject \"bogon prefix\";\n", fam.bogonSet)
 	}
@@ -796,8 +797,9 @@ func writeExportBody(b *strings.Builder, pol store.Policy, fam family, sets map[
 	}
 	// An export policy accepts routes carrying the matched community — how a
 	// customer signals "announce this one" with a community you publish.
-	if c, ok, _ := store.ParseMatchCommunity(pol.MatchCommunity); ok {
-		fmt.Fprintf(b, "\tif %s ~ %s then accept;\n", c.BIRD(), communityVar(c))
+	if ref, ok, _ := store.ParseMatchCommunityRef(pol.MatchCommunity); ok {
+		attr, expr := communityRefExpr(ref, in.communityByName())
+		fmt.Fprintf(b, "\tif %s ~ %s then accept;\n", expr, attr)
 	}
 	return nil
 }
@@ -808,6 +810,32 @@ func communityVar(c store.Community) string {
 		return "bgp_large_community"
 	}
 	return "bgp_community"
+}
+
+// communityByName indexes the library's communities for name resolution.
+func (in Input) communityByName() map[string]store.CommunityDef {
+	m := make(map[string]store.CommunityDef, len(in.Communities))
+	for _, cd := range in.Communities {
+		m[cd.Name] = cd
+	}
+	return m
+}
+
+// communityRefExpr resolves one community reference to the BIRD attribute it
+// lives in and the expression to use — a named reference renders as the define
+// symbol (so the config reads by name), a literal as the tuple. A name that
+// resolves to nothing defaults to the standard attribute; the apply pre-flight
+// (bird -p) catches a symbol that is not defined, and referenced communities
+// cannot be deleted.
+func communityRefExpr(ref store.CommunityRef, comms map[string]store.CommunityDef) (attr, expr string) {
+	if ref.Name != "" {
+		attr = "bgp_community"
+		if def, ok := comms[ref.Name]; ok && def.Large {
+			attr = "bgp_large_community"
+		}
+		return attr, ref.Name
+	}
+	return communityVar(ref.Value), ref.Value.BIRD()
 }
 
 func familyOf(ps store.PrefixSet) string {
@@ -829,7 +857,7 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 	if !p.IsIBGP() {
 		writePeerImportFilter(b, in, p, fam)
 		if hasExport {
-			writePeerExportFilter(b, p, fam)
+			writePeerExportFilter(b, in, p, fam)
 		}
 	} else if hasImport || hasExport {
 		return fmt.Errorf("iBGP sessions do not take policies yet")
@@ -961,7 +989,7 @@ func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 	b.WriteString("\taccept;\n}\n\n")
 }
 
-func writePeerExportFilter(b *strings.Builder, p store.Peer, fam family) {
+func writePeerExportFilter(b *strings.Builder, in Input, p store.Peer, fam family) {
 	fmt.Fprintf(b, "filter ebgp_out_%s\n{\n", p.Name)
 
 	// Transforms run before the policy calls, because a policy function accepts
@@ -979,13 +1007,12 @@ func writePeerExportFilter(b *strings.Builder, p store.Peer, fam family) {
 		b.WriteString("\tbgp_path.prepend(LOCAL_ASN);\n")
 	}
 	// Operator-defined communities, e.g. an upstream's "do not export" signal.
-	comms, _ := store.ParseCommunities(p.ExportCommunities)
-	for _, c := range comms {
-		verb := "bgp_community"
-		if c.Large {
-			verb = "bgp_large_community"
-		}
-		fmt.Fprintf(b, "\t%s.add(%s);\n", verb, c.BIRD())
+	// Each is a literal value or a reference to a named community in the library.
+	refs, _ := store.ParseCommunityRefs(p.ExportCommunities)
+	comms := in.communityByName()
+	for _, ref := range refs {
+		attr, expr := communityRefExpr(ref, comms)
+		fmt.Fprintf(b, "\t%s.add(%s);\n", attr, expr)
 	}
 
 	for _, pol := range p.ExportPolicies {

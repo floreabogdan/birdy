@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/floreabogdan/birdy/internal/store"
@@ -125,12 +126,71 @@ func (s *Server) handleCommunityDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Refuse to delete a community a peer or policy still references by name, or
+	// the next render would emit an undefined symbol.
+	if users, err := s.communityInUse(cd.Name); err == nil && len(users) > 0 {
+		http.Redirect(w, r, "/library/communities?flash="+
+			flash("Could not delete "+cd.Name+": still used by "+strings.Join(users, ", ")), http.StatusSeeOther)
+		return
+	}
 	if err := s.store.DeleteCommunityDef(cd.ID); err != nil {
 		s.serverError(w, "delete community", err)
 		return
 	}
 	s.audit(r, "deleted community "+cd.Name)
 	http.Redirect(w, r, "/library/communities?flash="+flash("Deleted "+cd.Name), http.StatusSeeOther)
+}
+
+// checkCommunityRefs returns a field error if a named community referenced in
+// text is not defined in the library, so a typo is caught at save rather than
+// surfacing as an undefined symbol when bird -p checks the apply.
+func (s *Server) checkCommunityRefs(text string) string {
+	names := store.NamedCommunityRefs(text)
+	if len(names) == 0 {
+		return ""
+	}
+	defs, err := s.store.ListCommunityDefs()
+	if err != nil {
+		return ""
+	}
+	have := make(map[string]bool, len(defs))
+	for _, d := range defs {
+		have[d.Name] = true
+	}
+	var missing []string
+	for _, n := range names {
+		if !have[n] {
+			missing = append(missing, n)
+		}
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	return "Unknown community: " + strings.Join(missing, ", ") + ". Define it under Library → Communities."
+}
+
+// communityInUse lists the peers and policies that reference a community by name.
+func (s *Server) communityInUse(name string) ([]string, error) {
+	var users []string
+	peers, err := s.store.ListPeers()
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range peers {
+		if slices.Contains(store.NamedCommunityRefs(p.ExportCommunities), name) {
+			users = append(users, "peer "+p.Name)
+		}
+	}
+	policies, err := s.store.ListPolicies()
+	if err != nil {
+		return nil, err
+	}
+	for _, pol := range policies {
+		if slices.Contains(store.NamedCommunityRefs(pol.MatchCommunity), name) {
+			users = append(users, "policy "+pol.Name)
+		}
+	}
+	return users, nil
 }
 
 func (s *Server) renderCommunityForm(w http.ResponseWriter, v communityFormView) {

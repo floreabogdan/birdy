@@ -92,7 +92,7 @@ func (p *Policy) Validate() map[string]string {
 		return errs
 	}
 	p.MatchCommunity = strings.TrimSpace(p.MatchCommunity)
-	if _, _, msg := ParseMatchCommunity(p.MatchCommunity); msg != "" {
+	if _, _, msg := ParseMatchCommunityRef(p.MatchCommunity); msg != "" {
 		errs["matchCommunity"] = msg
 	}
 

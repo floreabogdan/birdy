@@ -166,6 +166,9 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 
 	errs := p.Validate()
 	s.checkChains(p, importIDs, exportIDs, errs)
+	if msg := s.checkCommunityRefs(p.ExportCommunities); msg != "" {
+		errs["exportCommunities"] = msg
+	}
 
 	if len(errs) == 0 {
 		var err error

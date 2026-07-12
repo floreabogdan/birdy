@@ -476,9 +476,12 @@ not a blank page.
   one to accept a customer's downstreams by origin AS.
 - **Communities** — named BGP communities: define a value once (standard
   `ASN:value` or large `ASN:x:y`, RFC 8092), give it a readable name, and reuse it.
-  Each renders to a BIRD `define`, so the name documents your community scheme in
-  one place and is usable by name in the raw-config block. The well-known
-  `BLACKHOLE` (RFC 7999) and `GRACEFUL_SHUTDOWN` (RFC 8326) are seeded.
+  Each renders to a BIRD `define`. **Reference it by name** in a peer's export
+  communities or a policy's match-community field (mixed with literals), and the
+  rendered filter reads by name — `bgp_community.add(BLACKHOLE)` rather than a bare
+  tuple. An unknown name is caught when you save, and a community cannot be deleted
+  while a peer or policy still references it. The well-known `BLACKHOLE` (RFC 7999)
+  and `GRACEFUL_SHUTDOWN` (RFC 8326) are seeded.
 - **Static routes** — reachability nothing discovers on its own: a subnet behind a
   non-BGP device, or a route to a far router's loopback so an iBGP session peering
   on loopbacks can resolve its next hop. One route per prefix; action is `via`,

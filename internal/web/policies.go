@@ -180,6 +180,9 @@ func (s *Server) handlePolicySave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	errs := p.Validate()
+	if msg := s.checkCommunityRefs(p.MatchCommunity); msg != "" {
+		errs["matchCommunity"] = msg
+	}
 	if len(errs) == 0 {
 		var err error
 		if isNew {

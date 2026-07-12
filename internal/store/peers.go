@@ -188,7 +188,7 @@ func (p *Peer) Validate() map[string]string {
 	if p.PrependCount < 0 || p.PrependCount > 10 {
 		errs["prependCount"] = "Prepend between 0 and 10 times."
 	}
-	if _, cerrs := ParseCommunities(p.ExportCommunities); len(cerrs) > 0 {
+	if _, cerrs := ParseCommunityRefs(p.ExportCommunities); len(cerrs) > 0 {
 		errs["exportCommunities"] = strings.Join(cerrs, "\n")
 	}
 
