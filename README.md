@@ -171,6 +171,10 @@ group `bird`, with `ProtectSystem=strict`.
   when a session drops, recovers, flaps, hits its limit, or a config is applied/reverted; with
   per-destination event filtering and repeat-suppression
 - An alert when BIRD itself becomes unreachable — the one failure session alerts can't catch
+- A config-drift alert when `bird.conf` changes outside birdy — a hand edit, a `birdc` reconfigure, or a
+  revert birdy did not perform
+- Route-count history sparklines, on the dashboard grid and per peer, from samples birdy records itself —
+  no Prometheus or Grafana needed to see when a session started leaking
 - A Prometheus `/metrics` endpoint (opt-in, `--metrics`) and a public `/healthz` liveness probe
 - Login rate-limiting (per-IP lockout) and a downloadable off-box backup bundle
 - Live BIRD-code preview on every editor: the generated config updates as you type, before you save
@@ -182,7 +186,9 @@ group `bird`, with `ProtectSystem=strict`.
 - Composable import and export policy chains that can match communities, rather than one policy per
   session; clone a peer to make another of the same shape
 - A library of prefix sets, AS sets, and static routes — a prefix set can be expanded from an IRR
-  AS-SET with `bgpq4` (opt-in, `--bgpq4`)
+  AS-SET with `bgpq4` (opt-in, `--bgpq4`), and kept current on a schedule (never auto-applied)
+- Seed peers from the running BIRD — scaffold the model from the sessions BIRD already runs, so adopting
+  a router is a review-and-import rather than re-typing every session by hand
 - RFC 7999 customer blackhole (RTBH); PeeringDB lookups on the peer form (opt-in, `--peeringdb`)
 - Bogon prefixes and bogon ASNs, editable, in Settings
 - RPKI: RTR servers and per-policy validation (log-only or drop-invalid)

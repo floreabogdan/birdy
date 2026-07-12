@@ -294,6 +294,10 @@ Runs the web UI and the background poller.
 | `--metrics` | `false` | Expose an **unauthenticated** Prometheus `/metrics` endpoint. Put it behind your own network controls. |
 | `--peeringdb` | `false` | Enable PeeringDB lookups on the peer form (dials out to peeringdb.com). |
 | `--bgpq4` | *(empty)* | Path to `bgpq4` to enable IRR `AS-SET` expansion on prefix sets. Empty disables it; `bgpq4` uses `PATH`. |
+| `--drift-check-interval` | `30s` | How often to check whether `bird.conf` changed outside birdy, alerting if it did (`0` disables). Inert until birdy owns a config. |
+| `--sample-interval` | `1m` | How often to record a per-session route-count point for the dashboard history sparklines (`0` disables). |
+| `--sample-retain` | `168h` | How long to keep route-count history samples. |
+| `--irr-refresh-interval` | `24h` | How often to re-expand auto-refresh prefix sets from IRR via `bgpq4` (`0` disables; requires `--bgpq4`). |
 
 ### `birdy version`
 
@@ -347,7 +351,27 @@ file is detected — and refuses to overwrite a config it did not author. A
 hand-managed file must be explicitly **adopted** first (which backs it up). An
 existing single-file birdy install stays owned across the upgrade; its first apply
 lays down the split layout. This is how it avoids clobbering a config you wrote by
-hand.
+hand. Beyond the guard, a background check (`--drift-check-interval`) **alerts**
+when the on-disk config diverges from what birdy applied — a hand edit, a `birdc`
+reconfigure, or a revert birdy did not perform — so you learn about drift without
+opening the Changes page. It is inert until birdy owns a config, so a read-only
+viewer never false-alarms.
+
+**Adopting a router with live sessions.** Because birdy renders the *whole* config
+from its model, a session the model does not name would be torn down on the first
+apply — the Changes page flags exactly these as "would remove". To start from what
+is already running rather than a blank model, use **Peers → Import from BIRD**
+(`/peers/seed`): it reads every live BGP session off the control socket and
+proposes an editable peer for each, guessing the role (iBGP when the neighbor AS
+equals your own, otherwise upstream — review it) and never enabling RFC 9234 role
+negotiation, so importing cannot reset a live session. It only writes birdy's
+model, so it works in read-only mode. Import, review the diff until "would remove"
+is empty, then apply.
+
+**Route history.** The dashboard grid and each peer's detail page draw route-count
+history sparklines from samples birdy records itself on `--sample-interval`
+(pruned to `--sample-retain`) — enough to see when a session started leaking or
+losing prefixes without a Prometheus/Grafana stack.
 
 **Backups.** Each apply (and each adopt) snapshots the whole config — `bird.conf`
 plus `birdy.d/` — into a timestamped directory under the backup path, and a
@@ -442,7 +466,11 @@ not a blank page.
   its prefixes as blackhole/unreachable/prohibit anchors — because you must
   originate what you announce. A set can also be **expanded from an IRR `AS-SET`**
   with `bgpq4` (when `--bgpq4` is enabled); the source AS-SET is recorded so it can
-  be refreshed.
+  be refreshed. Tick **Auto-refresh from IRR** and birdy re-expands the set on
+  `--irr-refresh-interval` (default daily), updating the model when the expansion
+  changes — it **never applies on its own**, so the change waits on the Changes page
+  for you to review and apply. The form shows the last sync time and any error; an
+  empty expansion is treated as a mirror failure and the previous list is kept.
 - **AS sets** — named lists of AS numbers (and ranges). This is where an expanded
   IRR `AS-SET` lands, since BIRD has no `AS-SET` concept. Point an import policy at
   one to accept a customer's downstreams by origin AS.
@@ -500,8 +528,12 @@ delivered to any number of **destinations**: Slack, Discord, email (SMTP), or a
 generic JSON webhook. Each destination can filter which event kinds it wants, and
 repeats for the same session are suppressed within `--alert-cooldown`. birdy also
 alerts when **BIRD itself becomes unreachable** — the one failure a
-session-watching alert can't catch on its own. Manage destinations on the
-**Alerts** page; test one with the "Test" button.
+session-watching alert can't catch on its own. Two more kinds fire from the
+background loops: **config drift** when `bird.conf` changes outside birdy (a hand
+edit, a `birdc` reconfigure, or an unseen revert — deduped to one alert per
+distinct drift), and an **IRR refresh** notice when an auto-refresh prefix set
+changed. Manage destinations on the **Alerts** page; test one with the "Test"
+button.
 
 ---
 
