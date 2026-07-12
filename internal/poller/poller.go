@@ -70,6 +70,13 @@ type Poller struct {
 	notifier  Notifier
 	dropRatio float64 // alert if imported falls to <= this fraction of the prior poll
 
+	// Route-count history sampling. Cheaper than a poll: written on a slow
+	// cadence to back the dashboard sparklines, then pruned to a window. Both
+	// touched only from the single poll goroutine, so they need no lock.
+	sampleInterval time.Duration
+	sampleRetain   time.Duration
+	lastSample     time.Time
+
 	mu             sync.RWMutex
 	snap           Snapshot
 	initialized    bool // false until the first poll completes, so we don't log spurious transitions at startup
@@ -109,6 +116,49 @@ func New(client birdClient, st *store.Store, interval time.Duration, log *slog.L
 // count falling to this fraction (or less) of the previous poll fires an alert.
 // 0 disables the check. Call before Run.
 func (p *Poller) SetDropRatio(r float64) { p.dropRatio = r }
+
+// SetSampling enables periodic route-count history sampling: one point per up
+// BGP session every interval, retained for retain. interval 0 disables it. Call
+// before Run.
+func (p *Poller) SetSampling(interval, retain time.Duration) {
+	p.sampleInterval = interval
+	p.sampleRetain = retain
+}
+
+// maybeSample records a route-count point per up BGP session, at most once per
+// sampleInterval, then prunes past the retention window. Called at the end of
+// each poll; a no-op until enough time has passed. Runs only on the poll
+// goroutine, so lastSample needs no lock.
+func (p *Poller) maybeSample(states map[string]ProtoState, now time.Time) {
+	if p.sampleInterval <= 0 {
+		return
+	}
+	if !p.lastSample.IsZero() && now.Sub(p.lastSample) < p.sampleInterval {
+		return
+	}
+	p.lastSample = now
+
+	samples := make([]store.Sample, 0, len(states))
+	for name, st := range states {
+		if st.Summary.Proto != "BGP" || !st.Up || len(st.Channels) == 0 {
+			continue // down sessions leave a gap in the line, which is the point
+		}
+		imported, exported := 0, 0
+		for _, ch := range st.Channels {
+			imported += ch.RoutesImported
+			exported += ch.RoutesExported
+		}
+		samples = append(samples, store.Sample{Ts: now, Protocol: name, Imported: imported, Exported: exported})
+	}
+	if err := p.store.InsertSamples(samples); err != nil {
+		p.log.Warn("record route samples failed", "error", err)
+	}
+	if p.sampleRetain > 0 {
+		if err := p.store.PruneSamples(now.Add(-p.sampleRetain)); err != nil {
+			p.log.Warn("prune route samples failed", "error", err)
+		}
+	}
+}
 
 // Snapshot returns a copy of the latest poll result.
 func (p *Poller) Snapshot() Snapshot {
@@ -218,6 +268,8 @@ func (p *Poller) poll() {
 	p.initialized = true
 	p.snap = Snapshot{Status: status, Protocols: protocols, States: next, TotalRoutes: totalRoutes, UpdatedAt: time.Now()}
 	p.mu.Unlock()
+
+	p.maybeSample(next, time.Now())
 }
 
 func isUp(p birdc.ProtocolSummary) bool {

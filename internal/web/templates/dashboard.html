@@ -75,7 +75,7 @@
 				<div class="card-header"><span class="card-title">{{template "icon-activity"}}BGP sessions</span></div>
 				<div class="table-scroll">
 				<table>
-					<thead><tr><th>Name</th><th>Table</th><th>State</th><th>Since</th><th class="num">Imported</th><th class="num">Rejected</th><th class="num">Exported</th><th style="min-width:130px">Import limit</th><th>In birdy</th></tr></thead>
+					<thead><tr><th>Name</th><th>Table</th><th>State</th><th>Since</th><th class="num">Imported</th><th class="num">Rejected</th><th class="num">Exported</th><th style="min-width:130px">Import limit</th><th>Trend</th><th>In birdy</th></tr></thead>
 					<tbody id="proto-table-body" data-search-target>
 						{{range .Sessions}}
 						<tr class="row-link" onclick="location.href='/peers/{{.Name}}'">
@@ -101,10 +101,11 @@
 							<td class="num text-muted">&mdash;</td>
 							<td class="text-muted">&mdash;</td>
 							{{end}}
+							<td class="spark-cell">{{sparkline (index $.History .Name) 108 26}}</td>
 							<td>{{if .Configured}}<span class="badge badge-success">configured</span>{{else}}<span class="badge badge-warning">unmanaged</span>{{end}}</td>
 						</tr>
 						{{else}}
-						<tr><td colspan="9" class="empty">BIRD is running no BGP sessions.</td></tr>
+						<tr><td colspan="10" class="empty">BIRD is running no BGP sessions.</td></tr>
 						{{end}}
 					</tbody>
 				</table>

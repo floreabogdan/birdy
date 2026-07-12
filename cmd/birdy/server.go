@@ -40,6 +40,8 @@ func cmdServer(args []string) error {
 	peeringDB := fs.Bool("peeringdb", false, "enable PeeringDB lookups on the peer form (dials out to peeringdb.com)")
 	bgpq4 := fs.String("bgpq4", "", "path to bgpq4 to enable IRR AS-SET expansion on prefix sets (empty disables; \"bgpq4\" uses PATH)")
 	driftInterval := fs.Duration("drift-check-interval", 30*time.Second, "how often to check whether bird.conf changed outside birdy, alerting if it did (0 disables)")
+	sampleInterval := fs.Duration("sample-interval", time.Minute, "how often to record a per-session route-count point for the dashboard history sparklines (0 disables)")
+	sampleRetain := fs.Duration("sample-retain", 7*24*time.Hour, "how long to keep route-count history samples")
 	fs.Parse(args)
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -78,6 +80,7 @@ func cmdServer(args []string) error {
 	p := poller.New(client, st, *pollInterval, log)
 	p.SetNotifier(dispatcher)
 	p.SetDropRatio(*dropRatio)
+	p.SetSampling(*sampleInterval, *sampleRetain)
 	go p.Run(ctx)
 
 	snapMgr := snapshot.NewManager(*dbPath, *snapshotDir, *snapshotRetain)

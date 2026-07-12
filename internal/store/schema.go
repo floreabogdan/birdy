@@ -37,6 +37,19 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts DESC);
 
+-- Periodic per-session route-count samples, so the dashboard can draw a small
+-- history sparkline without a Prometheus/Grafana stack. Written on a slow
+-- cadence (not every poll) and pruned to a retention window, so the table stays
+-- tiny even on a router carrying a full table.
+CREATE TABLE IF NOT EXISTS route_samples (
+	id       INTEGER PRIMARY KEY AUTOINCREMENT,
+	ts       TEXT NOT NULL,
+	protocol TEXT NOT NULL,
+	imported INTEGER NOT NULL,
+	exported INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_samples_proto_ts ON route_samples(protocol, ts);
+
 -- One peers row renders one "protocol bgp" block. The address family of a
 -- session is derived from neighbor_ip rather than stored: a BGP session to an
 -- IPv6 neighbor carries an ipv6 channel, and splitting v4/v6 into separate

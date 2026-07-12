@@ -74,6 +74,11 @@ type DashboardView struct {
 	// in the template or dashboard.js so the first paint and every poll agree.
 	StatusText string `json:"statusText"`
 	StatusOK   bool   `json:"statusOK"`
+
+	// History is a short, downsampled imported-route series per session name, for
+	// the dashboard's trend sparklines. Sent in the JSON so the sparkline survives
+	// the live table rebuild, and drawn identically server-side on first paint.
+	History map[string][]int `json:"history"`
 }
 
 // buildProtoRows turns a poll snapshot into the table rows shared by the
@@ -153,6 +158,9 @@ func (s *Server) buildDashboardView() DashboardView {
 
 	if events, err := s.store.ListEvents(8, 0); err == nil {
 		v.RecentEvents = events
+	}
+	if samples, err := s.store.RecentSamples(time.Now().Add(-dashboardHistoryWindow)); err == nil {
+		v.History = seriesByProtocol(samples, dashboardHistoryPoints)
 	}
 	v.StatusText, v.StatusOK = sessionVerdict(v.PollErr, len(v.Protocols), v.DownCount)
 	return v

@@ -54,6 +54,27 @@
 			</nav>
 
 			<section data-tab-panel="general" {{if ne .Tab "general"}}hidden{{end}} class="tab-panel">
+				{{if .HasHistory}}
+				<div class="card">
+					<div class="card-header">
+						<span class="card-title">{{template "icon-activity"}}Route history</span>
+						<span class="text-muted" style="font-size:0.75rem">last 24h</span>
+					</div>
+					<div class="card-body">
+						<div class="spark-panel">
+							<div class="spark-row">
+								<span class="spark-label">Imported</span>
+								<span class="spark-lg spark-imported">{{sparkline .Imported 480 56}}</span>
+							</div>
+							<div class="spark-row">
+								<span class="spark-label">Exported</span>
+								<span class="spark-lg spark-exported">{{sparkline .Exported 480 56}}</span>
+							</div>
+						</div>
+					</div>
+				</div>
+				{{end}}
+
 				{{if .Detail.BGPState}}
 				<div class="card">
 					<div class="card-header"><span class="card-title">{{template "icon-activity"}}BGP session</span></div>

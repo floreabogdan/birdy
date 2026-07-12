@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
 )
@@ -21,12 +22,28 @@ type SessionDetailView struct {
 	// page can offer a link to its configuration instead of a dead end — and so
 	// a peer BIRD has never heard of reads as "not applied" rather than an error.
 	Configured bool `json:"configured"`
+
+	// Imported/Exported are the recent route-count history for this session, drawn
+	// as sparklines. Empty until the poller has recorded at least two samples.
+	Imported []int `json:"imported,omitempty"`
+	Exported []int `json:"exported,omitempty"`
 }
+
+// HasHistory reports whether there are enough samples to draw a trend.
+func (v SessionDetailView) HasHistory() bool { return len(v.Imported) >= 2 }
 
 func (s *Server) buildSessionDetailView(name string) SessionDetailView {
 	v := SessionDetailView{Active: "peers", ReadOnly: s.readOnly, Name: name}
 	if _, err := s.store.GetPeerByName(name); err == nil {
 		v.Configured = true
+	}
+	if samples, err := s.store.ListSamples(name, time.Now().Add(-peerHistoryWindow)); err == nil {
+		for _, sm := range samples {
+			v.Imported = append(v.Imported, sm.Imported)
+			v.Exported = append(v.Exported, sm.Exported)
+		}
+		v.Imported = downsample(v.Imported, peerHistoryPoints)
+		v.Exported = downsample(v.Exported, peerHistoryPoints)
 	}
 	detail, err := s.client.ProtocolDetail(name)
 	if err != nil {

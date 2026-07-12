@@ -130,6 +130,8 @@ var funcs = template.FuncMap{
 	"ratio": ratio,
 	// has reports membership in an id list, for pre-selecting multi-selects.
 	"has": func(ids []int64, id int64) bool { return slices.Contains(ids, id) },
+	// sparkline draws a route-count history series as an inline SVG line.
+	"sparkline": sparklineHTML,
 	// fieldErrs collects validation messages whose key shares a prefix, so a
 	// form can print every "entry.N" error under the one textarea they came
 	// from. Sorted by key so line-3's error never jumps above line-1's.

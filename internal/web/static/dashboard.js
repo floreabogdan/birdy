@@ -72,20 +72,41 @@
 		);
 	}
 
+	// Twin of sparklineHTML in sparkline.go: a route-count series as an SVG line,
+	// so the trend cell survives the live table rebuild that server-rendered HTML
+	// would not.
+	function sparkline(vals, w, h) {
+		if (!vals || vals.length < 2) return '<span class="spark-empty text-muted">—</span>';
+		var lo = vals[0], hi = vals[0];
+		for (var i = 0; i < vals.length; i++) {
+			if (vals[i] < lo) lo = vals[i];
+			if (vals[i] > hi) hi = vals[i];
+		}
+		var span = hi - lo, pad = 2, n = vals.length, pts = [];
+		for (var j = 0; j < n; j++) {
+			var x = pad + (j / (n - 1)) * (w - 2 * pad);
+			var y = span === 0 ? h / 2 : h - pad - ((vals[j] - lo) / span) * (h - 2 * pad);
+			pts.push(x.toFixed(1) + "," + y.toFixed(1));
+		}
+		return '<svg class="sparkline" viewBox="0 0 ' + w + " " + h + '" preserveAspectRatio="none" role="img" aria-label="route-count history">' +
+			'<polyline fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" points="' + pts.join(" ") + '"/></svg>';
+	}
+
 	// Only BGP belongs in the sessions table. Device/kernel/static are rendered
 	// once, server-side, in the collapsed infrastructure card.
 	function isBGP(p) {
 		return String(p.proto).toUpperCase() === "BGP";
 	}
 
-	function renderRows(protocols) {
+	function renderRows(protocols, history) {
 		var body = document.getElementById("proto-table-body");
 		if (!body) return;
 		var sessions = (protocols || []).filter(isBGP);
 		if (sessions.length === 0) {
-			body.innerHTML = '<tr><td colspan="9" class="empty">BIRD is running no BGP sessions.</td></tr>';
+			body.innerHTML = '<tr><td colspan="10" class="empty">BIRD is running no BGP sessions.</td></tr>';
 			return;
 		}
+		var hist = history || {};
 		body.innerHTML = sessions.map(function (p) {
 			var badgeClass = p.up ? "badge-success" : "badge-danger";
 			// BIRD's own vocabulary: Established, Active, Connect, Idle.
@@ -100,6 +121,7 @@
 				'<td><span class="badge ' + badgeClass + '"><span class="dot"></span>' + esc(state) + "</span></td>" +
 				'<td class="mono">' + esc(p.since) + "</td>" +
 				countCells(p) +
+				'<td class="spark-cell">' + sparkline(hist[p.name], 108, 26) + "</td>" +
 				"<td>" + managed + "</td>" +
 				"</tr>"
 			);
@@ -132,7 +154,7 @@
 			})
 			.then(function (data) {
 				if (!data) return;
-				renderRows(data.protocols);
+				renderRows(data.protocols, data.history);
 				renderEvents(data.recentEvents);
 
 				var total = (data.protocols || []).length;
