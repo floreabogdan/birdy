@@ -35,6 +35,9 @@ var originateActions = map[string]bool{
 // rangeModifier matches BIRD's "{low,high}" prefix pattern suffix.
 var rangeModifier = regexp.MustCompile(`^\{(\d{1,3}),(\d{1,3})\}$`)
 
+// PrefixSet is a named list of prefixes (with BIRD pattern suffixes), used as an
+// allow-list on imports, as what an export policy announces, or as an originated
+// aggregate. It may be expanded from an IRR AS-SET.
 type PrefixSet struct {
 	ID          int64
 	Name        string

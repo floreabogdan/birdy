@@ -24,6 +24,8 @@ type DB interface {
 	VacuumInto(path string) error
 }
 
+// Manager takes and prunes nightly SQLite snapshots of birdy's database, so the
+// whole state (one file) can be downloaded off-box and restored.
 type Manager struct {
 	dbPath string
 	dir    string

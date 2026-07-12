@@ -11,6 +11,9 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+// Store is birdy's SQLite-backed model — settings, peers, policies, the library,
+// the config-version history and the event timeline — and the only thing that
+// touches the database.
 type Store struct {
 	db *sql.DB
 }

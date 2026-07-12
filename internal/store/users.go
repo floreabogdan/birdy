@@ -5,6 +5,7 @@ import (
 	"fmt"
 )
 
+// User is a local login account — normally just the admin created by birdy init.
 type User struct {
 	ID           int64
 	Username     string

@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// Settings is the single-row router identity and global configuration: local
+// ASN, router ID, the BIRD socket path, the applied-config hash and the raw
+// escape-hatch block.
 type Settings struct {
 	RouterLabel string
 	LocalASN    sql.NullInt64

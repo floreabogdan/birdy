@@ -102,8 +102,8 @@ func (s *Server) apiLookingGlass(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.runLookingGlass(r))
 }
 
-// lgPageLink builds a /lg URL preserving the current query, form, and
-// target but with a different offset — used for the Prev/Next controls.
+// lgPageLink builds a /lg URL preserving the current query and target but with a
+// different offset — used for the Prev/Next controls.
 func lgPageLink(v LGView, newOffset int) string {
 	q := url.Values{"type": {v.Type}, "target": {v.Target}, "offset": {strconv.Itoa(newOffset)}}
 	if v.All {

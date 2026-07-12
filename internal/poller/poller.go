@@ -62,6 +62,9 @@ type Notifier interface {
 	Notify(kind, protocol, message string)
 }
 
+// Poller periodically reads BIRD's control socket into an in-memory snapshot for
+// the dashboard, records session transitions/flaps/limit hits to the timeline,
+// and samples route counts for the history sparklines.
 type Poller struct {
 	client    birdClient
 	store     *store.Store

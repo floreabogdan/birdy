@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+// Session is a logged-in browser session, keyed by an opaque cookie token and
+// expiring at a fixed time.
 type Session struct {
 	Token     string
 	UserID    int64

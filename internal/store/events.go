@@ -21,6 +21,8 @@ const (
 	EventIRRRefresh    = "irr_refresh"      // a prefix set was re-expanded from IRR
 )
 
+// Event is one entry on the timeline: a session transition, flap, import-limit
+// hit, prefix drop, config apply/revert, drift, or BIRD reachability change.
 type Event struct {
 	ID       int64
 	Ts       time.Time

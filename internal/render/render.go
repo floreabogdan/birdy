@@ -60,6 +60,9 @@ var bgpRoleName = map[string]string{
 	store.RoleIXPeer:   "peer",
 }
 
+// Input is everything the renderer needs from the model to produce a complete
+// bird.conf: the router identity, the peers, the library (sets, policies), RPKI
+// and BMP config, and rendering options like secret masking.
 type Input struct {
 	RouterID    string
 	LocalASN    int64
@@ -107,8 +110,6 @@ var (
 	familyV6 = family{"v6", "ipv6", "BOGONS_V6", "rpki6", "::/0", 128}
 )
 
-// Config renders the complete bird.conf. The output is deterministic: given the
-// same model it is byte-identical, which is what makes diffing meaningful.
 // Section is one logical unit of the rendered bird.conf — the globals block, one
 // policy's functions, one peer's filters-and-protocol, the raw block, and so on.
 // Concatenating every section's Body in order reproduces exactly what Config

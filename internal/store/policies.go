@@ -34,6 +34,8 @@ var (
 	bogonASNModes     = map[string]bool{BogonASNsOff: true, BogonASNsAll: true, BogonASNsExceptPrivate: true}
 )
 
+// Policy is one reusable import or export rule set. Peers attach policies in
+// ordered chains; imports compose with AND, exports with OR.
 type Policy struct {
 	ID          int64
 	Name        string

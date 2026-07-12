@@ -65,6 +65,9 @@ func validateNameDesc(name, description string) (string, map[string]string) {
 // ErrNotFound is returned by the Get/Update/Delete helpers.
 var ErrNotFound = errors.New("store: not found")
 
+// Peer is one BGP session in birdy's model; it renders to a single
+// `protocol bgp` block (plus its filters). The address family is derived from
+// NeighborIP rather than stored.
 type Peer struct {
 	ID                int64
 	Name              string

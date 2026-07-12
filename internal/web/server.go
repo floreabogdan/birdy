@@ -39,6 +39,8 @@ type birdClient interface {
 	ConfigureUndo() (birdc.ConfigureResult, error)
 }
 
+// Server is birdy's HTTP handler: it holds the store, the BIRD client, the
+// poller's snapshot and the apply configuration, and serves every route.
 type Server struct {
 	store    *store.Store
 	client   birdClient
@@ -82,6 +84,7 @@ type alertNotifier interface {
 	MailConfig(maskedConfig string)
 }
 
+// Config is the dependency set and options New needs to build a Server.
 type Config struct {
 	Store         *store.Store
 	Client        birdClient
@@ -99,6 +102,8 @@ type Config struct {
 	Bgpq4Bin      string
 }
 
+// New builds a Server from cfg, applying defaults for any unset paths and
+// timeouts, and wiring up the routes.
 func New(cfg Config) *Server {
 	log := cfg.Log
 	if log == nil {
