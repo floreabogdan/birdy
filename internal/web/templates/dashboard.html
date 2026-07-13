@@ -15,6 +15,18 @@
 				<div class="breadcrumb"><span class="current">Dashboard</span></div>
 			</div>
 
+			{{if .WideOpen}}
+			<div class="card panel-warn">
+				<div class="panel-head">{{template "icon-shield"}}birdy is reachable from any IP</div>
+				<div class="card-body" style="font-size:0.8125rem">
+					It listens on every interface so it works the moment you install it, and its access list still allows
+					everything. birdy has no TLS, so on a public address the login and session cookie travel in the clear.
+					<strong><a href="/settings?tab=access">List the IPs allowed to reach it</a></strong> — that also switches
+					on <span class="mono">/metrics</span>, which is unauthenticated and stays closed until you do.
+				</div>
+			</div>
+			{{end}}
+
 			<section class="hero">
 				<div class="hero-main">
 					<h1 class="hero-title mono">{{if .Status.Hostname}}{{.Status.Hostname}}{{else}}birdy{{end}}</h1>

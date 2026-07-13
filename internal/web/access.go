@@ -3,8 +3,11 @@ package web
 import (
 	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
+
+	"github.com/floreabogdan/birdy/internal/store"
 )
 
 // loginLimiter throttles failed logins per client IP. Keying on the IP, not the
@@ -66,6 +69,41 @@ func clientIP(r *http.Request) string {
 		return host
 	}
 	return r.RemoteAddr
+}
+
+// accessRestricted reports whether the operator has narrowed the access list
+// from its allow-all default. /metrics is gated on it: the endpoint cannot carry
+// a session cookie, so the access list is the only thing standing between a
+// scraper and anyone else who can reach the port.
+func (s *Server) accessRestricted() bool {
+	s.accessMu.RLock()
+	defer s.accessMu.RUnlock()
+	return store.AccessRestricted(s.accessList)
+}
+
+// wideOpen reports the posture a fresh install starts in: reachable from beyond
+// this host, with an access list that still allows every IP. birdy has no TLS, so
+// in that state the login and session cookie cross the network in the clear — the
+// UI says so on the dashboard rather than leaving it to be discovered.
+func (s *Server) wideOpen() bool {
+	return !s.listenLoopback() && !s.accessRestricted()
+}
+
+// listenLoopback reports whether birdy is bound to loopback only, in which case
+// nothing off-box can reach it whatever the access list says.
+func (s *Server) listenLoopback() bool {
+	host, _, err := net.SplitHostPort(s.listenAddr)
+	if err != nil {
+		host = s.listenAddr
+	}
+	if host == "localhost" {
+		return true
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false // unparseable or empty (":8080" = every interface)
+	}
+	return addr.IsLoopback()
 }
 
 // handleHealthz is an unauthenticated liveness probe. It always returns 200 when

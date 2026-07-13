@@ -67,6 +67,8 @@ type Server struct {
 	peeringDB bool
 	bgpq4Bin  string // non-empty enables IRR expansion via bgpq4
 	netdiag   bool   // enables ping/traceroute reachability diagnostics
+	// listenAddr is where birdy is bound, for the wide-open warning (see access.go).
+	listenAddr string
 
 	// applyMu serialises everything that touches bird.conf and the pending-apply
 	// record. HTTP handlers run concurrently, and two applies at once could both
@@ -110,6 +112,11 @@ type Config struct {
 	PeeringDB     bool
 	Bgpq4Bin      string
 	NetDiag       bool
+	// ListenAddr is the address birdy is actually bound to. The UI needs it to
+	// tell "reachable from anywhere with an allow-all access list" (the fresh
+	// install default, worth warning about) from "loopback only" (nothing off-box
+	// can reach it regardless).
+	ListenAddr string
 }
 
 // New builds a Server from cfg, applying defaults for any unset paths and
@@ -151,6 +158,7 @@ func New(cfg Config) *Server {
 		peeringDB:     cfg.PeeringDB,
 		bgpq4Bin:      cfg.Bgpq4Bin,
 		netdiag:       cfg.NetDiag,
+		listenAddr:    cfg.ListenAddr,
 		login:         newLoginLimiter(),
 		mux:           http.NewServeMux(),
 	}

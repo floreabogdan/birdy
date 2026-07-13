@@ -60,12 +60,12 @@ over a local Unix control socket. It is not a controller for a fleet.
 
 **Optional runtime extras:**
 
-- **bgpq4** — enables one-click expansion of an IRR `AS-SET` into a prefix set (the
-  prefixes) or an AS set (the origin ASNs), and scheduled auto-refresh of either.
-  Off unless you pass `--bgpq4`.
+- **bgpq4** — one-click expansion of an IRR `AS-SET` into a prefix set (the prefixes)
+  or an AS set (the origin ASNs), and scheduled auto-refresh of either. Used
+  automatically when installed; nothing to enable.
 - **A local RPKI validator** speaking RTR (Routinator, StayRTR, rpki-client) — for
   origin validation. You can start with a public RTR endpoint instead.
-- **Outbound HTTPS** — only if you enable PeeringDB lookups (`--peeringdb`) or use
+- **Outbound HTTPS** — for PeeringDB lookups (on by default; `--peeringdb=false` to disable) or
   email alerts (SMTP).
 
 **Build (only if you compile birdy yourself):**
@@ -101,9 +101,9 @@ sudo birdc show status          # birdc is BIRD's own client
 sudo apt install bgpq4
 ```
 
-Then start birdy with `--bgpq4 bgpq4` (or the full path). Without it, prefix sets
-and AS sets still work; you just fill them in by hand instead of expanding an
-`AS-SET`.
+That is all: birdy finds `bgpq4` on `PATH` at startup and enables IRR expansion.
+Without it, prefix sets and AS sets still work; you just fill them in by hand
+instead of expanding an `AS-SET`.
 
 ### An RPKI validator (optional)
 
@@ -165,10 +165,16 @@ it as an unprivileged user in that group — not as root. The sample unit in
 [Service]
 User=birdy
 Group=bird
-ExecStart=/usr/local/bin/birdy server --db /var/lib/birdy/birdy.db --read-only
+ExecStart=/usr/local/bin/birdy server --db /var/lib/birdy/birdy.db
 ProtectSystem=strict
-ReadWritePaths=/var/lib/birdy
+ReadWritePaths=/var/lib/birdy /etc/bird
 ```
+
+No feature flags: birdy detects what the router has (`bgpq4`, `ping`, `traceroute`)
+and enables what is there. `/etc/bird` is in `ReadWritePaths` because
+`ProtectSystem=strict` makes the filesystem read-only for the unit, so an apply
+would fail even when the file permissions allow it. To run birdy as a pure viewer
+instead, add `--read-only` to `ExecStart`.
 
 Create the user and state directory:
 
@@ -177,8 +183,9 @@ sudo useradd --system --gid bird --home-dir /var/lib/birdy --shell /usr/sbin/nol
 sudo install -d -o birdy -g bird /var/lib/birdy
 ```
 
-If you later let birdy **apply** configs (drop `--read-only`), it also needs write
-access to `bird.conf` and its directory — add that path to `ReadWritePaths`.
+For **apply** to work, the `birdy` user also needs write access to the `/etc/bird`
+directory itself (birdy writes atomically: a temp file, then a rename). The
+packages do this for you — `chgrp bird /etc/bird && chmod g+w /etc/bird`.
 
 ---
 
@@ -203,16 +210,20 @@ both can be changed later under **Settings**.
 `bird -p`, and reach the config paths:
 
 ```sh
-sudo -u birdy birdy doctor
+sudo birdy doctor
 ```
+
+It checks the control socket, `bird -p`, that `--bird-conf` is the file BIRD really
+loads, that the **database file** is writable by the service account, and that BIRD
+can read the files birdy writes.
 
 **3. Run the server.** For a quick look, run it directly:
 
 ```sh
-sudo -u birdy birdy server --read-only
+sudo -u birdy birdy server
 ```
 
-For production, install the systemd unit:
+For production, install the systemd unit (the packages already did):
 
 ```sh
 sudo cp deploy/birdy.service /etc/systemd/system/birdy.service
@@ -220,16 +231,24 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now birdy
 ```
 
-**4. Open the UI.** birdy listens on `127.0.0.1:8080` by default. Reach it over an
-SSH tunnel — never expose it directly (see [Security](#15-security)):
+**4. Open the UI.** birdy listens on **port 8080 on every interface**, so it is
+reachable the moment it starts: `http://<router>:8080`.
+
+**Then narrow who can reach it.** birdy has no TLS, and its IP allow-list starts as
+allow-all — the dashboard warns until you change it. Under **Settings → Access
+control**, list the addresses allowed to reach birdy; every other connection is
+closed with no response (this also switches on the unauthenticated `/metrics`).
+Prefer it closed? Run it on loopback and tunnel in:
 
 ```sh
-ssh -L 8080:127.0.0.1:8080 user@router
-# then browse to http://localhost:8080
+birdy server --listen 127.0.0.1:8080
+ssh -L 8080:127.0.0.1:8080 user@router   # then browse to http://localhost:8080
 ```
 
 Log in, and under **Settings → Router identity** confirm the router ID and local
-ASN. birdy stays a read-only viewer until you decide otherwise.
+ASN. birdy can write `bird.conf`, but only when you press **Adopt** and then
+**Apply** — nothing is written on install. Add `--read-only` to the unit if you want
+it to stay a viewer for good.
 
 ---
 
@@ -246,7 +265,7 @@ Creates the database and the admin user. Fails if an account already exists.
 |------|---------|--------------|
 | `--db` | `/var/lib/birdy/birdy.db` | Path to birdy's SQLite database. |
 | `--socket` | `/run/bird/bird.ctl` | BIRD control socket path, stored in settings. |
-| `--listen` | `127.0.0.1:8080` | Address the web UI listens on, stored in settings. |
+| `--listen` | `0.0.0.0:8080` | Address the web UI listens on, stored in settings. Use `127.0.0.1:8080` to keep it closed (SSH tunnel). |
 | `--label` | *(empty)* | Friendly name for this router (e.g. its hostname). |
 | `--asn` | `0` | Local AS number. Used by the config renderer; settable later. |
 | `--router-id` | *(empty)* | BGP router ID, written as an IPv4 address. Settable later. |
@@ -281,7 +300,7 @@ Runs the web UI and the background poller.
 | `--db` | `/var/lib/birdy/birdy.db` | Path to birdy's SQLite database. |
 | `--socket` | *(from init)* | Override the BIRD control socket path. |
 | `--listen` | *(from init)* | Override the listen address. |
-| `--read-only` | `false` | **Run as a pure viewer** — never issue a write command to BIRD and never write `bird.conf`. Recommended until you trust it. |
+| `--read-only` | `false` | **Run as a pure viewer** — never issue a write command to BIRD and never write `bird.conf`. Note it does not stop birdy writing its **own** database: logins, events and history are written in any mode. |
 | `--bird-conf` | `/etc/bird/bird.conf` | The running BIRD config birdy reads and (unless read-only) writes. **Must be the same path BIRD was started with** (`bird -c`) for apply to work. |
 | `--bird-backup-dir` | `/var/lib/birdy/bird-backups` | Where a copy of `bird.conf` is saved before each apply overwrites it. |
 | `--bird-binary` | `bird` | `bird` executable used for `bird -p` config checks. |
@@ -293,10 +312,10 @@ Runs the web UI and the background poller.
 | `--connect-timeout` | `30s` | How long to retry connecting to BIRD at startup. |
 | `--alert-cooldown` | `5m` | Suppress a repeat alert for the same session within this window (`0` disables). |
 | `--prefix-drop-ratio` | `0.5` | Alert when a session's imported routes fall to this fraction of the previous poll (`0` disables). |
-| `--metrics` | `false` | Expose an **unauthenticated** Prometheus `/metrics` endpoint. Put it behind your own network controls. |
-| `--peeringdb` | `false` | Enable PeeringDB lookups on the peer form (dials out to peeringdb.com). |
-| `--bgpq4` | *(empty)* | Path to `bgpq4` to enable IRR `AS-SET` expansion on prefix sets and AS sets. Empty disables it; `bgpq4` uses `PATH`. |
-| `--netdiag` | `false` | Enable the **Diagnostics** page: ping/traceroute from the router. Runs external tools, so it is opt-in; a read-only operation, safe in read-only mode. |
+| `--metrics` | `true` | Serve the Prometheus `/metrics` endpoint. It is **unauthenticated**, so it returns 403 until the access list is narrowed from allow-all. `--metrics=false` disables it entirely. |
+| `--peeringdb` | `true` | PeeringDB lookups on the peer form (dials out to peeringdb.com). `--peeringdb=false` disables it. |
+| `--bgpq4` | `auto` | IRR `AS-SET` expansion on prefix sets and AS sets. `auto` uses `bgpq4` when it is installed; `off` disables it; or give an explicit path. |
+| `--netdiag` | `true` | The **Diagnostics** page: ping/traceroute from the router, enabled when those tools are installed. A read-only operation, safe in read-only mode. `--netdiag=false` disables it. |
 | `--drift-check-interval` | `30s` | How often to check whether `bird.conf` changed outside birdy, alerting if it did (`0` disables). Inert until birdy owns a config. |
 | `--sample-interval` | `1m` | How often to record a per-session route-count point for the dashboard history sparklines (`0` disables). |
 | `--sample-retain` | `168h` | How long to keep route-count history samples. |

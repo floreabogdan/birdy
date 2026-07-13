@@ -34,7 +34,8 @@ VOLUME /var/lib/birdy
 EXPOSE 8080
 USER birdy
 ENTRYPOINT ["birdy"]
-# Inside a container birdy must listen on all interfaces so a published port
-# can reach it; keep it private by publishing only to the host's loopback
-# (see docker-compose.yml). It still ships read-only by default.
-CMD ["server", "--read-only", "--listen", "0.0.0.0:8080"]
+# Inside a container birdy must listen on all interfaces so a published port can
+# reach it; control the exposure by choosing what you publish it to (see
+# docker-compose.yml) and by setting the IP allow-list once you log in. Add
+# --read-only here to run it as a pure viewer.
+CMD ["server", "--listen", "0.0.0.0:8080"]

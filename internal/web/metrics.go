@@ -7,11 +7,20 @@ import (
 )
 
 // handleMetrics exposes birdy's poll state in Prometheus text format. It is
-// unauthenticated by design — Prometheus scrapes cannot carry a session cookie —
-// so it is only registered when --metrics is set, and the operator is then
-// responsible for keeping the port off the public internet (birdy binds
-// loopback by default).
+// unauthenticated by design — Prometheus scrapes cannot carry a session cookie.
+//
+// birdy binds every interface out of the box and its access list starts as
+// allow-all, so an always-on /metrics would publish the router's session
+// inventory to anyone who found the port. Hence the gate: the endpoint is on by
+// default but serves nothing until the access list actually narrows who can
+// reach birdy. Add the scraper's IP under Settings → Access and it works — no
+// flag, no restart.
 func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if !s.accessRestricted() {
+		http.Error(w, "birdy: /metrics is unauthenticated, so it stays closed while the access list allows every IP.\n"+
+			"Add the scraper's address under Settings → Access control and it starts serving immediately.\n", http.StatusForbidden)
+		return
+	}
 	snap := s.poller.Snapshot()
 	var b strings.Builder
 

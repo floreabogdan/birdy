@@ -80,6 +80,11 @@ func cmdInit(args []string) error {
 		return fmt.Errorf("save settings: %w", err)
 	}
 
+	// Close before handing the files over: SQLite still has the -wal open, and the
+	// chown has to cover it too.
+	st.Close()
+	adoptDBOwnership(*dbPath)
+
 	fmt.Printf("birdy initialized at %s\n", *dbPath)
 	fmt.Printf("  admin user:     %s\n", *username)
 	fmt.Printf("  BIRD socket:    %s\n", *socketPath)

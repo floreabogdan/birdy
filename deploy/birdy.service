@@ -7,14 +7,20 @@ Wants=bird.service
 Type=simple
 User=birdy
 Group=bird
-ExecStart=/usr/local/bin/birdy server --db /var/lib/birdy/birdy.db --read-only
+# No feature flags: birdy detects what this router can do (bgpq4, ping/traceroute)
+# and enables what is there. Everything else is a setting in the UI, not a unit
+# edit. To run birdy as a pure viewer instead, add --read-only here.
+ExecStart=/usr/local/bin/birdy server --db /var/lib/birdy/birdy.db
 Restart=on-failure
 RestartSec=5
 
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/birdy
+# birdy owns bird.conf once you apply from the UI. ProtectSystem=strict makes the
+# whole filesystem read-only for this unit, so /etc/bird has to be named here or
+# an apply fails even when the file permissions would allow the write.
+ReadWritePaths=/var/lib/birdy /etc/bird
 PrivateTmp=yes
 
 [Install]

@@ -49,6 +49,23 @@ func parseCIDROrIP(tok string) (netip.Prefix, string) {
 	return netip.Prefix{}, fmt.Sprintf("%q is not an IP address or CIDR (e.g. 203.0.113.4 or 10.0.0.0/8).", tok)
 }
 
+// AccessRestricted reports whether the whitelist actually narrows who can reach
+// birdy — i.e. it is non-empty and does not contain a default route. It is the
+// condition the unauthenticated /metrics endpoint is gated on: an endpoint no
+// cookie can protect must not be readable by the whole internet just because
+// birdy binds every interface out of the box.
+func AccessRestricted(prefixes []netip.Prefix) bool {
+	if len(prefixes) == 0 {
+		return false
+	}
+	for _, p := range prefixes {
+		if p.Bits() == 0 { // 0.0.0.0/0 or ::/0 — allow all
+			return false
+		}
+	}
+	return true
+}
+
 // AccessAllowed reports whether ip may reach birdy given the whitelist. It fails
 // open in the ways that prevent a lock-out: loopback is always allowed (an SSH
 // tunnel must never be blocked), an empty list means no restriction, and a

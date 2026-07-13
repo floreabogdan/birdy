@@ -1,9 +1,8 @@
 # Run birdy in a container, on the same host as BIRD.
 #
 # birdy talks to BIRD over its control socket, so the socket has to be shared
-# into the container. This example runs birdy as a read-only viewer, which
-# needs nothing but the socket. To let it APPLY config, see the notes at the
-# bottom.
+# into the container. This example runs it as a viewer (--read-only), which needs
+# nothing but the socket. To let it APPLY config, see the notes at the bottom.
 #
 # One-time setup — create the database and admin account:
 #
@@ -14,9 +13,12 @@
 #
 #   docker compose up -d
 #
-# Reach the UI over an SSH tunnel to the host, e.g.
+# This compose file publishes the port to the host's loopback only, so reach the
+# UI over an SSH tunnel:
 #   ssh -L 8080:127.0.0.1:8080 router
-# then open http://127.0.0.1:8080.
+# then open http://127.0.0.1:8080. To reach it directly instead, publish on
+# "8080:8080" and set the IP allow-list under Settings -> Access control as soon
+# as you log in: birdy has no TLS.
 
 services:
   birdy:
@@ -36,7 +38,7 @@ services:
       # you enable apply (birdy sends "configure" over this socket).
       - /run/bird:/run/bird:ro
 
-    # ── To enable apply (not read-only) ──────────────────────────────────────
+    # ── To enable apply (drop the viewer mode) ───────────────────────────────
     # 1. Drop --read-only from `command`, and make the socket mount writable
     #    (remove the ":ro" above).
     # 2. Mount BIRD's config so birdy can write it, and make sure --bird-conf

@@ -5,7 +5,9 @@ package doctor
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"syscall"
 )
 
@@ -36,6 +38,18 @@ func checkConfigReadable(cfg Config) Result {
 	euid := os.Geteuid()
 	egid := os.Getegid()
 
+	// Doctor is a command a human runs, and a human on a router runs it with sudo —
+	// but the server runs as the `birdy` service account. Answering for root would
+	// warn that "birdy writes as uid 0", which is both alarming and false. Judge the
+	// account the service will actually run as, and say whose behalf we answered on.
+	who := "birdy"
+	if euid == 0 {
+		if svc, ok := serviceIdentity(); ok {
+			return serviceReadable(name, svc, sockUID, sockGID, incDir, dir)
+		}
+		who = "root"
+	}
+
 	// A file birdy writes takes birdy's effective group, unless the directory is
 	// setgid, in which case new files inherit the directory's group.
 	writeGID := egid
@@ -50,9 +64,60 @@ func checkConfigReadable(cfg Config) Result {
 		return Result{name, OK, fmt.Sprintf("birdy writes group %d, which is BIRD's group, so its 0640 files are group-readable by BIRD", writeGID)}
 	default:
 		return Result{name, Warn, fmt.Sprintf(
-			"birdy writes as uid %d / gid %d but BIRD runs as uid %d / gid %d — BIRD may not be able to read the 0640 files under %s. Run birdy as BIRD's user, add birdy to BIRD's group, or make %s setgid to that group.",
-			euid, writeGID, sockUID, sockGID, incDir, dir)}
+			"%s writes as uid %d / gid %d but BIRD runs as uid %d / gid %d — BIRD may not be able to read the 0640 files under %s. Run birdy as BIRD's user, add birdy to BIRD's group, or make %s setgid to that group.",
+			who, euid, writeGID, sockUID, sockGID, incDir, dir)}
 	}
+}
+
+// svcIdentity is the account the birdy service runs as, and every group it is in.
+type svcIdentity struct {
+	name   string
+	uid    int
+	groups []int
+}
+
+// serviceIdentity looks up the `birdy` account the packages create. Absent on a
+// source install run by hand, in which case the caller judges the current process.
+func serviceIdentity() (svcIdentity, bool) {
+	u, err := user.Lookup("birdy")
+	if err != nil {
+		return svcIdentity{}, false
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return svcIdentity{}, false
+	}
+	svc := svcIdentity{name: u.Username, uid: uid}
+	ids, err := u.GroupIds()
+	if err != nil {
+		return svcIdentity{}, false
+	}
+	for _, g := range ids {
+		if n, err := strconv.Atoi(g); err == nil {
+			svc.groups = append(svc.groups, n)
+		}
+	}
+	return svc, true
+}
+
+// serviceReadable answers the read check for the service account rather than for
+// whoever ran doctor. The packaged unit runs birdy with Group=bird, so what
+// matters is that the account is a member of BIRD's group — then its 0640 files
+// are group-readable by BIRD.
+func serviceReadable(name string, svc svcIdentity, sockUID, sockGID int, incDir, dir string) Result {
+	if svc.uid == sockUID {
+		return Result{name, OK, fmt.Sprintf("the service runs as %s, which is BIRD's own user, so BIRD reads its 0640 files as owner", svc.name)}
+	}
+	for _, g := range svc.groups {
+		if g == sockGID {
+			return Result{name, OK, fmt.Sprintf(
+				"the service runs as %s, a member of BIRD's group (gid %d), so its 0640 files are group-readable by BIRD (checked for %s, not for the user running doctor)",
+				svc.name, sockGID, svc.name)}
+		}
+	}
+	return Result{name, Warn, fmt.Sprintf(
+		"the service runs as %s (uid %d), which is not BIRD's user (uid %d) and not in BIRD's group (gid %d) — BIRD could not read the 0640 files birdy writes under %s. Fix with: sudo usermod -aG %d %s && sudo systemctl restart birdy",
+		svc.name, svc.uid, sockUID, sockGID, incDir, sockGID, svc.name)}
 }
 
 func fileOwner(path string) (uid, gid int, ok bool) {

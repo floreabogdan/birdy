@@ -45,6 +45,26 @@ type Result struct {
 	Skipped string
 }
 
+// AvailableTools lists the diagnostics this router actually has installed. A
+// container image or a minimal router build may carry neither, which is why the
+// feature is detected rather than assumed.
+func AvailableTools() []Tool {
+	var out []Tool
+	for _, t := range Tools {
+		bin, _, ok := argv(t, "127.0.0.1")
+		if !ok {
+			continue
+		}
+		if _, err := exec.LookPath(bin); err == nil {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// Available reports whether at least one diagnostic can run.
+func Available() bool { return len(AvailableTools()) > 0 }
+
 // hostRe bounds a hostname: it must start and end alphanumeric and hold only
 // letters, digits, dots and hyphens. This — plus the IP check — guarantees the
 // target can never start with '-' (and so be read as a flag) or carry a shell

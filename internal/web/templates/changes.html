@@ -97,7 +97,17 @@
 					Applying would overwrite those changes.</p>
 					{{end}}
 					<p>Adopting backs up the current file and lets birdy manage it from here. Nothing about the running daemon changes.</p>
-					{{if not .ReadOnly}}
+					{{if .ReadOnly}}
+					{{/* Without this, the panel explains adopting and then simply has no button —
+					     which reads as a broken page rather than a deliberate viewer mode. */}}
+					<p style="margin-bottom:0">
+						<strong>You cannot adopt from here:</strong> birdy is running as a viewer, started with
+						<span class="mono">--read-only</span>, so it never writes <span class="mono">{{.LivePath}}</span>.
+						Drop that flag from its systemd unit &mdash;
+						<span class="mono">sudo systemctl edit birdy</span>, then <span class="mono">systemctl restart birdy</span>
+						&mdash; and this button appears.
+					</p>
+					{{else}}
 					<form method="post" action="/apply/adopt" onsubmit="return confirm('Back up the current bird.conf and let birdy manage it?')">
 						<button type="submit" class="btn btn-primary">Adopt this router</button>
 					</form>

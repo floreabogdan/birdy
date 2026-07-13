@@ -13,9 +13,10 @@ description: |
   Web UI for BIRD 2.x that runs on your router.
   birdy manages eBGP/iBGP sessions, import/export policy, RPKI, RTBH and BFD from
   a database, renders the whole bird.conf and applies it with an armed
-  auto-revert, plus live visibility into what every session is doing. It ships
-  read-only and stays a viewer until you let it write. Reach it over an SSH
-  tunnel; never bind it to a public address.
+  auto-revert, plus live visibility into what every session is doing. It works
+  out of the box: no feature flags, no unit to edit. It listens on every
+  interface and has no TLS, so set the IP allow-list (Settings, Access control)
+  as soon as you log in, or bind it to loopback and reach it over an SSH tunnel.
 vendor: birdy
 homepage: https://github.com/floreabogdan/birdy
 license: 0BSD

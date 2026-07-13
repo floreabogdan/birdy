@@ -41,6 +41,24 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// CheckWritable fails when the database can be read but not written — the state a
+// root-created file leaves behind when the service then runs as another user.
+// SQLite only complains at the first write, so nothing above notices: birdy
+// starts, serves a login page, and the login (which inserts a session row) is
+// what finally breaks. Probing at startup turns that into one clear error.
+//
+// It writes, so it is a probe, not a query: a schema-only round trip that leaves
+// the database exactly as it found it.
+func (s *Store) CheckWritable() error {
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS write_probe (ok INTEGER)`); err != nil {
+		return fmt.Errorf("store: database is not writable: %w", err)
+	}
+	if _, err := s.db.Exec(`DROP TABLE write_probe`); err != nil {
+		return fmt.Errorf("store: database is not writable: %w", err)
+	}
+	return nil
+}
+
 // VacuumInto writes a consistent, point-in-time copy of the database to path
 // using SQLite's VACUUM INTO — safe to run against a live database with
 // concurrent readers/writers, no external locking required. path must not

@@ -33,8 +33,9 @@ It gives you:
 - a **model** of the config — peers, policies, prefix/AS sets — that it renders into the
   whole `bird.conf` and can apply for you, safely, with a one-command rollback.
 
-It ships **read-only** and stays a viewer until you decide to let it write. You get to trust
-it as a looking glass for as long as you like before it is allowed to touch anything.
+**It works the moment you install it.** No flags to discover, no unit to edit: birdy detects what
+the router can do — `bgpq4` for IRR expansion, `ping`/`traceroute` for diagnostics — and enables it.
+Writing `bird.conf` is still a deliberate act you take in the UI, not something it does on install.
 
 <table>
 <tr>
@@ -120,7 +121,7 @@ sudo dnf install ./birdy-*.x86_64.rpm
 The package does **not** start birdy — set it up first, as the post-install message explains:
 
 ```sh
-sudo -u birdy birdy init --db /var/lib/birdy/birdy.db --asn 64496 --router-id 192.0.2.1
+sudo birdy init --db /var/lib/birdy/birdy.db --asn 64496 --router-id 192.0.2.1
 sudo systemctl enable --now birdy
 ```
 
@@ -174,15 +175,28 @@ The image bundles the `bird` binary so `bird -p` syntax checks work inside the c
 Then, on the router:
 
 ```sh
-birdy doctor                       # preflight: can it reach BIRD? can it read what it needs?
+birdy doctor                       # preflight: can it reach BIRD? can it write what it needs?
 birdy init --asn 64496 --router-id 192.0.2.1 --label rtr1
-birdy server --read-only           # or install deploy/birdy.service
+sudo systemctl enable --now birdy  # the package installs the unit; no flags to add
 ```
 
 `birdy init` prompts for an admin password. It reads BIRD's control socket (`/run/bird/bird.ctl` by
-default), so it needs to run as a user in BIRD's group. A sample systemd unit is in
-[`deploy/birdy.service`](deploy/birdy.service): it runs birdy as an unprivileged `birdy` user in
-group `bird`, with `ProtectSystem=strict`.
+default), so it needs to run as a user in BIRD's group — the packaged unit
+([`deploy/birdy.service`](deploy/birdy.service)) runs it as an unprivileged `birdy` user in group
+`bird`, with `ProtectSystem=strict`. Run `init` under `sudo` if you like: it hands the database it
+creates to that account, so the service can write its own state.
+
+birdy then **listens on port 8080 on every interface**, and enables whatever the router can do. Two
+things follow from that, and both are one setting away:
+
+- **Set the access list.** Settings → Access control takes the IPs allowed to reach birdy at all;
+  anything else has its connection closed with no response. Until you do, birdy accepts connections
+  from anywhere and says so on the dashboard. **There is no TLS** — on a public address the login
+  crosses the network in the clear, so either restrict it to a management range you trust, or run it
+  closed with `birdy server --listen 127.0.0.1:8080` and an SSH tunnel.
+- **Run it as a viewer, if you prefer.** Add `--read-only` to the unit and birdy never writes
+  `bird.conf` or issues a write command to BIRD. Out of the box it *can* write — but only when you
+  press Adopt and then Apply, both deliberate acts with a diff, a backup and an armed auto-revert.
 
 ## What works today
 
@@ -191,8 +205,8 @@ group `bird`, with `ProtectSystem=strict`.
 - Per-peer detail: BGP state, channels, import limits, and the raw control-socket output
 - Route browser per session — imports, exports, and what was rejected on export
 - On-demand looking glass (`show route for …`)
-- Ping and traceroute from the router itself (opt-in, `--netdiag`) — a reachability looking glass to
-  go alongside the route one
+- Ping and traceroute from the router itself (on when those tools are installed) — a reachability
+  looking glass to go alongside the route one
 - Timeline of session transitions, flaps, and prefix-limit hits — interleaved with an audit trail of
   operator actions: who changed which peer or policy, and every config apply or revert
 - Alerts to any number of destinations — Slack, Discord, email (SMTP), or a generic JSON webhook —
@@ -203,7 +217,7 @@ group `bird`, with `ProtectSystem=strict`.
   revert birdy did not perform
 - Route-count history sparklines, on the dashboard grid and per peer, from samples birdy records itself —
   no Prometheus or Grafana needed to see when a session started leaking
-- A Prometheus `/metrics` endpoint (opt-in, `--metrics`) and a public `/healthz` liveness probe
+- A Prometheus `/metrics` endpoint (on once the access list is narrowed) and a public `/healthz` probe
 - Login rate-limiting (per-IP lockout) and a downloadable off-box backup bundle
 - Live BIRD-code preview on every editor: the generated config updates as you type, before you save
 
@@ -213,11 +227,12 @@ group `bird`, with `ProtectSystem=strict`.
   drain (RFC 8326 graceful shutdown), and BFD per peer
 - Composable import and export policy chains that can match communities, rather than one policy per
   session; clone a peer to make another of the same shape
-- A library of prefix sets, AS sets, and static routes — a prefix set can be expanded from an IRR
-  AS-SET with `bgpq4` (opt-in, `--bgpq4`), and kept current on a schedule (never auto-applied)
+- A library of prefix sets, AS sets, and static routes — both set kinds can be expanded from an IRR
+  AS-SET with `bgpq4` (used automatically when installed), and kept current on a schedule (never
+  auto-applied)
 - Seed peers from the running BIRD — scaffold the model from the sessions BIRD already runs, so adopting
   a router is a review-and-import rather than re-typing every session by hand
-- RFC 7999 customer blackhole (RTBH); PeeringDB lookups on the peer form (opt-in, `--peeringdb`)
+- RFC 7999 customer blackhole (RTBH); PeeringDB lookups on the peer form
 - BMP monitoring stations (RFC 7854) — stream every session's pre- and post-policy RIB to a collector
 - Bogon prefixes and bogon ASNs, editable, in Settings
 - RPKI: RTR servers and per-policy validation (log-only or drop-invalid), with a live list of the
@@ -244,23 +259,33 @@ still masked everywhere in the browser.
 
 ## Security
 
-birdy listens on `127.0.0.1:8080` by default. **Reach it over an SSH tunnel.** If you bind it to a
-LAN address, understand what you are exposing: a session cookie and a bcrypt password hash are the
-login's only defence, and birdy has no TLS.
+**birdy listens on every interface, and has no TLS.** It ships that way on purpose — a router UI that
+needs a config file edited before it answers is a UI nobody sets up — but it means the first thing to
+do after logging in is narrow who can reach it.
 
-Two things narrow that exposure. An **application-level IP allow-list** (Settings → Access control)
-refuses every request from an address you did not list — including the unauthenticated `/metrics` —
-by closing the connection with no response at all; loopback is always allowed, so an SSH tunnel can
-never lock you out. And an **audit log** on the timeline records every operator action, attributed to
-the user who made it. Neither is a substitute for the tunnel: prefer loopback, and think hard before
-you put birdy on a public address.
+The **IP allow-list** (Settings → Access control) is that control: every request from an address you
+did not list has its connection closed with no response at all. Loopback is always allowed, so an SSH
+tunnel can never lock you out, and the dashboard warns while the list still allows everything. The
+unauthenticated `/metrics` endpoint is gated on it too — no cookie can protect a Prometheus scrape, so
+it stays closed until the list is narrowed, and starts serving the moment it is.
+
+That is not TLS. On a public address the login and session cookie cross the network in the clear, and
+an allow-list does nothing about interception — only about who may connect. If the router is on the
+public internet, restrict it to a management range you control, or run it closed:
+
+```sh
+birdy server --listen 127.0.0.1:8080     # then: ssh -L 8080:127.0.0.1:8080 router
+```
+
+An **audit log** on the timeline records every operator action, attributed to the user who made it.
 
 BGP MD5 session passwords are stored **in the clear** in birdy's SQLite database, because that is the
 form BIRD needs them in. The database file is therefore as sensitive as `bird.conf` itself. Passwords
 are never rendered into the browser: the peer form shows a blank field meaning "unchanged", and both
 sides of the config diff are masked.
 
-Run it with `--read-only` until you have reason not to.
+If you want a pure viewer, add `--read-only` to the unit: birdy then never writes `bird.conf` and never
+issues a write command to BIRD.
 
 ## Development
 

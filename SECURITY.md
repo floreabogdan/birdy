@@ -32,12 +32,18 @@ Some properties are documented and by design, not vulnerabilities:
 - **MD5 session passwords are stored in cleartext** in birdy's SQLite database, because BIRD
   requires them in that form. The database file is as sensitive as `bird.conf` itself — protect
   it accordingly.
-- **`/metrics` is unauthenticated** and only served when `--metrics` is passed. Keep it off the
-  public internet (birdy binds loopback by default), or gate it with the IP allow-list below.
-- **There is no TLS.** birdy is meant to be reached over an SSH tunnel and bound to loopback. If it
-  must listen more broadly, the IP allow-list (Settings → Access control) can refuse every request
-  from an unlisted address, `/metrics` included. Operator actions are recorded in an audit trail on
-  the event timeline.
+- **birdy listens on every interface out of the box** (`0.0.0.0:8080`), and its IP allow-list starts
+  as allow-all. This is deliberate: a router UI that will not answer until a config file is edited
+  does not get set up. The dashboard warns while it is in that state. Narrow it under
+  Settings → Access control — an unlisted address then has its connection closed with no response —
+  or bind it closed with `--listen 127.0.0.1:8080` and reach it over an SSH tunnel.
+- **`/metrics` is unauthenticated**, because a Prometheus scrape cannot carry a session cookie. It is
+  therefore gated on the allow-list: it returns 403 while every IP is allowed, and serves as soon as
+  the list is narrowed.
+- **There is no TLS.** On a public address the login and session cookie travel in the clear, and the
+  allow-list does nothing about that — it governs who may connect, not what is readable on the wire.
+  Put birdy on a management network you trust, or on loopback behind an SSH tunnel. Operator actions
+  are recorded in an audit trail on the event timeline.
 
 Reports that amount to "you can do damage if you already have the birdy database, the login
 cookie, or root on the router" are out of scope — those are equivalent to already controlling

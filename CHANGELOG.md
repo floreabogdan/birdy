@@ -6,20 +6,58 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-07-13
+
+This release is about the install. birdy used to arrive switched off: every optional
+feature behind a flag, write access behind a systemd-unit edit, and a database that
+`sudo birdy init` could leave unwritable — which then surfaced as "internal error" at
+the first login. **A fresh install now works, with nothing to edit.**
+
 ### Added
 - **AS sets expand and auto-refresh from the IRR.** The AS-set page recorded the
   source `AS-SET` but never used it — you expanded it yourself and pasted the
-  members in. Now, with `--bgpq4`, it works like a prefix set does: **Expand from
-  IRR** on the form fills the member AS numbers in for review, **Auto-refresh from
-  IRR** keeps them current on `--irr-refresh-interval`, and **Refresh now** (the ↻
-  on the list) re-expands one set on demand. The list shows each set's AS-SET, its
-  auto badge, last sync and any error. Refreshes update the model only — the change
-  waits on Changes for you to review and apply, same as everything else. Notes you
-  wrote against a member survive the refresh, and an empty expansion — which is what
+  members in. Now it works like a prefix set does: **Expand from IRR** on the form
+  fills the member AS numbers in for review, **Auto-refresh from IRR** keeps them
+  current on `--irr-refresh-interval`, and **Refresh now** (the ↻ on the list)
+  re-expands one set on demand. The list shows each set's AS-SET, its auto badge,
+  last sync and any error. Refreshes update the model only — the change waits on
+  Changes for you to review and apply, same as everything else. Notes you wrote
+  against a member survive the refresh, and an empty expansion — which is what
   `bgpq4` returns for an AS-SET the IRR does not know — keeps the previous members
   rather than emptying a set that would then reject every route.
 
+### Changed
+- **Optional features are detected, not declared.** birdy looks for `bgpq4` (IRR
+  expansion) and `ping`/`traceroute` (diagnostics) at startup and enables what the
+  router actually has, logging the verdict. PeeringDB lookups are on. `--bgpq4 off`,
+  `--netdiag=false`, `--peeringdb=false` and `--metrics=false` turn things off; no
+  flag turns anything on any more.
+- **birdy listens on `0.0.0.0:8080`** (was loopback) and **is no longer `--read-only`
+  by default** — the packaged unit ships without the flag, and grants `/etc/bird` to
+  the `bird` group, so Adopt and Apply work out of the box. Writing `bird.conf` is
+  still a deliberate act in the UI; nothing is written on install. Add `--read-only`
+  back to run birdy as a pure viewer.
+- **`/metrics` is on by default, but gated on the access list.** It cannot carry a
+  session cookie, so serving it from a wide-open bind would publish the router's
+  session inventory. It returns 403 while the IP allow-list allows everything, and
+  starts serving the moment you narrow the list — no flag, no restart.
+- **The dashboard warns when birdy is reachable from any IP** with an allow-all access
+  list. Shipping open is only defensible if birdy says so where you will see it.
+
 ### Fixed
+- **A root-created database no longer bricks the first login.** `birdy init` under
+  `sudo` left `birdy.db` owned by root while the service runs as `birdy`: SQLite then
+  opened it read-only, birdy started anyway, and logging in — which writes a session
+  row — failed with "internal error", the real reason visible only in the journal.
+  Now `init` hands the database (and its `-wal`/`-shm`) to the service account, the
+  server **refuses to start on a database it cannot write** and prints the `chown` that
+  fixes it, `birdy doctor` checks the database *file* and not just its directory, and
+  the package's post-install repairs an install that already went wrong.
+- **`birdy doctor` no longer warns that "birdy writes as uid 0".** Run under `sudo` it
+  judged root, not the `birdy` account the service actually runs as, and cried wolf
+  about BIRD being unable to read birdy's files on every correctly-installed router.
+- **The "adopt this router" panel explains itself in read-only mode.** It told you to
+  adopt and then showed no button, which reads as a broken page rather than a viewer.
 - **Editing a prefix set on a birdy without `bgpq4` no longer silently switches its
   auto-refresh off.** The checkbox is not rendered there, so saving the form used to
   clear the opt-in.

@@ -202,5 +202,19 @@ func checkDBDir(cfg Config) Result {
 		return Result{"database path", Fail, fmt.Sprintf("%s is not writable: %v", dir, err)}
 	}
 	os.Remove(probe)
-	return Result{"database path", OK, dir + " is writable"}
+
+	// A writable directory is not enough, and the difference is the classic way a
+	// packaged install breaks: run "birdy init" as root and the database file it
+	// creates belongs to root, while the service runs as birdy. birdy can then read
+	// its state but not write it — so it starts, serves a login page, and fails on
+	// the first login (which inserts a session row). Check the file itself.
+	if _, err := os.Stat(cfg.DBPath); err == nil {
+		f, err := os.OpenFile(cfg.DBPath, os.O_WRONLY, 0)
+		if err != nil {
+			return Result{"database path", Fail, fmt.Sprintf(
+				"%s exists but is not writable by this user: %v — birdy stores its own state (logins, events, history) there even in read-only mode. Fix with: sudo chown -R birdy:birdy %s", cfg.DBPath, err, dir)}
+		}
+		f.Close()
+	}
+	return Result{"database path", OK, dir + " and the database file are writable"}
 }
