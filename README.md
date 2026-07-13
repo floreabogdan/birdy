@@ -265,8 +265,9 @@ do after logging in is narrow who can reach it.
 
 The **IP allow-list** (Settings → Access control) is that control: every request from an address you
 did not list has its connection closed with no response at all. Loopback is always allowed, so an SSH
-tunnel can never lock you out, and the dashboard warns while the list still allows everything. The
-unauthenticated `/metrics` endpoint is gated on it too — no cookie can protect a Prometheus scrape, so
+tunnel can never lock you out. While the list still allows everything, birdy says so once in its
+startup log and flags it on that settings page. The unauthenticated `/metrics` endpoint is gated on it
+too — no cookie can protect a Prometheus scrape, so
 it stays closed until the list is narrowed, and starts serving the moment it is.
 
 That is not TLS. On a public address the login and session cookie cross the network in the clear, and

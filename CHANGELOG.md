@@ -6,6 +6,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **The router label is editable.** It named the router in alerts but could only be
+  set by `birdy init --label` — Settings showed it as read-only text, so renaming a
+  router meant re-initialising it. It is now a field under Settings → General, next
+  to the router ID and ASN. (The big name on the dashboard is a different thing: it
+  is the system hostname, reported by BIRD.)
+
+### Changed
+- **The wide-open warning left the dashboard.** Binding every interface with an
+  allow-all access list is still called out — once in the startup log, and on the
+  Access settings page that fixes it — but not on the page you keep open all day. A
+  warning seen a hundred times is one you stop reading, and it cannot be acted on
+  from where it appeared.
+
 ## [0.3.3] - 2026-07-13
 
 This release is about the install. birdy used to arrive switched off: every optional

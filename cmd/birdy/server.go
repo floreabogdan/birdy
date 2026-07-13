@@ -119,6 +119,14 @@ Fix it with:
 	// Keep IRR-expanded prefix sets current (model only — never auto-applied).
 	go srv.RunIRRRefresh(ctx, *irrRefreshInterval)
 
+	// Said once, at startup, and never again: birdy binds every interface by
+	// default and has no TLS, so an allow-all access list means the login crosses
+	// the network in the clear to anyone who finds the port.
+	if srv.WideOpen() {
+		log.Warn("birdy is reachable from any IP and has no TLS — set the access list under Settings > Access control, or bind loopback with --listen 127.0.0.1:8080",
+			"addr", effListen)
+	}
+
 	httpServer := &http.Server{Addr: effListen, Handler: srv}
 	errCh := make(chan error, 1)
 	go func() {

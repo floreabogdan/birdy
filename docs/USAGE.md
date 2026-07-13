@@ -235,8 +235,8 @@ sudo systemctl enable --now birdy
 reachable the moment it starts: `http://<router>:8080`.
 
 **Then narrow who can reach it.** birdy has no TLS, and its IP allow-list starts as
-allow-all — the dashboard warns until you change it. Under **Settings → Access
-control**, list the addresses allowed to reach birdy; every other connection is
+allow-all (it says so in the startup log, and flags it on the page below). Under
+**Settings → Access control**, list the addresses allowed to reach birdy; every other connection is
 closed with no response (this also switches on the unauthenticated `/metrics`).
 Prefer it closed? Run it on loopback and tunnel in:
 

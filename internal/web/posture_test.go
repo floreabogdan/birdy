@@ -9,14 +9,18 @@ import (
 )
 
 // birdy ships bound to every interface with an allow-all access list, so it works
-// the moment it is installed. That is only defensible if the UI says so: the
-// dashboard must warn until the operator narrows the list.
-func TestDashboardWarnsWhenWideOpen(t *testing.T) {
+// the moment it is installed. It says so where the operator can act on it — the
+// Access settings page — and NOT on the dashboard, which is the page you keep
+// open all day; a warning you see a hundred times is one you stop reading.
+func TestAccessPageFlagsWideOpen(t *testing.T) {
 	env := newTestEnv(t, false, func(c *Config) { c.ListenAddr = "0.0.0.0:8080" })
 
-	rec := env.do(t, "GET", "/", nil)
-	if !strings.Contains(rec.Body.String(), "reachable from any IP") {
-		t.Error("an openly bound birdy with an allow-all access list must warn on the dashboard")
+	rec := env.do(t, "GET", "/settings?tab=access", nil)
+	if !strings.Contains(rec.Body.String(), "open to any IP") {
+		t.Error("the access page should flag an openly bound birdy with an allow-all list")
+	}
+	if dash := env.do(t, "GET", "/", nil); strings.Contains(dash.Body.String(), "reachable from any IP") {
+		t.Error("the dashboard must not nag about it")
 	}
 
 	// Narrowing the list is what clears it.
@@ -27,19 +31,19 @@ func TestDashboardWarnsWhenWideOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	env.srv.reloadAccess()
-	rec = env.do(t, "GET", "/", nil)
-	if strings.Contains(rec.Body.String(), "reachable from any IP") {
-		t.Error("a narrowed access list should clear the warning")
+	rec = env.do(t, "GET", "/settings?tab=access", nil)
+	if strings.Contains(rec.Body.String(), "open to any IP") {
+		t.Error("a narrowed access list should clear the flag")
 	}
 }
 
 // Bound to loopback, nothing off-box can reach birdy whatever the access list
-// says — warning there would be noise.
-func TestDashboardQuietOnLoopback(t *testing.T) {
+// says — flagging it would be noise.
+func TestAccessPageQuietOnLoopback(t *testing.T) {
 	env := newTestEnv(t, false, func(c *Config) { c.ListenAddr = "127.0.0.1:8080" })
-	rec := env.do(t, "GET", "/", nil)
-	if strings.Contains(rec.Body.String(), "reachable from any IP") {
-		t.Error("a loopback bind must not warn")
+	rec := env.do(t, "GET", "/settings?tab=access", nil)
+	if strings.Contains(rec.Body.String(), "open to any IP") {
+		t.Error("a loopback bind must not be flagged as open")
 	}
 }
 

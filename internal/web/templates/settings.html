@@ -36,9 +36,15 @@
 				<div class="card">
 					<div class="card-header"><span class="card-title">{{template "icon-settings"}}Router identity</span></div>
 					<div class="card-body">
-						<p class="text-muted" style="margin-top:0">These two values open every rendered config. BIRD will not start without a router ID.</p>
+						<p class="text-muted" style="margin-top:0">The router ID and ASN open every rendered config. BIRD will not start without a router ID.</p>
 						<form method="post" action="/settings/identity">
 							<div class="field-row">
+								<div class="field">
+									<label for="routerLabel">Router label</label>
+									<input type="text" id="routerLabel" name="routerLabel" value="{{.Settings.RouterLabel}}" placeholder="rt1.example.net" autocomplete="off">
+									<div class="hint">What to call this router. Names it in alerts (Slack, Discord, email) so you know which one flapped; never rendered into <span class="mono">bird.conf</span>.</div>
+									{{with index .IdentityErrs "routerLabel"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
 								<div class="field">
 									<label for="routerId">Router ID</label>
 									<input type="text" id="routerId" name="routerId" class="mono" value="{{.Settings.RouterID}}" placeholder="192.0.2.1" autocomplete="off">
@@ -67,7 +73,6 @@
 					<div class="card-header">Router</div>
 					<div class="card-body">
 						<dl class="kv">
-							<dt>Label</dt><dd>{{.Settings.RouterLabel}}</dd>
 							<dt>BIRD socket</dt><dd>{{.Settings.BirdSocketPath}}</dd>
 							<dt>Listen address</dt><dd>{{.Settings.ListenAddr}}</dd>
 							<dt>Mode</dt><dd>{{if .ReadOnly}}<span class="badge badge-warning">read-only</span>{{else}}<span class="badge badge-success">read-write</span>{{end}}</dd>
@@ -161,8 +166,15 @@
 
 			<section data-tab-panel="access" {{if ne .Tab "access"}}hidden{{end}} class="tab-panel">
 				<div class="card">
-					<div class="card-header"><span class="card-title">{{template "icon-key"}}Access control</span></div>
+					<div class="card-header"><span class="card-title">{{template "icon-key"}}Access control</span>{{if .WideOpen}}<span class="badge badge-warning">open to any IP</span>{{end}}</div>
 					<div class="card-body">
+						{{if .WideOpen}}
+						<p class="text-muted" style="margin-top:0">
+							birdy is currently reachable from <strong>any</strong> address, and it has no TLS &mdash; on a public
+							address the login travels in the clear. Narrowing the list below is the fix, and it also switches on
+							<span class="mono">/metrics</span>.
+						</p>
+						{{end}}
 						<p style="margin-top:0">
 							An application-level firewall: only these IPs and CIDRs may reach birdy at all. A blocked client gets
 							<strong>no response</strong> &mdash; the connection is simply closed &mdash; and it applies to every

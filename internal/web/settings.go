@@ -49,6 +49,10 @@ type SettingsView struct {
 	AccessWhitelist string
 	AccessErr       string
 	ConnectingIP    string
+	// WideOpen: bound beyond loopback with an allow-all list. Flagged here, on the
+	// page that fixes it, rather than on the dashboard — a warning you cannot act
+	// on from where it appears is just noise you learn to skip.
+	WideOpen bool
 }
 
 // settingsTabs are the tab keys in display order; the first is the default.
@@ -82,11 +86,13 @@ func (s *Server) renderSettings(w http.ResponseWriter, v SettingsView) {
 			v.Settings = settings
 		} else {
 			stored := settings
+			stored.RouterLabel = v.Settings.RouterLabel
 			stored.RouterID = v.Settings.RouterID
 			stored.LocalASN = v.Settings.LocalASN
 			v.Settings = stored
 		}
 	}
+	v.WideOpen = s.WideOpen()
 	if s.snap != nil {
 		if p, ok := s.snap.LatestSnapshot(); ok {
 			v.LatestSnapshot = p
@@ -235,6 +241,16 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 	}
 
 	errs := map[string]string{}
+	// The label only names the router to a human — in alerts and the config-backup
+	// mail — so it is free text. It still has to survive a JSON payload and an
+	// email header intact, which line breaks would not.
+	label := strings.TrimSpace(r.FormValue("routerLabel"))
+	switch {
+	case len(label) > 64:
+		errs["routerLabel"] = "Keep the label under 64 characters."
+	case strings.ContainsAny(label, "\r\n"):
+		errs["routerLabel"] = "Line breaks are not allowed."
+	}
 	routerID := strings.TrimSpace(r.FormValue("routerId"))
 	if addr, err := netip.ParseAddr(routerID); err != nil || !addr.Is4() {
 		errs["routerId"] = "A BGP router ID is a 32-bit value, written as an IPv4 address."
@@ -250,6 +266,7 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 
 	if len(errs) > 0 {
 		v := SettingsView{Active: "settings", Tab: "general", ReadOnly: s.readOnly, IdentityErrs: errs}
+		v.Settings.RouterLabel = label
 		v.Settings.RouterID = routerID
 		v.Settings.LocalASN = sql.NullInt64{Int64: asn, Valid: errs["localAsn"] == ""}
 		v.Settings.RRClusterID = probe.RRClusterID
@@ -257,6 +274,7 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	settings.RouterLabel = label
 	settings.RouterID = routerID
 	settings.LocalASN = sql.NullInt64{Int64: asn, Valid: true}
 	settings.RRClusterID = probe.RRClusterID

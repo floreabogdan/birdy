@@ -34,8 +34,8 @@ Some properties are documented and by design, not vulnerabilities:
   it accordingly.
 - **birdy listens on every interface out of the box** (`0.0.0.0:8080`), and its IP allow-list starts
   as allow-all. This is deliberate: a router UI that will not answer until a config file is edited
-  does not get set up. The dashboard warns while it is in that state. Narrow it under
-  Settings → Access control — an unlisted address then has its connection closed with no response —
+  does not get set up. birdy warns once in its startup log while it is in that state, and flags it on
+  the Access settings page. Narrow it under Settings → Access control — an unlisted address then has its connection closed with no response —
   or bind it closed with `--listen 127.0.0.1:8080` and reach it over an SSH tunnel.
 - **`/metrics` is unauthenticated**, because a Prometheus scrape cannot carry a session cookie. It is
   therefore gated on the allow-list: it returns 403 while every IP is allowed, and serves as soon as

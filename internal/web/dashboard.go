@@ -84,12 +84,6 @@ type DashboardView struct {
 	// the dashboard's trend sparklines. Sent in the JSON so the sparkline survives
 	// the live table rebuild, and drawn identically server-side on first paint.
 	History map[string][]int `json:"history"`
-
-	// WideOpen is set when birdy listens beyond loopback AND the access list still
-	// allows every IP — the state a fresh install starts in. birdy ships open so it
-	// works without editing anything, which only stays defensible if it says so
-	// where the operator will see it.
-	WideOpen bool `json:"-"`
 }
 
 // buildProtoRows turns a poll snapshot into the table rows shared by the
@@ -140,7 +134,6 @@ func (s *Server) buildDashboardView() DashboardView {
 		Status:      snap.Status,
 		UpdatedAt:   snap.UpdatedAt,
 		TotalRoutes: snap.TotalRoutes,
-		WideOpen:    s.wideOpen(),
 	}
 	if settings, ok, err := s.store.GetSettings(); err == nil && ok && settings.LocalASN.Valid {
 		v.LocalASN = strconv.FormatInt(settings.LocalASN.Int64, 10)

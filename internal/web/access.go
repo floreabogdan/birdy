@@ -81,11 +81,14 @@ func (s *Server) accessRestricted() bool {
 	return store.AccessRestricted(s.accessList)
 }
 
-// wideOpen reports the posture a fresh install starts in: reachable from beyond
+// WideOpen reports the posture a fresh install starts in: reachable from beyond
 // this host, with an access list that still allows every IP. birdy has no TLS, so
-// in that state the login and session cookie cross the network in the clear — the
-// UI says so on the dashboard rather than leaving it to be discovered.
-func (s *Server) wideOpen() bool {
+// in that state the login and session cookie cross the network in the clear.
+//
+// It is said once, at startup, in the log, and shown on the Access settings page
+// where the operator would act on it — deliberately NOT nagged on the dashboard,
+// which is the page you stare at all day.
+func (s *Server) WideOpen() bool {
 	return !s.listenLoopback() && !s.accessRestricted()
 }
 
