@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-13
+
 ### Added
 - **Looking glass decodes route communities.** With "show all + attributes"
   checked, every route now shows its BGP communities, local-pref, origin and MED.
@@ -15,6 +17,26 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `RPKI_INVALID` tags — each colour-coded by meaning so a blackhole or an
   RPKI-invalid route stands out. Works for the "imported from peer" query too, so
   you can see exactly what a peer is tagging.
+
+### Changed
+- **Looking Glass and Diagnostics are now one tabbed page** — Routes (the route
+  looking glass) and Diagnostics (ping/traceroute) share a single sidebar entry.
+- **Settings is organised into tabs** — General, Bogons, Access, Alerts, Advanced
+  — and the alert destinations moved from their own page into the Alerts tab.
+- The dashboard's session count and health verdict now count **only BGP sessions**;
+  infrastructure protocols (device, kernel, static, RPKI) are shown separately
+  rather than inflating the session total.
+- **"Routes in RIB"** (and the `birdy_routes_total` metric) **excludes RPKI ROA
+  tables**, which otherwise dwarf the real route count once RPKI is running.
+
+### Fixed
+- `show protocols` parsing broke on protocol names longer than the fixed column —
+  including the aggregate originators birdy generates itself — mis-reading the
+  state, cutting the name, and wrongly counting the protocol as down. It now parses
+  by whitespace, so long names are safe.
+- Infrastructure protocols no longer raise session down/up/flap alerts. An RPKI
+  RTR cache reconnecting to a public validator was firing a "flap" every few
+  minutes; only BGP sessions raise these alerts now.
 
 ## [0.3.1] - 2026-07-12
 
@@ -81,7 +103,8 @@ router and gives you:
 - Multi-arch release binaries (Linux amd64/arm64/arm, FreeBSD, macOS) and a
   multi-arch container image on GHCR.
 
-[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/floreabogdan/birdy/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/floreabogdan/birdy/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/floreabogdan/birdy/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/floreabogdan/birdy/compare/v0.1.0...v0.2.0
