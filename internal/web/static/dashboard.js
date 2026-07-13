@@ -117,6 +117,13 @@
 			var badgeClass = p.up ? "badge-success" : "badge-danger";
 			// BIRD's own vocabulary: Established, Active, Connect, Idle.
 			var state = p.info || p.state;
+			// A peer switched off in birdy is down on purpose. BIRD reports it as
+			// plain "down", same as a session that failed — only the model knows
+			// which is which, so it rides along in the JSON.
+			if (p.disabled && !p.up) {
+				badgeClass = "badge";
+				state = "disabled";
+			}
 			var managed = p.configured
 				? '<span class="badge badge-success">configured</span>'
 				: '<span class="badge badge-warning">unmanaged</span>';

@@ -205,6 +205,70 @@ func TestPollerNoTransitionEventsForInfra(t *testing.T) {
 	}
 }
 
+// Disabling a peer and applying it takes the session down on purpose. BIRD reports
+// the protocol as plain "down" — the same word it uses for a session that failed —
+// so without consulting the model, birdy would page somebody about a change they
+// just made themselves.
+func TestPollerNoDownEventForADisabledPeer(t *testing.T) {
+	st := openTestStore(t)
+	if _, err := st.CreatePeer(store.Peer{
+		Name: "edge_v4", Role: store.RoleUpstream, Enabled: false,
+		NeighborIP: "192.0.2.1", RemoteASN: 64496, ImportLimitAction: "warn",
+		GracefulRestart: store.GRAware,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{polls: [][]birdc.ProtocolSummary{
+		{bgp("edge_v4", "up", "Established")}, // baseline: still running, not yet applied
+		{bgp("edge_v4", "down", "")},          // the apply lands; BIRD parks the protocol
+	}}
+	p := New(fc, st, time.Second, nil)
+	p.poll()
+	p.poll()
+
+	events, _ := st.ListEvents(10, 0)
+	for _, e := range events {
+		if e.Kind == store.EventSessionDown || e.Kind == store.EventFlap {
+			t.Errorf("a peer disabled in the model must not raise %s: %+v", e.Kind, e)
+		}
+	}
+	// The snapshot still knows it is disabled, so the UI can say so rather than "down".
+	if st := p.Snapshot().States["edge_v4"]; !st.Disabled {
+		t.Error("the snapshot should carry the disabled flag for the UI")
+	}
+}
+
+// An enabled peer going down is exactly what alerts are for — the suppression above
+// must not swallow a real failure.
+func TestPollerStillAlertsForAnEnabledPeer(t *testing.T) {
+	st := openTestStore(t)
+	if _, err := st.CreatePeer(store.Peer{
+		Name: "edge_v4", Role: store.RoleUpstream, Enabled: true,
+		NeighborIP: "192.0.2.1", RemoteASN: 64496, ImportLimitAction: "warn",
+		GracefulRestart: store.GRAware,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fc := &fakeClient{polls: [][]birdc.ProtocolSummary{
+		{bgp("edge_v4", "up", "Established")},
+		{bgp("edge_v4", "start", "Connect")},
+	}}
+	p := New(fc, st, time.Second, nil)
+	p.poll()
+	p.poll()
+
+	events, _ := st.ListEvents(10, 0)
+	var down int
+	for _, e := range events {
+		if e.Kind == store.EventSessionDown {
+			down++
+		}
+	}
+	if down != 1 {
+		t.Errorf("an enabled peer going down should raise exactly one session_down, got %d", down)
+	}
+}
+
 func TestPollerNotifiesOnTransition(t *testing.T) {
 	st := openTestStore(t)
 	fc := &fakeClient{polls: [][]birdc.ProtocolSummary{

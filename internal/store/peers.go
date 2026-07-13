@@ -334,6 +334,38 @@ func (s *Store) UpdatePeer(p Peer) error {
 	return affectedOne(res)
 }
 
+// SetPeerEnabled flips one peer's enabled flag and nothing else, so the toggle on
+// the peers list cannot clobber a field someone is editing on the form at the
+// same moment. Like every model write, it does not touch the router: the peer
+// renders with BIRD's "disabled" on the next apply.
+func (s *Store) SetPeerEnabled(id int64, enabled bool) error {
+	res, err := s.db.Exec(`UPDATE peers SET enabled = ?, updated_at = ? WHERE id = ?`, enabled, now(), id)
+	if err != nil {
+		return fmt.Errorf("store: set peer enabled: %w", err)
+	}
+	return affectedOne(res)
+}
+
+// DisabledPeerNames is the set of peers the model has switched off, by protocol
+// name. The poller reads it to tell a session that is down from one that was
+// never meant to be up.
+func (s *Store) DisabledPeerNames() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT name FROM peers WHERE enabled = 0`)
+	if err != nil {
+		return nil, fmt.Errorf("store: list disabled peers: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		out[name] = true
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) DeletePeer(id int64) error {
 	res, err := s.db.Exec(`DELETE FROM peers WHERE id = ?`, id)
 	if err != nil {

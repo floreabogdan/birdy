@@ -66,11 +66,22 @@
 							<td class="num text-muted">&mdash;</td>
 							{{end}}
 							<td>
-								{{if $live.Name}}<a href="/peers/{{.Name}}">{{sessionBadge $live.Up $live.BGPState}}</a>
-								{{else if not .Enabled}}<span class="badge">disabled</span>
+								{{if not .Enabled}}
+									{{/* The model says off. If BIRD still has the session up, the disable has not
+									     been applied yet — say so, rather than claim a state that is not real. */}}
+									<span class="badge" title="Switched off in birdy. Once applied, BIRD does not even try to connect.">disabled</span>
+									{{if $live.Up}}<span class="badge badge-warning" title="BIRD is still running this session — apply the pending change to stop it.">pending apply</span>{{end}}
+								{{else if $live.Name}}<a href="/peers/{{.Name}}">{{sessionBadge $live.Up $live.BGPState}}</a>
 								{{else}}<span class="badge badge-warning" title="BIRD has no protocol by this name. birdy has not applied a config.">not applied</span>{{end}}
 							</td>
 							<td class="row-actions">
+								<form method="post" action="/peers/{{.Name}}/toggle">
+									{{if .Enabled}}
+									<button type="submit" class="icon-action a-danger" title="Disable {{.Name}} — once applied, BIRD stops connecting" aria-label="Disable {{.Name}}">{{template "icon-power"}}</button>
+									{{else}}
+									<button type="submit" class="icon-action a-success" title="Enable {{.Name}}" aria-label="Enable {{.Name}}">{{template "icon-power"}}</button>
+									{{end}}
+								</form>
 								<a class="icon-action" href="/peers/new?from={{.Name}}" title="Clone {{.Name}} into a new peer" aria-label="Clone {{.Name}}">{{template "icon-copy"}}</a>
 								<a class="icon-action a-primary" href="/peers/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
 								<form method="post" action="/peers/{{.Name}}/delete" onsubmit="return confirm('Delete peer {{.Name}}? This only changes birdy\'s model — the running session is untouched.')">

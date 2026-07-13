@@ -78,7 +78,7 @@ func TestPreview(t *testing.T) {
 			dash.Infra = append(dash.Infra, row)
 		}
 	}
-	dash.StatusText, dash.StatusOK = sessionVerdict(dash.PollErr, len(dash.Sessions), dash.SessionDown)
+	dash.StatusText, dash.StatusOK = sessionVerdict(dash.PollErr, len(dash.Sessions), dash.SessionDown, dash.SessionDisabled)
 
 	peer := SessionDetailView{
 		Active:     "peers",

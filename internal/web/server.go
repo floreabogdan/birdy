@@ -273,6 +273,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /peers/{name}/edit", s.requireAuth(s.handlePeerEdit))
 	s.mux.Handle("POST /peers/{name}/edit", s.requireAuth(s.handlePeerSave))
 	s.mux.Handle("POST /peers/{name}/delete", s.requireAuth(s.handlePeerDelete))
+	s.mux.Handle("POST /peers/{name}/toggle", s.requireAuth(s.handlePeerToggle))
 	// The live view used to live under /sessions; keep old links alive.
 	s.mux.Handle("GET /sessions/{name}", s.requireAuth(s.handleLegacySessionDetail))
 

@@ -47,22 +47,28 @@ func TestSessionVerdict(t *testing.T) {
 		pollErr  string
 		total    int
 		down     int
+		disabled int
 		wantText string
 		wantOK   bool
 	}{
-		{"poll error outranks counts", "dial unix: no such file", 2, 0, "BIRD unreachable", false},
-		{"no sessions", "", 0, 0, "No BGP sessions", false},
-		{"all up", "", 2, 0, "All 2 sessions up", true},
-		{"single session up", "", 1, 0, "All 1 session up", true},
-		{"some down", "", 4, 1, "1 of 4 sessions down", false},
-		{"single session down", "", 1, 1, "1 of 1 session down", false},
+		{"poll error outranks counts", "dial unix: no such file", 2, 0, 0, "BIRD unreachable", false},
+		{"no sessions", "", 0, 0, 0, "No BGP sessions", false},
+		{"all up", "", 2, 0, 0, "All 2 sessions up", true},
+		{"single session up", "", 1, 0, 0, "All 1 session up", true},
+		{"some down", "", 4, 1, 0, "1 of 4 sessions down", false},
+		{"single session down", "", 1, 1, 0, "1 of 1 session down", false},
+		// A peer switched off on purpose is not a fault: it is named, but it neither
+		// counts as down nor turns the verdict red.
+		{"disabled is not down", "", 2, 0, 1, "All 2 sessions up · 1 disabled", true},
+		{"disabled alongside a real failure", "", 2, 1, 1, "1 of 2 sessions down · 1 disabled", false},
+		{"everything disabled", "", 0, 0, 2, "No active BGP sessions (2 disabled)", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			text, ok := sessionVerdict(c.pollErr, c.total, c.down)
+			text, ok := sessionVerdict(c.pollErr, c.total, c.down, c.disabled)
 			if text != c.wantText || ok != c.wantOK {
-				t.Errorf("sessionVerdict(%q, %d, %d) = (%q, %v), want (%q, %v)",
-					c.pollErr, c.total, c.down, text, ok, c.wantText, c.wantOK)
+				t.Errorf("sessionVerdict(%q, %d, %d, %d) = (%q, %v), want (%q, %v)",
+					c.pollErr, c.total, c.down, c.disabled, text, ok, c.wantText, c.wantOK)
 			}
 		})
 	}

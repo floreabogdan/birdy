@@ -256,6 +256,32 @@ func (s *Server) handlePeerDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/peers?flash="+flash("Deleted "+p.Name), http.StatusSeeOther)
 }
 
+// handlePeerToggle switches a peer off (or back on) straight from the list,
+// because "shut this session" is a thing you reach for in a hurry and should not
+// require opening a form and finding a checkbox.
+//
+// It changes the model, not the router — like every other edit in birdy. A
+// disabled peer renders with BIRD's "disabled", so once applied BIRD stops
+// trying to connect entirely; until then the session keeps running and the
+// pending change sits on the Changes page. The flash says so, because a toggle
+// that looks instant but is not would be worse than no toggle at all.
+func (s *Server) handlePeerToggle(w http.ResponseWriter, r *http.Request) {
+	p, ok := namedEntity(s, w, r, s.store.GetPeerByName, "peer")
+	if !ok {
+		return
+	}
+	if err := s.store.SetPeerEnabled(p.ID, !p.Enabled); err != nil {
+		s.serverError(w, "toggle peer", err)
+		return
+	}
+	verb := "Disabled"
+	if !p.Enabled {
+		verb = "Enabled"
+	}
+	s.audit(r, strings.ToLower(verb)+" peer "+p.Name)
+	http.Redirect(w, r, "/peers?flash="+flash(verb+" "+p.Name+" — review it under Changes and apply to take effect on the router."), http.StatusSeeOther)
+}
+
 // renderPeerForm fills in the live BIRD-code preview and the lint findings
 // before rendering. The preview always masks secrets: it goes to a browser.
 func (s *Server) renderPeerForm(w http.ResponseWriter, v peerFormView) {

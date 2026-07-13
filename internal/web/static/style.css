@@ -619,6 +619,8 @@ td.num, th.num { text-align: right; }
 .a-secondary:hover { background: color-mix(in srgb, var(--secondary) 12%, var(--surface)); }
 .a-danger { color: var(--danger-deep); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
 .a-danger:hover { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); }
+.a-success { color: var(--success-deep); border-color: color-mix(in srgb, var(--success) 45%, transparent); }
+.a-success:hover { background: color-mix(in srgb, var(--success) 12%, var(--surface)); }
 
 /* ---------- quick actions ---------- */
 .quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-bottom: 20px; }

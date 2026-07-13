@@ -7,6 +7,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Disable a session straight from the peers list.** A power button on each row
+  switches a peer off (and back on) without opening the form — it is a thing you
+  reach for in a hurry. Like every edit in birdy it changes the model, so the row
+  says **pending apply** while BIRD still has the session up.
+- **"Disabled" is now its own state, not "down".** A peer switched off renders with
+  BIRD's `disabled`, so BIRD makes **no connection attempts at all** — but it then
+  reports the protocol as plain `down`, exactly like a session that failed. birdy
+  now tells the two apart everywhere: the peers list and dashboard show a neutral
+  *disabled* badge instead of a red *down*, the health verdict counts it separately
+  ("All 2 sessions up · 1 disabled") rather than calling the router unhealthy, and
+  **the poller no longer raises down/flap alerts for it** — applying a disable is a
+  change you made on purpose, not an outage worth paging you about.
 - **The router label is editable.** It named the router in alerts but could only be
   set by `birdy init --label` — Settings showed it as read-only text, so renaming a
   router meant re-initialising it. It is now a field under Settings → General, next

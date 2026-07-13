@@ -35,6 +35,11 @@ type protoRow struct {
 	// Configured reports whether birdy's model has a peer of this name. Only
 	// meaningful for BGP: device and kernel protocols are birdy's own scaffolding.
 	Configured bool `json:"configured"`
+	// Disabled: the model has this peer switched off, so BIRD is not even trying
+	// to connect. BIRD calls that "down", the same word it uses for a session that
+	// failed — but one is a fault and the other is a decision, and a dashboard that
+	// paints them the same colour teaches you to ignore red.
+	Disabled bool `json:"disabled"`
 }
 
 // IsBGP separates the sessions an operator cares about from the plumbing BIRD
@@ -66,14 +71,18 @@ type DashboardView struct {
 	// UpCount/DownCount count every protocol; SessionUp/SessionDown count only the
 	// BGP sessions. The dashboard's session stats and health verdict use the latter
 	// — device/kernel/static/RPKI are infrastructure, not sessions.
-	UpCount      int           `json:"upCount"`
-	DownCount    int           `json:"downCount"`
-	SessionUp    int           `json:"sessionUp"`
-	SessionDown  int           `json:"sessionDown"`
-	TotalRoutes  int           `json:"totalRoutes"`
-	PollErr      string        `json:"pollErr,omitempty"`
-	UpdatedAt    time.Time     `json:"updatedAt"`
-	RecentEvents []store.Event `json:"recentEvents"`
+	UpCount   int `json:"upCount"`
+	DownCount int `json:"downCount"`
+	SessionUp int `json:"sessionUp"`
+	// SessionDown counts only sessions that are down and were meant to be up.
+	// SessionDisabled counts the ones switched off in the model — they are not a
+	// fault, and folding them into "down" would make the health verdict lie.
+	SessionDown     int           `json:"sessionDown"`
+	SessionDisabled int           `json:"sessionDisabled"`
+	TotalRoutes     int           `json:"totalRoutes"`
+	PollErr         string        `json:"pollErr,omitempty"`
+	UpdatedAt       time.Time     `json:"updatedAt"`
+	RecentEvents    []store.Event `json:"recentEvents"`
 
 	// One-line verdict shown in the dashboard hero. Computed here rather than
 	// in the template or dashboard.js so the first paint and every poll agree.
@@ -146,19 +155,27 @@ func (s *Server) buildDashboardView() DashboardView {
 	// Annotate BGP rows with whether birdy manages them, and split the plumbing
 	// out of the main table.
 	configured := map[string]bool{}
+	disabled := map[string]bool{}
 	if peers, err := s.store.ListPeers(); err == nil {
 		for _, p := range peers {
 			configured[p.Name] = true
+			disabled[p.Name] = !p.Enabled
 		}
 	}
 	for i := range v.Protocols {
 		row := &v.Protocols[i]
 		if row.IsBGP() {
 			row.Configured = configured[row.Name]
+			row.Disabled = disabled[row.Name]
 			v.Sessions = append(v.Sessions, *row)
-			if row.Up {
+			switch {
+			// A disabled peer that BIRD still has up has not been applied yet; it is
+			// genuinely still carrying traffic, so it counts as up until it isn't.
+			case row.Disabled && !row.Up:
+				v.SessionDisabled++
+			case row.Up:
 				v.SessionUp++
-			} else {
+			default:
 				v.SessionDown++
 			}
 		} else {
@@ -172,21 +189,30 @@ func (s *Server) buildDashboardView() DashboardView {
 	if samples, err := s.store.RecentSamples(time.Now().Add(-dashboardHistoryWindow)); err == nil {
 		v.History = seriesByProtocol(samples, dashboardHistoryPoints)
 	}
-	v.StatusText, v.StatusOK = sessionVerdict(v.PollErr, len(v.Sessions), v.SessionDown)
+	v.StatusText, v.StatusOK = sessionVerdict(v.PollErr, v.SessionUp+v.SessionDown, v.SessionDown, v.SessionDisabled)
 	return v
 }
 
 // sessionVerdict renders the hero's headline answer to "is my router healthy?".
-func sessionVerdict(pollErr string, total, down int) (string, bool) {
+// total counts only the sessions meant to be up: a peer you switched off is not a
+// session that is down, and rolling it into the verdict would turn a deliberate
+// change into a permanent red banner.
+func sessionVerdict(pollErr string, total, down, disabled int) (string, bool) {
+	off := ""
+	if disabled > 0 {
+		off = fmt.Sprintf(" · %d disabled", disabled)
+	}
 	switch {
 	case pollErr != "":
 		return "BIRD unreachable", false
+	case total == 0 && disabled > 0:
+		return fmt.Sprintf("No active BGP sessions (%d disabled)", disabled), true
 	case total == 0:
 		return "No BGP sessions", false
 	case down == 0:
-		return fmt.Sprintf("All %d %s up", total, plural(total, "session")), true
+		return fmt.Sprintf("All %d %s up%s", total, plural(total, "session"), off), true
 	default:
-		return fmt.Sprintf("%d of %d %s down", down, total, plural(total, "session")), false
+		return fmt.Sprintf("%d of %d %s down%s", down, total, plural(total, "session"), off), false
 	}
 }
 

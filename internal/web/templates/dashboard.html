@@ -81,7 +81,9 @@
 						<tr class="row-link" onclick="location.href='/peers/{{.Name}}'">
 							<td class="mono">{{.Name}}</td>
 							<td class="mono">{{.Table}}</td>
-							<td>{{sessionBadge .Up .BGPState}}</td>
+							{{/* A peer switched off in birdy is not a session that failed. BIRD calls both
+							     "down"; painting them the same red is how you learn to ignore red. */}}
+							<td>{{if and .Disabled (not .Up)}}<span class="badge" title="Switched off in birdy — BIRD is not trying to connect.">disabled</span>{{else}}{{sessionBadge .Up .BGPState}}{{end}}</td>
 							<td class="mono">{{.Since}}</td>
 							{{if .HasCounts}}
 							<td class="num mono">{{comma .Imported}}</td>

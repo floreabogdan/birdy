@@ -34,6 +34,10 @@ type ProtoState struct {
 	// Imported is the total accepted routes across the session's channels, kept
 	// so a poll can spot a sharp drop against the previous one.
 	Imported int
+	// Disabled reports that birdy's model has this peer switched off. BIRD reports
+	// such a protocol as simply "down", which is indistinguishable from a session
+	// that failed — the model is the only place that knows the difference.
+	Disabled bool
 }
 
 // Snapshot is the latest poll result, safe to read concurrently via Poller.Snapshot.
@@ -232,6 +236,16 @@ func (p *Poller) poll() {
 	first := !p.initialized
 	next := make(map[string]ProtoState, len(protocols))
 
+	// A peer switched off in the model is *meant* to be down. BIRD still reports
+	// its protocol (rendered with "disabled"), so without this the act of applying
+	// a disable would fire a session-down alert and wake somebody up over a change
+	// they made on purpose.
+	disabled, err := p.store.DisabledPeerNames()
+	if err != nil {
+		p.log.Warn("could not read disabled peers; treating all as enabled", "error", err)
+		disabled = map[string]bool{}
+	}
+
 	for _, proto := range protocols {
 		up := isUp(proto)
 		prior, seen := prevStates[proto.Name]
@@ -245,13 +259,17 @@ func (p *Poller) poll() {
 			state.LastChange = time.Now()
 		}
 
+		state.Disabled = disabled[proto.Name]
+
 		if !first && (!seen || prior.Up != up) {
 			state.LastChange = time.Now()
 			// Only BGP sessions get down/up/flap events. Infrastructure protocols
 			// (RPKI, device, kernel, static, direct) are not sessions, and treating
 			// them as such alerts on things like an RPKI RTR cache reconnecting —
 			// harmless, but noisy. Their state is still on the dashboard's infra card.
-			if proto.Proto == "BGP" {
+			// A peer disabled in the model is excluded for the same reason: its
+			// session going down is the change working, not a fault.
+			if proto.Proto == "BGP" && !state.Disabled {
 				p.recordTransition(proto, prior, seen, up)
 			}
 		}
