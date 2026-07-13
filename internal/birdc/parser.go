@@ -31,30 +31,39 @@ func ParseStatus(r Reply) (Status, error) {
 	return st, nil
 }
 
-// headerColumns finds the byte offset of each column name within a
-// fixed-width table header line, e.g. "Name       Proto      Table ...".
-func headerColumns(header string, cols []string) map[string]int {
-	idx := make(map[string]int, len(cols))
-	for _, c := range cols {
-		idx[c] = strings.Index(header, c)
-	}
-	return idx
-}
+var (
+	reProtoDate = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+	reProtoTime = regexp.MustCompile(`^\d{2}:\d{2}(:\d{2}(\.\d+)?)?$`)
+)
 
-func sliceColumn(line string, start, end int) string {
-	if start < 0 {
-		return ""
+// parseProtocolRow parses one "show protocols" summary row. BIRD prints these
+// with minimum-width columns, so a protocol name longer than its column — e.g.
+// "originate_ANNOUNCE_V4", exactly the kind of name birdy generates — overflows
+// and pushes every later field to the right. Slicing at fixed header offsets then
+// reads the wrong bytes (the table lands where the state was, the name gets cut,
+// and the row is miscounted as down). Splitting on whitespace avoids that: the
+// leading fields (name, proto, table, state) never contain spaces. Only Since (a
+// timestamp — one token for a date or time, two for "date time") and Info (free
+// text, possibly empty) can, so they are separated by shape, not position.
+func parseProtocolRow(row string) (ProtocolSummary, bool) {
+	f := strings.Fields(row)
+	if len(f) < 4 {
+		return ProtocolSummary{}, false
 	}
-	if start >= len(line) {
-		return ""
+	s := ProtocolSummary{Name: f[0], Proto: f[1], Table: f[2], State: f[3]}
+	rest := f[4:]
+	n := 0
+	if n < len(rest) && reProtoDate.MatchString(rest[n]) {
+		n++
+		if n < len(rest) && reProtoTime.MatchString(rest[n]) {
+			n++
+		}
+	} else if n < len(rest) && reProtoTime.MatchString(rest[n]) {
+		n++
 	}
-	if end < 0 || end > len(line) {
-		end = len(line)
-	}
-	if end < start {
-		end = start
-	}
-	return strings.TrimSpace(line[start:end])
+	s.Since = strings.Join(rest[:n], " ")
+	s.Info = strings.Join(rest[n:], " ")
+	return s, true
 }
 
 // ParseProtocols parses the reply to "show protocols" into one row per protocol.
@@ -62,24 +71,14 @@ func ParseProtocols(r Reply) ([]ProtocolSummary, error) {
 	if len(r.Blocks) < 2 {
 		return nil, fmt.Errorf("birdc: unexpected show protocols reply shape")
 	}
-	header := r.Blocks[0].Lines[0]
-	cols := []string{"Name", "Proto", "Table", "State", "Since", "Info"}
-	idx := headerColumns(header, cols)
 
+	// r.Blocks[0] is the header row; every later block holds protocol rows.
 	var out []ProtocolSummary
 	for _, blk := range r.Blocks[1:] {
 		for _, row := range blk.Lines {
-			if strings.TrimSpace(row) == "" {
-				continue
+			if s, ok := parseProtocolRow(row); ok {
+				out = append(out, s)
 			}
-			out = append(out, ProtocolSummary{
-				Name:  sliceColumn(row, idx["Name"], idx["Proto"]),
-				Proto: sliceColumn(row, idx["Proto"], idx["Table"]),
-				Table: sliceColumn(row, idx["Table"], idx["State"]),
-				State: sliceColumn(row, idx["State"], idx["Since"]),
-				Since: sliceColumn(row, idx["Since"], idx["Info"]),
-				Info:  sliceColumn(row, idx["Info"], -1),
-			})
 		}
 	}
 	return out, nil
@@ -101,16 +100,9 @@ func ParseProtocolDetail(r Reply) (ProtocolDetail, error) {
 	if len(r.Blocks) < 2 {
 		return d, fmt.Errorf("birdc: unexpected show protocols all reply shape")
 	}
-	header := r.Blocks[0].Lines[0]
-	idx := headerColumns(header, []string{"Name", "Proto", "Table", "State", "Since", "Info"})
-	summaryRow := r.Blocks[1].Lines[0]
-	d.Summary = ProtocolSummary{
-		Name:  sliceColumn(summaryRow, idx["Name"], idx["Proto"]),
-		Proto: sliceColumn(summaryRow, idx["Proto"], idx["Table"]),
-		Table: sliceColumn(summaryRow, idx["Table"], idx["State"]),
-		State: sliceColumn(summaryRow, idx["State"], idx["Since"]),
-		Since: sliceColumn(summaryRow, idx["Since"], idx["Info"]),
-		Info:  sliceColumn(summaryRow, idx["Info"], -1),
+	// r.Blocks[0] is the header row; r.Blocks[1] holds the one summary row.
+	if s, ok := parseProtocolRow(r.Blocks[1].Lines[0]); ok {
+		d.Summary = s
 	}
 
 	var curChannel *ChannelDetail

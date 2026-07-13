@@ -63,6 +63,40 @@ func TestParseProtocols(t *testing.T) {
 	}
 }
 
+func TestParseProtocolsLongNames(t *testing.T) {
+	rows, err := ParseProtocols(mustFrame(t, fixtureShowProtocolsLongNames))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]ProtocolSummary{}
+	for _, r := range rows {
+		byName[r.Name] = r
+	}
+	// The overflowing names must parse whole, keep "up" in State (not the table),
+	// and read the bare-time Since correctly — the symptoms the operator saw.
+	for _, name := range []string{"originate_ANNOUNCE_V4", "originate_ANNOUNCE_V6"} {
+		r, ok := byName[name]
+		if !ok {
+			t.Fatalf("%s missing; got %+v", name, rows)
+		}
+		if r.Proto != "Static" || r.State != "up" {
+			t.Errorf("%s = %+v, want Proto=Static State=up", name, r)
+		}
+		if r.Table == "" || r.State == r.Table {
+			t.Errorf("%s: state/table columns look shifted: %+v", name, r)
+		}
+		if r.Since != "09:01:15.741" || r.Info != "" {
+			t.Errorf("%s: Since=%q Info=%q, want Since=09:01:15.741 Info empty", name, r.Since, r.Info)
+		}
+	}
+	if r := byName["cloudflare"]; r.Proto != "RPKI" || r.State != "up" || r.Info != "Established" {
+		t.Errorf("cloudflare = %+v, want Proto=RPKI State=up Info=Established", r)
+	}
+	if r := byName["nav_v4"]; r.Proto != "BGP" || r.Info != "Established" {
+		t.Errorf("nav_v4 = %+v, want Proto=BGP Info=Established", r)
+	}
+}
+
 func TestParseProtocolDetailBGP(t *testing.T) {
 	d, err := ParseProtocolDetail(mustFrame(t, fixtureShowProtocolsAllBGP))
 	if err != nil {

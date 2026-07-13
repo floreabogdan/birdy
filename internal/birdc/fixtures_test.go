@@ -30,6 +30,17 @@ const fixtureShowProtocols = "2002-Name       Proto      Table      State  Since
 	" edge_v6    BGP        ---        up     2026-07-08    Established   \n" +
 	"0000 \n"
 
+// Real output from a birdy-managed router: names longer than the column
+// (originate_ANNOUNCE_V4/V6) overflow and shift the later fields right, and the
+// Since is a bare time. The fixed-column parser miscounted these as down.
+const fixtureShowProtocolsLongNames = "2002-Name       Proto      Table      State  Since         Info\n" +
+	"1002- device1    Device     ---        up     2026-07-08\n" +
+	" originate_ANNOUNCE_V4 Static     master4    up     09:01:15.741\n" +
+	" originate_ANNOUNCE_V6 Static     master6    up     09:01:15.741\n" +
+	" cloudflare RPKI       ---        up     09:04:16.870  Established\n" +
+	" nav_v4     BGP        ---        up     09:01:17.983  Established\n" +
+	"0000 \n"
+
 const fixtureShowProtocolsAllBGP = "2002-Name       Proto      Table      State  Since         Info\n" +
 	"1002-edge_v4    BGP        ---        up     2026-07-08    Established   \n" +
 	"1006-  BGP state:          Established\n" +
