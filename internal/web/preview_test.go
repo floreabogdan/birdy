@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
+	"github.com/floreabogdan/birdy/internal/netdiag"
 	birdconf "github.com/floreabogdan/birdy/internal/render"
 	"github.com/floreabogdan/birdy/internal/store"
 )
@@ -287,6 +288,18 @@ func TestPreview(t *testing.T) {
 			},
 		}},
 	}
+	// The merged Looking Glass page: Routes tab, and a Diagnostics tab with a run.
+	exploreRoutesV := exploreView{Active: "lg", ReadOnly: true, Tab: "routes", LG: lgV,
+		Diag: diagView{Active: "lg", Enabled: true, Tools: netdiag.Tools, Tool: string(netdiag.Ping)}}
+	exploreDiagV := exploreView{Active: "lg", ReadOnly: true, Tab: "diag", LG: LGView{Type: "for"},
+		Diag: diagView{
+			Active: "lg", Enabled: true, Tools: netdiag.Tools, Tool: string(netdiag.Traceroute),
+			Target: "9.9.9.9", Ran: true,
+			Result: netdiag.Result{
+				Command: "traceroute -n -q 1 -m 20 9.9.9.9",
+				Output:  " 1  198.51.100.1  0.512 ms\n 2  203.0.113.9  1.204 ms\n 3  192.0.2.1  8.771 ms\n 4  9.9.9.9  9.031 ms",
+			},
+		}}
 
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.StripPrefix("/static/", staticHandler()))
@@ -304,7 +317,8 @@ func TestPreview(t *testing.T) {
 	mux.HandleFunc("/policy-form", page("policy_form.html", polFormV))
 	mux.HandleFunc("/export-policy-form", page("policy_form.html", expFormV))
 	mux.HandleFunc("/peer-form-lint", page("peer_form.html", leakyV))
-	mux.HandleFunc("/lg", page("lg.html", lgV))
+	mux.HandleFunc("/lg", page("explore.html", exploreRoutesV))
+	mux.HandleFunc("/explore-diag", page("explore.html", exploreDiagV))
 	mux.HandleFunc("/settings-alerts", page("settings.html", settingsAlertsV))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
@@ -330,6 +344,7 @@ func TestPreview(t *testing.T) {
 		{"timeline", "/timeline", "1600,700"},
 		{"lg", "/lg", "1600,700"},
 		{"lg-dark", "/lg?dark", "1600,700"},
+		{"diagnostics", "/explore-diag", "1600,600"},
 	}
 	for _, s := range shots {
 		png := out + "/" + s.name + ".png"

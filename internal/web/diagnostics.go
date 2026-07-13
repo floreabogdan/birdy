@@ -29,16 +29,24 @@ func validDiagTool(t string) bool {
 	return false
 }
 
-// handleDiagnostics runs a reachability diagnostic (ping/traceroute) from the
+// blankDiag is the diagnostics view with nothing run — just the form (or the
+// "disabled" note), for when the Diagnostics tab is not the active one.
+func (s *Server) blankDiag() diagView {
+	return diagView{
+		Active: "lg", ReadOnly: s.readOnly, Enabled: s.netdiag, Tools: netdiag.Tools,
+		Tool: string(netdiag.Ping),
+	}
+}
+
+// runDiagnostics runs a reachability diagnostic (ping/traceroute) from the
 // router. It is a read-only operation — nothing about BIRD or the config
 // changes — but it execs external tools, so it does nothing unless --netdiag is
 // set. The target is validated to a plain IP or hostname before it reaches a
 // command.
-func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
-	v := diagView{
-		Active: "diagnostics", ReadOnly: s.readOnly, Enabled: s.netdiag, Tools: netdiag.Tools,
-		Tool: r.URL.Query().Get("tool"), Target: strings.TrimSpace(r.URL.Query().Get("target")),
-	}
+func (s *Server) runDiagnostics(r *http.Request) diagView {
+	v := s.blankDiag()
+	v.Tool = r.URL.Query().Get("tool")
+	v.Target = strings.TrimSpace(r.URL.Query().Get("target"))
 	if !validDiagTool(v.Tool) {
 		v.Tool = string(netdiag.Ping)
 	}
@@ -46,5 +54,5 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 		v.Ran = true
 		v.Result = netdiag.Run(r.Context(), netdiag.Tool(v.Tool), v.Target)
 	}
-	render(w, s.log, "diagnostics.html", v)
+	return v
 }

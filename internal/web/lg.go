@@ -126,8 +126,10 @@ func (s *Server) decorateRoutes(tables []birdc.RouteTable) []lgTable {
 	return out
 }
 
-func (s *Server) handleLookingGlass(w http.ResponseWriter, r *http.Request) {
-	render(w, s.log, "lg.html", s.runLookingGlass(r))
+// blankLG is the looking-glass view with no query run — just the form, for when
+// the Routes tab is not the active one.
+func (s *Server) blankLG() LGView {
+	return LGView{Active: "lg", ReadOnly: s.readOnly, Type: "for"}
 }
 
 func (s *Server) apiLookingGlass(w http.ResponseWriter, r *http.Request) {

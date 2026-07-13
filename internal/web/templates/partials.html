@@ -51,12 +51,11 @@
 
 {{define "sidebar"}}
 <aside class="sidebar" id="sidebar">
-	<div class="sidebar-brand">birdy<span class="brand-stage">M2 &middot; model &amp; preview</span></div>
+	<div class="sidebar-brand">birdy<span class="brand-stage">BIRD 2.x manager</span></div>
 	<nav class="sidebar-nav">
 		<div class="nav-label">Observe</div>
 		<a href="/" class="{{if eq .Active "dashboard"}}active{{end}}">{{template "icon-dashboard"}}Dashboard</a>
 		<a href="/lg" class="{{if eq .Active "lg"}}active{{end}}">{{template "icon-search"}}Looking Glass</a>
-		<a href="/diagnostics" class="{{if eq .Active "diagnostics"}}active{{end}}">{{template "icon-activity"}}Diagnostics</a>
 		<a href="/timeline" class="{{if eq .Active "timeline"}}active{{end}}">{{template "icon-clock"}}Timeline</a>
 
 		<div class="nav-label">Manage</div>

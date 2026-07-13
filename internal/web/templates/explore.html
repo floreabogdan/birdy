@@ -1,0 +1,190 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — looking glass</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Looking glass</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">Looking Glass</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>Looking Glass</h1>
+					<div class="page-sub">On-demand, read-only queries against the live router — the control plane (routes) and the data plane (reachability).</div>
+				</div>
+			</div>
+
+			<nav class="page-tabs" data-tabs role="tablist">
+				<a href="/lg?tab=routes" data-tab="routes" role="tab" aria-selected="{{if eq .Tab "routes"}}true{{else}}false{{end}}">{{template "icon-search"}}Routes</a>
+				<a href="/lg?tab=diag" data-tab="diag" role="tab" aria-selected="{{if eq .Tab "diag"}}true{{else}}false{{end}}">{{template "icon-activity"}}Diagnostics</a>
+			</nav>
+
+			<section data-tab-panel="routes" {{if ne .Tab "routes"}}hidden{{end}} class="tab-panel">
+				{{with .LG}}
+				<div class="card">
+					<div class="card-body">
+						<form method="get" action="/lg" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+							<input type="hidden" name="tab" value="routes">
+							<div class="field" style="margin:0;min-width:220px">
+								<label for="type">Query</label>
+								<select id="type" name="type">
+									<option value="for" {{if eq .Type "for"}}selected{{end}}>Route for prefix / IP</option>
+									<option value="protocol" {{if eq .Type "protocol"}}selected{{end}}>Imported from peer</option>
+									<option value="export" {{if eq .Type "export"}}selected{{end}}>Exported to peer</option>
+									<option value="noexport" {{if eq .Type "noexport"}}selected{{end}}>Rejected on export to peer</option>
+								</select>
+							</div>
+							<div class="field" style="margin:0;flex:1;min-width:220px">
+								<label for="target" id="target-label">Target</label>
+								<input type="text" id="target" name="target" value="{{.Target}}" placeholder="e.g. 192.0.2.0/24 or edge_v4" required>
+							</div>
+							<div class="field" style="margin:0">
+								<label style="visibility:hidden">all</label>
+								<label style="font-weight:400;display:flex;align-items:center;gap:6px;color:var(--text)">
+									<input type="checkbox" name="all" value="1" style="width:auto" {{if .All}}checked{{end}}> show all + attributes (communities, local-pref)
+								</label>
+							</div>
+							<button class="btn btn-primary" type="submit">{{template "icon-search"}}Query</button>
+						</form>
+					</div>
+				</div>
+
+				{{if .Err}}
+				<div class="card card-danger"><div class="card-body error-text">{{.Err}}</div></div>
+				{{end}}
+
+				{{if .Ran}}
+					{{if not .Tables}}
+					<div class="card"><div class="empty">No matching routes. Check the peer name or prefix, or try &ldquo;show all&rdquo; to include non-best paths.</div></div>
+					{{end}}
+					{{range .Tables}}
+					<div class="card">
+						<div class="card-header mono">{{.Name}}</div>
+						<div class="table-scroll">
+						<table>
+							<thead><tr><th>Network</th><th>Type</th><th>Protocol</th><th>Since</th><th>Best</th><th class="num">Pref</th><th>AS path</th><th>Next hop</th></tr></thead>
+							<tbody data-search-target>
+								{{range .Routes}}
+								<tr>
+									<td class="mono">{{.Network}}</td>
+									<td>{{.Type}}</td>
+									<td class="mono">{{.Protocol}}</td>
+									<td class="mono">{{.Since}}</td>
+									<td>{{if .Primary}}<span class="badge badge-success">best</span>{{end}}</td>
+									<td class="num mono">{{.Preference}}</td>
+									<td class="mono">{{.ASPath}}</td>
+									<td class="mono">{{.NextHop}}{{if .From}} (from {{.From}}){{end}}</td>
+								</tr>
+								{{if or .Comms .LocalPref .Origin .MED}}
+								<tr class="route-attrs">
+									<td></td>
+									<td colspan="7">
+										<div class="attr-chips">
+											{{if .LocalPref}}<span class="chip">local-pref {{.LocalPref}}</span>{{end}}
+											{{if .Origin}}<span class="chip">origin {{.Origin}}</span>{{end}}
+											{{if .MED}}<span class="chip">MED {{.MED}}</span>{{end}}
+											{{range .Comms}}<span class="chip comm-{{.Kind}}" title="{{.Text}}">{{if .Name}}<b>{{.Name}}</b> {{end}}{{.Text}}</span>{{end}}
+										</div>
+									</td>
+								</tr>
+								{{end}}
+								{{end}}
+							</tbody>
+						</table>
+						</div>
+					</div>
+					{{end}}
+					{{if or .PrevLink .NextLink}}
+					<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+						<div>{{if .PrevLink}}<a class="btn btn-sm" href="{{.PrevLink}}">&larr; Previous</a>{{end}}</div>
+						<div class="text-muted" style="font-size:0.75rem">{{if .FirstRow}}rows {{.FirstRow}}&ndash;{{.LastRow}}{{if .HasMore}} &middot; more available{{end}}{{end}}</div>
+						<div>{{if .NextLink}}<a class="btn btn-sm" href="{{.NextLink}}">Next &rarr;</a>{{end}}</div>
+					</div>
+					{{end}}
+				{{end}}
+				{{end}}
+				<script>
+				(function () {
+					var type = document.getElementById("type");
+					var label = document.getElementById("target-label");
+					var target = document.getElementById("target");
+					if (!type || !label || !target) return;
+					var hints = {
+						"for": ["Prefix or IP", "e.g. 192.0.2.0/24 or 8.8.8.8"],
+						"protocol": ["Peer name", "e.g. edge_v4"],
+						"export": ["Peer name", "e.g. edge_v4"],
+						"noexport": ["Peer name", "e.g. edge_v4"]
+					};
+					function apply() {
+						var h = hints[type.value] || hints["for"];
+						label.textContent = h[0];
+						target.placeholder = h[1];
+					}
+					type.addEventListener("change", apply);
+					apply();
+				})();
+				</script>
+			</section>
+
+			<section data-tab-panel="diag" {{if ne .Tab "diag"}}hidden{{end}} class="tab-panel">
+				{{if not .Diag.Enabled}}
+				<div class="card panel-info">
+					<div class="panel-head">{{template "icon-info"}}Diagnostics are disabled</div>
+					<div class="card-body" style="font-size:0.8125rem">
+						ping and traceroute run external tools on the router, so they are opt-in. Start birdy with
+						<span class="mono">--netdiag</span> to enable them. It stays a read-only operation &mdash; nothing about
+						BIRD or the config changes.
+					</div>
+				</div>
+				{{else}}
+				<div class="card">
+					<div class="card-header"><span class="card-title">{{template "icon-activity"}}Run a check</span></div>
+					<div class="card-body">
+						<form method="get" action="/lg" class="lg-form" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+							<input type="hidden" name="tab" value="diag">
+							<div class="field" style="margin:0">
+								<label for="diag-tool">Tool</label>
+								<select id="diag-tool" name="tool">
+									{{range .Diag.Tools}}<option value="{{.}}" {{if eq $.Diag.Tool (printf "%s" .)}}selected{{end}}>{{.}}</option>{{end}}
+								</select>
+							</div>
+							<div class="field" style="margin:0;flex:1;min-width:220px">
+								<label for="diag-target">Target</label>
+								<input type="text" id="diag-target" name="target" class="mono" value="{{.Diag.Target}}" placeholder="an IP address or hostname" autocomplete="off">
+							</div>
+							<div class="field" style="margin:0">
+								<label style="visibility:hidden">run</label>
+								<button type="submit" class="btn btn-primary">{{template "icon-search"}}Run</button>
+							</div>
+						</form>
+						<div class="hint">Numeric output; capped runs (ping: 4 packets; traceroute: 20 hops). A validated IP or hostname only.</div>
+					</div>
+				</div>
+
+				{{if .Diag.Ran}}
+				<div class="card">
+					<div class="card-header"><span class="card-title mono">{{if .Diag.Result.Command}}{{.Diag.Result.Command}}{{else}}{{.Diag.Tool}} {{.Diag.Target}}{{end}}</span></div>
+					{{if .Diag.Result.Skipped}}
+						<div class="card-body text-muted">{{.Diag.Result.Skipped}}</div>
+					{{else if .Diag.Result.Output}}
+						<pre class="code-block">{{.Diag.Result.Output}}</pre>
+						{{if .Diag.Result.Err}}<div class="card-body preview-note">Exit: {{.Diag.Result.Err}} &mdash; a non-zero exit is normal for an unreachable target; the output above is what matters.</div>{{end}}
+					{{else}}
+						<div class="card-body error-text">{{if .Diag.Result.Err}}{{.Diag.Result.Err}}{{else}}No output.{{end}}</div>
+					{{end}}
+				</div>
+				{{end}}
+				{{end}}
+			</section>
+		</div>
+	</div>
+</div>
+</body>
+</html>
