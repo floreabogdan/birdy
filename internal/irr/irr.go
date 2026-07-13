@@ -104,6 +104,41 @@ func (c *Client) Prefixes(ctx context.Context, source string, v6 bool) ([]Prefix
 	return out2, nil
 }
 
+// bgpq4 -t JSON: {"data": [64500, 64501]} — a flat list of the member ASNs.
+type bgpq4ASNJSON struct {
+	Data []int64 `json:"data"`
+}
+
+// ASNs expands source into its member AS numbers, which is what an origin filter
+// compares a route's last AS-path hop against. Unlike Prefixes this is
+// family-independent: an AS-SET's members are the same for v4 and v6.
+//
+// bgpq4 reports an unknown or empty AS-SET as an empty list with exit status 0,
+// so an empty result is not an error here — callers must decide what to do with
+// it rather than assume a failure.
+func (c *Client) ASNs(ctx context.Context, source string) ([]int64, error) {
+	if !sourceRe.MatchString(source) {
+		return nil, fmt.Errorf("irr: %q is not a valid IRR object name", source)
+	}
+	// -t asks for the AS list rather than prefixes, -j JSON, -l names the list.
+	out, err := c.Run(ctx, c.Bin, "-j", "-t", "-l", "data", source)
+	if err != nil {
+		return nil, fmt.Errorf("irr: bgpq4 failed: %w", err)
+	}
+	var parsed bgpq4ASNJSON
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		return nil, fmt.Errorf("irr: could not parse bgpq4 output: %w", err)
+	}
+	asns := make([]int64, 0, len(parsed.Data))
+	for _, a := range parsed.Data {
+		if a < 1 || a > 4294967295 {
+			continue
+		}
+		asns = append(asns, a)
+	}
+	return asns, nil
+}
+
 func maxLen(v6 bool) int {
 	if v6 {
 		return 128

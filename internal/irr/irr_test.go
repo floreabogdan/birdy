@@ -3,6 +3,7 @@ package irr
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 )
 
@@ -45,6 +46,51 @@ func TestPrefixesPassesFamilyFlag(t *testing.T) {
 	c.Prefixes(context.Background(), "AS-X", true)
 	if len(gotArgs) == 0 || gotArgs[0] != "-6" {
 		t.Errorf("v6 should pass -6, got %v", gotArgs)
+	}
+}
+
+// Captured from bgpq4 1.11 (`bgpq4 -j -t -l data AS-RIPENCC`): the AS list is a
+// flat array of numbers, formatted across lines.
+const sampleASNJSON = `{"data": [
+  2121,3333,12654
+]}`
+
+func TestASNsParsesBgpq4JSON(t *testing.T) {
+	var gotArgs []string
+	c := &Client{Bin: "bgpq4", Run: func(ctx context.Context, bin string, args ...string) ([]byte, error) {
+		gotArgs = args
+		return []byte(sampleASNJSON), nil
+	}}
+	asns, err := c.ASNs(context.Background(), "AS-RIPENCC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []int64{2121, 3333, 12654}; !slices.Equal(asns, want) {
+		t.Errorf("want %v, got %v", want, asns)
+	}
+	if !slices.Contains(gotArgs, "-t") {
+		t.Errorf("the AS-list expansion needs -t, got %v", gotArgs)
+	}
+}
+
+// bgpq4 answers an unknown AS-SET with an empty list and exit 0, so ASNs reports
+// no error — it is the caller who must refuse to wipe a set with the result.
+func TestASNsEmptySetIsNotAnError(t *testing.T) {
+	c := &Client{Bin: "bgpq4", Run: fakeRunner(`{"data": [
+]}`, nil)}
+	asns, err := c.ASNs(context.Background(), "AS-NOSUCHTHING")
+	if err != nil {
+		t.Fatalf("an empty expansion is not an error: %v", err)
+	}
+	if len(asns) != 0 {
+		t.Errorf("want no ASNs, got %v", asns)
+	}
+}
+
+func TestASNsRejectsBadSource(t *testing.T) {
+	c := &Client{Bin: "bgpq4", Run: fakeRunner("", nil)}
+	if _, err := c.ASNs(context.Background(), "AS-X; rm -rf /"); err == nil {
+		t.Error("a source with shell metacharacters must be refused")
 	}
 }
 

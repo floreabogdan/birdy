@@ -19,7 +19,14 @@ type ASSet struct {
 	Name        string
 	Description string
 	Source      string // e.g. "AS-CUSTOMER", the IRR object this was expanded from
-	Entries     []ASNRange
+	// AutoRefresh re-expands Source on a timer. Like a prefix set, it updates the
+	// model only — the router still waits for a deliberate apply.
+	AutoRefresh bool
+	// LastRefreshed / RefreshError are the refresh loop's bookkeeping: the most
+	// recent successful sync, and why the last attempt failed.
+	LastRefreshed string
+	RefreshError  string
+	Entries       []ASNRange
 }
 
 // ASNRange is one AS number, or a contiguous block of them.
@@ -105,6 +112,11 @@ func (as *ASSet) Validate() map[string]string {
 	if strings.ContainsAny(as.Source, "\"\n\r") {
 		errs["source"] = "Quotes and line breaks are not allowed."
 	}
+	// Auto-refresh needs an AS-SET to expand; without one there is nothing to
+	// refresh from, so clear it rather than reject the form.
+	if as.Source == "" {
+		as.AutoRefresh = false
+	}
 	// BIRD has no syntax for an empty integer set, and a policy that permits no
 	// origin at all would reject every route.
 	if len(as.Entries) == 0 {
@@ -114,7 +126,7 @@ func (as *ASSet) Validate() map[string]string {
 }
 
 func (s *Store) ListASSets() ([]ASSet, error) {
-	rows, err := s.db.Query(`SELECT id, name, description, source FROM as_sets ORDER BY name`)
+	rows, err := s.db.Query(`SELECT id, name, description, source, auto_refresh, last_refreshed, refresh_error FROM as_sets ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list AS sets: %w", err)
 	}
@@ -122,7 +134,7 @@ func (s *Store) ListASSets() ([]ASSet, error) {
 	var out []ASSet
 	for rows.Next() {
 		var as ASSet
-		if err := rows.Scan(&as.ID, &as.Name, &as.Description, &as.Source); err != nil {
+		if err := rows.Scan(&as.ID, &as.Name, &as.Description, &as.Source, &as.AutoRefresh, &as.LastRefreshed, &as.RefreshError); err != nil {
 			return nil, err
 		}
 		out = append(out, as)
@@ -140,8 +152,8 @@ func (s *Store) ListASSets() ([]ASSet, error) {
 
 func (s *Store) GetASSetByName(name string) (ASSet, error) {
 	var as ASSet
-	row := s.db.QueryRow(`SELECT id, name, description, source FROM as_sets WHERE name = ?`, name)
-	if err := row.Scan(&as.ID, &as.Name, &as.Description, &as.Source); err != nil {
+	row := s.db.QueryRow(`SELECT id, name, description, source, auto_refresh, last_refreshed, refresh_error FROM as_sets WHERE name = ?`, name)
+	if err := row.Scan(&as.ID, &as.Name, &as.Description, &as.Source, &as.AutoRefresh, &as.LastRefreshed, &as.RefreshError); err != nil {
 		if err == sql.ErrNoRows {
 			return ASSet{}, ErrNotFound
 		}
@@ -179,8 +191,8 @@ func (s *Store) CreateASSet(as ASSet) (int64, error) {
 	}
 	defer tx.Rollback()
 	ts := now()
-	res, err := tx.Exec(`INSERT INTO as_sets (name, description, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
-		as.Name, as.Description, as.Source, ts, ts)
+	res, err := tx.Exec(`INSERT INTO as_sets (name, description, source, auto_refresh, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		as.Name, as.Description, as.Source, as.AutoRefresh, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create AS set: %w", err)
 	}
@@ -200,8 +212,8 @@ func (s *Store) UpdateASSet(as ASSet) error {
 		return err
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`UPDATE as_sets SET name = ?, description = ?, source = ?, updated_at = ? WHERE id = ?`,
-		as.Name, as.Description, as.Source, now(), as.ID)
+	res, err := tx.Exec(`UPDATE as_sets SET name = ?, description = ?, source = ?, auto_refresh = ?, updated_at = ? WHERE id = ?`,
+		as.Name, as.Description, as.Source, as.AutoRefresh, now(), as.ID)
 	if err != nil {
 		return fmt.Errorf("store: update AS set: %w", err)
 	}
@@ -223,6 +235,62 @@ func replaceASSetEntries(tx *sql.Tx, setID int64, entries []ASNRange) error {
 			setID, a.Low, a.High, a.Note, i); err != nil {
 			return fmt.Errorf("store: insert AS set entry: %w", err)
 		}
+	}
+	return nil
+}
+
+// ListAutoRefreshASSets returns the sets opted into IRR auto-refresh (with an
+// AS-SET to expand from), for the refresh loop to walk.
+func (s *Store) ListAutoRefreshASSets() ([]ASSet, error) {
+	all, err := s.ListASSets()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ASSet, 0)
+	for _, as := range all {
+		if as.AutoRefresh && as.Source != "" {
+			out = append(out, as)
+		}
+	}
+	return out, nil
+}
+
+// RefreshASSetEntries replaces a set's members with a fresh IRR expansion and
+// stamps the success time, clearing any prior error. It touches only the entries
+// and the refresh bookkeeping — never name or source — so the background loop
+// cannot clobber the other fields of a form edit.
+func (s *Store) RefreshASSetEntries(id int64, entries []ASNRange) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := replaceASSetEntries(tx, id, entries); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE as_sets SET last_refreshed = ?, refresh_error = '', updated_at = ? WHERE id = ?`,
+		now(), now(), id); err != nil {
+		return fmt.Errorf("store: stamp AS set refresh: %w", err)
+	}
+	return tx.Commit()
+}
+
+// MarkASSetRefreshed records a successful refresh that produced no change, so
+// last_refreshed advances without churning the entries or the config diff.
+func (s *Store) MarkASSetRefreshed(id int64) error {
+	_, err := s.db.Exec(`UPDATE as_sets SET last_refreshed = ?, refresh_error = '' WHERE id = ?`, now(), id)
+	if err != nil {
+		return fmt.Errorf("store: mark AS set refreshed: %w", err)
+	}
+	return nil
+}
+
+// MarkASSetRefreshError records why the last refresh failed, leaving the
+// existing members in place.
+func (s *Store) MarkASSetRefreshError(id int64, msg string) error {
+	_, err := s.db.Exec(`UPDATE as_sets SET refresh_error = ? WHERE id = ?`, msg, id)
+	if err != nil {
+		return fmt.Errorf("store: mark AS set refresh error: %w", err)
 	}
 	return nil
 }

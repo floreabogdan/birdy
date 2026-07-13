@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/floreabogdan/birdy/internal/irr"
 	birdconf "github.com/floreabogdan/birdy/internal/render"
 	"github.com/floreabogdan/birdy/internal/store"
 )
@@ -11,6 +12,7 @@ import (
 type asSetsView struct {
 	Active   string
 	ReadOnly bool
+	Bgpq4    bool // whether IRR expansion is enabled
 	Sets     []store.ASSet
 	InUse    map[int64]int // set id -> policies filtering through it
 	Flash    string
@@ -19,6 +21,7 @@ type asSetsView struct {
 type asSetFormView struct {
 	Active     string
 	ReadOnly   bool
+	Bgpq4      bool
 	IsNew      bool
 	Set        store.ASSet
 	EntryText  string
@@ -43,7 +46,7 @@ func (s *Server) handleASSetsList(w http.ResponseWriter, r *http.Request) {
 		inUse[as.ID] = n
 	}
 	render(w, s.log, "as_sets.html", asSetsView{
-		Active: "library", ReadOnly: s.readOnly, Sets: sets, InUse: inUse,
+		Active: "library", ReadOnly: s.readOnly, Bgpq4: s.bgpq4Bin != "", Sets: sets, InUse: inUse,
 		Flash: r.URL.Query().Get("flash"),
 	})
 }
@@ -63,6 +66,27 @@ func (s *Server) handleASSetEdit(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleASSetRefresh re-expands one set from its AS-SET right now, so an
+// operator does not have to wait for the timer (or open the form) after a
+// customer adds a downstream. Like the timer, it updates the model only.
+func (s *Server) handleASSetRefresh(w http.ResponseWriter, r *http.Request) {
+	as, ok := namedEntity(s, w, r, s.store.GetASSetByName, "AS set")
+	if !ok {
+		return
+	}
+	if as.Source == "" {
+		http.Redirect(w, r, "/library/as-sets?flash="+flash(as.Name+" has no IRR AS-SET to expand."), http.StatusSeeOther)
+		return
+	}
+	client := irr.New(s.bgpq4Bin)
+	if !client.Available() {
+		http.Redirect(w, r, "/library/as-sets?flash="+flash("bgpq4 is not installed on the router, so "+as.Source+" cannot be expanded."), http.StatusSeeOther)
+		return
+	}
+	msg := s.refreshOneASSet(r.Context(), client, as)
+	http.Redirect(w, r, "/library/as-sets?flash="+flash(msg), http.StatusSeeOther)
+}
+
 func (s *Server) handleASSetSave(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
@@ -75,6 +99,7 @@ func (s *Server) handleASSetSave(w http.ResponseWriter, r *http.Request) {
 		Name:        r.FormValue("name"),
 		Description: strings.TrimSpace(r.FormValue("description")),
 		Source:      strings.TrimSpace(r.FormValue("source")),
+		AutoRefresh: r.FormValue("autoRefresh") == "on",
 	}
 	entries, entryErrs := store.ParseASNRanges(entryText)
 	as.Entries = entries
@@ -130,6 +155,7 @@ func (s *Server) handleASSetDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) renderASSetForm(w http.ResponseWriter, v asSetFormView) {
+	v.Bgpq4 = s.bgpq4Bin != ""
 	v.Preview, v.PreviewErr = previewASSet(v.Set)
 	render(w, s.log, "as_set_form.html", v)
 }

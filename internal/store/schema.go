@@ -172,12 +172,15 @@ CREATE TABLE IF NOT EXISTS communities (
 -- stores them here. The source column records the AS-SET it was expanded from,
 -- so that expansion can be automated later without guessing.
 CREATE TABLE IF NOT EXISTS as_sets (
-	id          INTEGER PRIMARY KEY AUTOINCREMENT,
-	name        TEXT NOT NULL UNIQUE,
-	description TEXT NOT NULL DEFAULT '',
-	source      TEXT NOT NULL DEFAULT '',
-	created_at  TEXT NOT NULL,
-	updated_at  TEXT NOT NULL
+	id             INTEGER PRIMARY KEY AUTOINCREMENT,
+	name           TEXT NOT NULL UNIQUE,
+	description    TEXT NOT NULL DEFAULT '',
+	source         TEXT NOT NULL DEFAULT '',
+	auto_refresh   INTEGER NOT NULL DEFAULT 0,
+	last_refreshed TEXT NOT NULL DEFAULT '',
+	refresh_error  TEXT NOT NULL DEFAULT '',
+	created_at     TEXT NOT NULL,
+	updated_at     TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS as_set_entries (

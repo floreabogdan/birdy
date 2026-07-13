@@ -259,6 +259,7 @@ func (s *Server) routes() {
 	}
 	if s.bgpq4Bin != "" {
 		s.mux.Handle("GET /api/irr/prefixes", s.requireAuth(s.handleIRRPrefixes))
+		s.mux.Handle("GET /api/irr/asns", s.requireAuth(s.handleIRRASNs))
 	}
 	s.mux.Handle("GET /peers/{name}", s.requireAuth(s.handlePeerDetail))
 	s.mux.Handle("GET /peers/{name}/edit", s.requireAuth(s.handlePeerEdit))
@@ -288,6 +289,9 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /library/as-sets/{name}/edit", s.requireAuth(s.handleASSetEdit))
 	s.mux.Handle("POST /library/as-sets/{name}/edit", s.requireAuth(s.handleASSetSave))
 	s.mux.Handle("POST /library/as-sets/{name}/delete", s.requireAuth(s.handleASSetDelete))
+	if s.bgpq4Bin != "" {
+		s.mux.Handle("POST /library/as-sets/{name}/refresh", s.requireAuth(s.handleASSetRefresh))
+	}
 	s.mux.Handle("GET /library/communities", s.requireAuth(s.handleCommunitiesList))
 	s.mux.Handle("GET /library/communities/new", s.requireAuth(s.handleCommunityNew))
 	s.mux.Handle("POST /library/communities/new", s.requireAuth(s.handleCommunitySave))

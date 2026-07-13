@@ -75,6 +75,9 @@
 							</div>
 							{{else if .Set.Source}}
 							<input type="hidden" name="source" value="{{.Set.Source}}">
+							{{/* Without bgpq4 the checkbox is not rendered; carry the opt-in so saving
+							     the form here does not silently switch auto-refresh off. */}}
+							{{if .Set.AutoRefresh}}<input type="hidden" name="autoRefresh" value="on">{{end}}
 							{{end}}
 							<div class="field">
 								<label for="entries">Prefixes</label>

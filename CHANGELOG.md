@@ -6,6 +6,24 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **AS sets expand and auto-refresh from the IRR.** The AS-set page recorded the
+  source `AS-SET` but never used it — you expanded it yourself and pasted the
+  members in. Now, with `--bgpq4`, it works like a prefix set does: **Expand from
+  IRR** on the form fills the member AS numbers in for review, **Auto-refresh from
+  IRR** keeps them current on `--irr-refresh-interval`, and **Refresh now** (the ↻
+  on the list) re-expands one set on demand. The list shows each set's AS-SET, its
+  auto badge, last sync and any error. Refreshes update the model only — the change
+  waits on Changes for you to review and apply, same as everything else. Notes you
+  wrote against a member survive the refresh, and an empty expansion — which is what
+  `bgpq4` returns for an AS-SET the IRR does not know — keeps the previous members
+  rather than emptying a set that would then reject every route.
+
+### Fixed
+- **Editing a prefix set on a birdy without `bgpq4` no longer silently switches its
+  auto-refresh off.** The checkbox is not rendered there, so saving the form used to
+  clear the opt-in.
+
 ## [0.3.2] - 2026-07-13
 
 ### Added

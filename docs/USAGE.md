@@ -60,7 +60,8 @@ over a local Unix control socket. It is not a controller for a fleet.
 
 **Optional runtime extras:**
 
-- **bgpq4** — enables one-click expansion of an IRR `AS-SET` into a prefix set.
+- **bgpq4** — enables one-click expansion of an IRR `AS-SET` into a prefix set (the
+  prefixes) or an AS set (the origin ASNs), and scheduled auto-refresh of either.
   Off unless you pass `--bgpq4`.
 - **A local RPKI validator** speaking RTR (Routinator, StayRTR, rpki-client) — for
   origin validation. You can start with a public RTR endpoint instead.
@@ -101,7 +102,8 @@ sudo apt install bgpq4
 ```
 
 Then start birdy with `--bgpq4 bgpq4` (or the full path). Without it, prefix sets
-still work; you just fill them in by hand instead of expanding an `AS-SET`.
+and AS sets still work; you just fill them in by hand instead of expanding an
+`AS-SET`.
 
 ### An RPKI validator (optional)
 
@@ -293,12 +295,12 @@ Runs the web UI and the background poller.
 | `--prefix-drop-ratio` | `0.5` | Alert when a session's imported routes fall to this fraction of the previous poll (`0` disables). |
 | `--metrics` | `false` | Expose an **unauthenticated** Prometheus `/metrics` endpoint. Put it behind your own network controls. |
 | `--peeringdb` | `false` | Enable PeeringDB lookups on the peer form (dials out to peeringdb.com). |
-| `--bgpq4` | *(empty)* | Path to `bgpq4` to enable IRR `AS-SET` expansion on prefix sets. Empty disables it; `bgpq4` uses `PATH`. |
+| `--bgpq4` | *(empty)* | Path to `bgpq4` to enable IRR `AS-SET` expansion on prefix sets and AS sets. Empty disables it; `bgpq4` uses `PATH`. |
 | `--netdiag` | `false` | Enable the **Diagnostics** page: ping/traceroute from the router. Runs external tools, so it is opt-in; a read-only operation, safe in read-only mode. |
 | `--drift-check-interval` | `30s` | How often to check whether `bird.conf` changed outside birdy, alerting if it did (`0` disables). Inert until birdy owns a config. |
 | `--sample-interval` | `1m` | How often to record a per-session route-count point for the dashboard history sparklines (`0` disables). |
 | `--sample-retain` | `168h` | How long to keep route-count history samples. |
-| `--irr-refresh-interval` | `24h` | How often to re-expand auto-refresh prefix sets from IRR via `bgpq4` (`0` disables; requires `--bgpq4`). |
+| `--irr-refresh-interval` | `24h` | How often to re-expand auto-refresh prefix sets and AS sets from IRR via `bgpq4` (`0` disables; requires `--bgpq4`). |
 
 ### `birdy version`
 
@@ -474,7 +476,16 @@ not a blank page.
   empty expansion is treated as a mirror failure and the previous list is kept.
 - **AS sets** — named lists of AS numbers (and ranges). This is where an expanded
   IRR `AS-SET` lands, since BIRD has no `AS-SET` concept. Point an import policy at
-  one to accept a customer's downstreams by origin AS.
+  one to accept a customer's downstreams by origin AS: the prefix set says *which
+  prefixes*, the AS set says *from which origins*. Like a prefix set, it can be
+  **expanded from its IRR `AS-SET`** with `bgpq4` — **Expand from IRR** on the form
+  fills the members in for review, and **Auto-refresh from IRR** keeps them current
+  on `--irr-refresh-interval`. **Refresh now** (the ↻ on the list) re-expands a set
+  on demand. All of it updates the model only: the change waits on the Changes page
+  for you to apply. Hand-written notes on a member survive a refresh, and an empty
+  expansion — what `bgpq4` returns for an unknown AS-SET — is treated as a mirror
+  failure and the previous members are kept, because an empty set would reject every
+  route.
 - **Communities** — named BGP communities: define a value once (standard
   `ASN:value` or large `ASN:x:y`, RFC 8092), give it a readable name, and reuse it.
   Each renders to a BIRD `define`. **Reference it by name** in a peer's export

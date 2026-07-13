@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 24
+const schemaVersion = 25
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -313,6 +313,21 @@ func migrate(db *sql.DB) error {
 		// The access whitelist — an application-level IP allow-list. Defaults to
 		// 0.0.0.0/0 (allow all) so an upgrade never locks anyone out.
 		if err := ensureColumn(tx, "settings", "access_whitelist", `ALTER TABLE settings ADD COLUMN access_whitelist TEXT NOT NULL DEFAULT '0.0.0.0/0'`); err != nil {
+			return err
+		}
+	}
+
+	if version < 25 {
+		// An AS set can now be expanded from its IRR AS-SET with bgpq4, on demand
+		// or on a timer — the same deal prefix sets got in v17/v21. Until now
+		// source was only a note to self.
+		if err := ensureColumn(tx, "as_sets", "auto_refresh", `ALTER TABLE as_sets ADD COLUMN auto_refresh INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "as_sets", "last_refreshed", `ALTER TABLE as_sets ADD COLUMN last_refreshed TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "as_sets", "refresh_error", `ALTER TABLE as_sets ADD COLUMN refresh_error TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
 	}

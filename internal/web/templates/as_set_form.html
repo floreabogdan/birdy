@@ -37,15 +37,39 @@
 								<input type="text" id="description" name="description" value="{{.Set.Description}}" autocomplete="off">
 								{{with index .Errs "description"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
+							{{if .Bgpq4}}
+							<div class="field">
+								<label for="source">IRR AS-SET</label>
+								<div style="display:flex;gap:8px;align-items:center">
+									<input type="text" id="source" name="source" class="mono" value="{{.Set.Source}}" placeholder="AS-CUSTOMER or AS64500" autocomplete="off" style="flex:1">
+									<button type="button" class="btn btn-sm" id="irr-refresh" data-irr-endpoint="/api/irr/asns" data-irr-noun="AS numbers" title="Expand this AS-SET into the member AS numbers below">Expand from IRR</button>
+								</div>
+								<div class="hint" id="irr-status" hidden></div>
+								<div class="hint">Expands with <span class="mono">bgpq4</span> into the members below, to review before saving.</div>
+								{{with index .Errs "source"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="field">
+								<label class="check"><input type="checkbox" name="autoRefresh" {{if .Set.AutoRefresh}}checked{{end}}> Auto-refresh from IRR on a schedule</label>
+								<div class="hint">
+									birdy re-expands this AS-SET periodically and updates the members. It never applies on its own &mdash;
+									the change appears on <a href="/changes">Changes</a> for you to review and apply.
+									{{if .Set.LastRefreshed}}<div class="text-muted" style="margin-top:6px">Last refreshed: <span class="mono">{{.Set.LastRefreshed}}</span></div>{{end}}
+									{{if .Set.RefreshError}}<div class="field-error" style="margin-top:6px">Last refresh: {{.Set.RefreshError}}</div>{{end}}
+								</div>
+							</div>
+							{{else}}
 							<div class="field">
 								<label for="source">Expanded from (IRR AS-SET)</label>
 								<input type="text" id="source" name="source" class="mono" value="{{.Set.Source}}" placeholder="AS-CUSTOMER" autocomplete="off">
+								{{if .Set.AutoRefresh}}<input type="hidden" name="autoRefresh" value="on">{{end}}
 								<div class="hint">
-									Optional, and a record only for now &mdash; birdy does not query the IRR yet.
-									Generate the members with <code class="mono">bgpq4 -3 -f 64600 -t AS-CUSTOMER</code> and paste them below.
+									A record only: this birdy runs without <span class="mono">bgpq4</span>, so it cannot query the IRR.
+									Start it with <code class="mono">--bgpq4 bgpq4</code> to expand and auto-refresh the members from here,
+									or generate them with <code class="mono">bgpq4 -t -l data AS-CUSTOMER</code> and paste them below.
 								</div>
 								{{with index .Errs "source"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
+							{{end}}
 							<div class="field">
 								<label for="entries">Member AS numbers</label>
 								<textarea id="entries" name="entries" rows="14" class="mono" spellcheck="false" placeholder="64600        # the customer&#10;65010-65020  # their downstreams">{{.EntryText}}</textarea>
@@ -88,5 +112,6 @@
 	</div>
 </div>
 <script src="/static/live-preview.js"></script>
+<script src="/static/irr.js"></script>
 </body>
 </html>

@@ -23,14 +23,26 @@
 				<div class="card-body" style="font-size:0.8125rem">
 					<p style="margin-top:0">
 						BIRD has no idea what an IRR <strong>AS-SET</strong> is. When a customer hands you <span class="chip">AS-CUSTOMER</span>,
-						the usual practice is to <strong>expand it offline</strong> — with <span class="chip">bgpq4</span> or similar — into the
-						list of member AS numbers, and drop that list into the router config.
+						it has to be <strong>expanded</strong> — with <span class="chip">bgpq4</span> — into the list of member AS numbers before
+						the router can filter on it. That list is what lives here.
 					</p>
+					<p{{if not .Bgpq4}} style="margin-bottom:0"{{end}}>
+						An import policy then requires every route&rsquo;s <strong>origin AS</strong> — the last hop of its AS path — to be a
+						member. That is the origin half of a customer filter; the <a href="/library/prefix-sets">prefix set</a> is the other
+						half, saying which prefixes may come from those origins.
+					</p>
+					{{if .Bgpq4}}
 					<p style="margin-bottom:0">
-						That list is what lives here. An import policy can then require that every route&rsquo;s <strong>origin AS</strong>
-						be a member, which is how you say &ldquo;announce your own prefixes and your downstreams&rsquo;, and nobody else&rsquo;s&rdquo;.
-						Record the AS-SET name under <em>Source</em> so the expansion can be re-run later.
+						Give a set its AS-SET name and birdy runs the expansion for you: <strong>Expand from IRR</strong> on the form fills the
+						members in, and <strong>auto-refresh</strong> keeps them current on a schedule. Refreshes only update the model — they
+						show up under <a href="/changes">Changes</a> for you to review and apply.
 					</p>
+					{{else}}
+					<p class="text-muted" style="margin-bottom:0">
+						Start birdy with <code class="mono">--bgpq4 bgpq4</code> to expand and auto-refresh these members from the IRR instead of
+						pasting them by hand.
+					</p>
+					{{end}}
 				</div>
 			</div>
 
@@ -41,7 +53,7 @@
 				</div>
 				<div class="table-scroll">
 				<table>
-					<thead><tr><th>Name</th><th>Source</th><th class="num">Members</th><th>Used by</th><th class="num">Actions</th></tr></thead>
+					<thead><tr><th>Name</th><th>IRR AS-SET</th><th class="num">Members</th><th>Used by</th><th class="num">Actions</th></tr></thead>
 					<tbody data-search-target>
 						{{range .Sets}}
 						<tr>
@@ -49,10 +61,20 @@
 								<a href="/library/as-sets/{{.Name}}/edit">{{.Name}}</a>
 								{{if .Description}}<div class="text-muted" style="font-size:0.75rem">{{.Description}}</div>{{end}}
 							</td>
-							<td>{{if .Source}}<span class="chip">{{.Source}}</span>{{else}}<span class="text-muted">entered by hand</span>{{end}}</td>
+							<td>
+								{{if .Source}}<span class="chip">{{.Source}}</span>{{else}}<span class="text-muted">entered by hand</span>{{end}}
+								{{if .AutoRefresh}}<span class="badge badge-success" title="Re-expanded from the IRR on a schedule">auto</span>{{end}}
+								{{if .RefreshError}}<div class="field-error" style="font-size:0.75rem">{{.RefreshError}}</div>
+								{{else if .LastRefreshed}}<div class="text-muted" style="font-size:0.75rem">synced {{.LastRefreshed}}</div>{{end}}
+							</td>
 							<td class="num mono">{{len .Entries}}</td>
 							<td>{{$n := index $.InUse .ID}}{{if $n}}<span class="badge badge-warning">{{$n}} polic{{if ne $n 1}}ies{{else}}y{{end}}</span>{{else}}<span class="text-muted">nothing</span>{{end}}</td>
 							<td class="row-actions">
+								{{if and $.Bgpq4 .Source}}
+								<form method="post" action="/library/as-sets/{{.Name}}/refresh">
+									<button type="submit" class="icon-action a-primary" title="Re-expand {{.Name}} from {{.Source}} now" aria-label="Refresh {{.Name}} from IRR">{{template "icon-refresh"}}</button>
+								</form>
+								{{end}}
 								<a class="icon-action a-primary" href="/library/as-sets/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
 								<form method="post" action="/library/as-sets/{{.Name}}/delete" onsubmit="return confirm('Delete AS set {{.Name}}?')">
 									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
