@@ -13,6 +13,13 @@ import (
 // point is counting what you would lose by switching to reject.
 const rpkiInvalidLimit = 50
 
+// isROATable reports whether a table name is an RPKI ROA table (birdy renders them
+// as rpki4/rpki6). Their entries are ROAs, not routes: they appear in a "show route
+// count" and would otherwise pollute any total taken from it.
+func isROATable(name string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(name)), "rpki")
+}
+
 type rpkiView struct {
 	Active   string
 	ReadOnly bool
@@ -33,9 +40,14 @@ type rpkiView struct {
 	// only when a policy is in log-only mode (that is what tags them).
 	Invalids    []birdc.RouteEntry
 	InvalidsErr string
-	// Pager pages the invalids. Their total is unknown: counting them means walking
-	// the whole table, which on a full-table router is millions of routes read to
-	// draw a page number.
+	// InvalidTotal is how many routes carry the tag, across every routing table —
+	// the number the dry run exists to produce. BIRD counts them itself, so asking
+	// costs one command, not a walk of the whole RIB across the socket.
+	// InvalidByTable breaks it down (master4 / master6), because "600 of them are
+	// v6" is the next thing you want to know.
+	InvalidTotal   int
+	InvalidByTable []birdc.RouteCountEntry
+	// Pager pages the listing, using the real total for its page numbers.
 	Pager Pager
 }
 
@@ -77,18 +89,37 @@ func (s *Server) handleRPKIPage(w http.ResponseWriter, r *http.Request) {
 	// what they would lose before switching to reject.
 	if len(v.Logging) > 0 {
 		if settings, ok, err := s.store.GetSettings(); err == nil && ok && settings.LocalASN.Valid {
+			asn := settings.LocalASN.Int64
+
+			// Ask BIRD how many there are before asking for a page of them. This is
+			// the answer the dry run is for — "742 routes would be dropped" — and it
+			// also gives the pager a real page count.
+			if counts, err := s.client.RoutesRPKIInvalidCount(asn); err != nil {
+				v.InvalidsErr = err.Error()
+			} else {
+				for _, c := range counts {
+					if isROATable(c.Table) {
+						continue // the ROA tables hold ROAs, not routes; they never match
+					}
+					v.InvalidTotal += c.Routes
+					if c.Routes > 0 {
+						v.InvalidByTable = append(v.InvalidByTable, c)
+					}
+				}
+			}
+
 			offset, limit := parsePageParams(r)
 			if limit == defaultPageSize {
 				limit = rpkiInvalidLimit
 			}
-			page, err := s.client.RoutesRPKIInvalidPage(settings.LocalASN.Int64, offset, limit)
+			page, err := s.client.RoutesRPKIInvalidPage(asn, offset, limit)
 			if err != nil {
 				v.InvalidsErr = err.Error()
 			} else {
 				for _, tbl := range page.Tables {
 					v.Invalids = append(v.Invalids, tbl.Routes...)
 				}
-				v.Pager = newPager(r, offset, limit, len(v.Invalids), TotalUnknown, page.HasMore)
+				v.Pager = newPager(r, offset, limit, len(v.Invalids), v.InvalidTotal, page.HasMore)
 			}
 		}
 	}

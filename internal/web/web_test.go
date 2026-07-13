@@ -25,6 +25,9 @@ type fakeClient struct {
 	details   map[string]birdc.ProtocolDetail
 	routes    map[string][]birdc.RouteTable // keyed "type:target"
 	routeErr  error
+	// invalidCounts is what BIRD answers to the filtered "show route ... count" the
+	// RPKI dry run asks for.
+	invalidCounts []birdc.RouteCountEntry
 
 	// Apply pipeline behaviour. Zero value means every configure step succeeds,
 	// which is what most tests want; a test flips one to false or sets an error
@@ -96,6 +99,12 @@ func (f *fakeClient) RoutesNoExportPage(name string, all bool, offset, limit int
 }
 func (f *fakeClient) RoutesRPKIInvalidPage(localASN int64, offset, limit int) (birdc.RoutePage, error) {
 	return f.lookup("rpki-invalid")
+}
+func (f *fakeClient) RoutesRPKIInvalidCount(localASN int64) ([]birdc.RouteCountEntry, error) {
+	if f.routeErr != nil {
+		return nil, f.routeErr
+	}
+	return f.invalidCounts, nil
 }
 func (f *fakeClient) lookup(key string) (birdc.RoutePage, error) {
 	if f.routeErr != nil {

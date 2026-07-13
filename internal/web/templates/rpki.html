@@ -125,11 +125,18 @@
 			<div class="card">
 				<div class="card-header">
 					<span class="card-title">{{template "icon-alert"}}RPKI-invalid routes (dry run)</span>
-					<span class="chip">{{.Pager.Summary}}</span>
+					{{if .InvalidTotal}}<span class="badge badge-danger">{{comma .InvalidTotal}} would be dropped</span>{{end}}
 				</div>
 				<p class="card-intro">
 					Routes BIRD is tagging <span class="chip">RPKI_INVALID</span> right now under log-only mode &mdash; exactly
-					what a <span class="badge badge-danger">reject invalid</span> policy would drop. Count them before you switch.
+					what a <span class="badge badge-danger">reject invalid</span> policy would drop.
+					{{if .InvalidTotal}}
+					BIRD counts <strong>{{comma .InvalidTotal}}</strong> of them{{if .InvalidByTable}} &mdash;
+						{{range $i, $t := .InvalidByTable}}{{if $i}}, {{end}}<span class="mono">{{$t.Table}}</span>: {{comma $t.Routes}}{{end}}{{end}}.
+					Decide whether that number is one you can afford to lose before switching to reject.
+					{{else}}
+					Count them before you switch.
+					{{end}}
 				</p>
 				{{if .InvalidsErr}}
 					<div class="card-body error-text">Could not read invalid routes from BIRD: {{.InvalidsErr}}</div>

@@ -178,12 +178,27 @@ func TestRPKIInvalidsDryRun(t *testing.T) {
 		Routes: []birdc.RouteEntry{{Network: "203.0.113.0/24", Protocol: "edge_v4", ASPath: "AS64500"}},
 	}}
 
+	// BIRD counts the invalids itself; the ROA tables are not routes and must not
+	// be added into the total.
+	env.fc.invalidCounts = []birdc.RouteCountEntry{
+		{Table: "master4", Routes: 742},
+		{Table: "master6", Routes: 116},
+		{Table: "rpki4", Routes: 0},
+	}
+
 	body := env.do(t, "GET", "/rpki", nil).Body.String()
 	if !strings.Contains(body, "RPKI-invalid routes") {
 		t.Error("a log-only policy should show the invalids dry-run panel")
 	}
 	if !strings.Contains(body, "203.0.113.0/24") {
 		t.Error("the live invalid route should be listed")
+	}
+	// The number is the answer the dry run exists to give: how many would I lose?
+	if !strings.Contains(body, "858 would be dropped") {
+		t.Error("the total invalid count (742 + 116) should be stated outright")
+	}
+	if !strings.Contains(body, "master6") {
+		t.Error("the per-table breakdown should say how many are v6")
 	}
 }
 

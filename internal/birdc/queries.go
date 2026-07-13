@@ -187,6 +187,27 @@ func (c *Client) RoutesRPKIInvalidPage(localASN int64, offset, limit int) (Route
 	return paginate(c.path, pageQueryTimeout, cmd, offset, limit)
 }
 
+// RoutesRPKIInvalidCount asks BIRD how many routes carry the RPKI_INVALID tag —
+// the number a policy would drop if it moved from log-only to reject, which is
+// the whole point of the dry run.
+//
+// BIRD does the counting and answers with one line per table, so this is cheap
+// even on a full-table router: nothing walks 2.6M routes across the socket. The
+// paginated listing exists to show *which* routes; this says *how many*.
+func (c *Client) RoutesRPKIInvalidCount(localASN int64) ([]RouteCountEntry, error) {
+	if localASN < 1 || localASN > 4294967295 {
+		return nil, fmt.Errorf("birdc: invalid local ASN %d", localASN)
+	}
+	r, err := c.Command(fmt.Sprintf("show route where (%d, 2, 1) ~ bgp_large_community count", localASN))
+	if err != nil {
+		return nil, err
+	}
+	if r.IsError() {
+		return nil, fmt.Errorf("birdc: %s", r.Terminal.Lines[0])
+	}
+	return ParseRouteCount(r)
+}
+
 // RoutesNoExportPage is the paginated form of RoutesNoExport.
 func (c *Client) RoutesNoExportPage(name string, all bool, offset, limit int) (RoutePage, error) {
 	if err := validIdent(name); err != nil {

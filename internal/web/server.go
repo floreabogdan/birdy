@@ -32,6 +32,9 @@ type birdClient interface {
 	RoutesExportPage(name string, all bool, offset, limit int) (birdc.RoutePage, error)
 	RoutesNoExportPage(name string, all bool, offset, limit int) (birdc.RoutePage, error)
 	RoutesRPKIInvalidPage(localASN int64, offset, limit int) (birdc.RoutePage, error)
+	// RoutesRPKIInvalidCount is how many there are in total — BIRD counts them, so
+	// the dry run can answer "how many would I drop" without listing them all.
+	RoutesRPKIInvalidCount(localASN int64) ([]birdc.RouteCountEntry, error)
 
 	// The apply pipeline. These act on BIRD's own configured config file, which
 	// birdy writes before calling them. ConfigureCheck never changes the running
