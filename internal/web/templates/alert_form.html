@@ -12,7 +12,7 @@
 		<div class="page">
 			<div class="page-top">
 				<span class="page-eyebrow">{{if .IsNew}}New destination{{else}}Edit destination{{end}}</span>
-				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/alerts">Alerts</a><span class="sep">/</span><span class="current mono">{{if .IsNew}}new{{else}}{{.Dest.Name}}{{end}}</span></div>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/settings?tab=alerts">Alerts</a><span class="sep">/</span><span class="current mono">{{if .IsNew}}new{{else}}{{.Dest.Name}}{{end}}</span></div>
 			</div>
 			<div class="page-header">
 				<div><h1>{{if .IsNew}}Add destination{{else}}Edit {{.Dest.Name}}{{end}}</h1></div>
@@ -118,7 +118,7 @@
 
 				<div class="form-actions">
 					{{if .IsNew}}<button type="submit" class="btn btn-success">{{template "icon-plus"}}Create destination</button>{{else}}<button type="submit" class="btn btn-primary">Save changes</button>{{end}}
-					<a class="btn" href="/alerts">Cancel</a>
+					<a class="btn" href="/settings?tab=alerts">Cancel</a>
 					{{if not .IsNew}}<span class="hint" style="align-self:center">Save first, then use <strong>Test</strong> on the list.</span>{{end}}
 				</div>
 			</form>

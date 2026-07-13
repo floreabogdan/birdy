@@ -9,14 +9,6 @@ import (
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
-type alertsView struct {
-	Active       string
-	ReadOnly     bool
-	Flash        string
-	Err          string
-	Destinations []store.Destination
-}
-
 type alertFormView struct {
 	Active     string
 	ReadOnly   bool
@@ -29,21 +21,15 @@ type alertFormView struct {
 	HasPassword bool
 }
 
+// handleAlertsList used to render a page of its own; alert destinations now live
+// on Settings → Alerts. Keep the URL working for bookmarks and old links.
 func (s *Server) handleAlertsList(w http.ResponseWriter, r *http.Request) {
-	dests, err := s.store.ListAlertDestinations()
-	if err != nil {
-		s.serverError(w, "list alert destinations", err)
-		return
-	}
-	render(w, s.log, "alerts.html", alertsView{
-		Active: "alerts", ReadOnly: s.readOnly, Destinations: dests,
-		Flash: r.URL.Query().Get("flash"), Err: r.URL.Query().Get("err"),
-	})
+	http.Redirect(w, r, "/settings?tab=alerts", http.StatusSeeOther)
 }
 
 func (s *Server) handleAlertNew(w http.ResponseWriter, r *http.Request) {
 	s.renderAlertForm(w, alertFormView{
-		Active: "alerts", ReadOnly: s.readOnly, IsNew: true,
+		Active: "settings", ReadOnly: s.readOnly, IsNew: true,
 		Dest: store.Destination{Type: store.AlertSlack, Enabled: true, SMTPPort: 587, SMTPSecurity: store.SMTPStartTLS},
 	})
 }
@@ -54,7 +40,7 @@ func (s *Server) handleAlertEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderAlertForm(w, alertFormView{
-		Active: "alerts", ReadOnly: s.readOnly, Dest: d, HasPassword: d.SMTPPassword != "",
+		Active: "settings", ReadOnly: s.readOnly, Dest: d, HasPassword: d.SMTPPassword != "",
 	})
 }
 
@@ -81,7 +67,7 @@ func (s *Server) handleAlertSave(w http.ResponseWriter, r *http.Request) {
 	errs := d.Validate()
 	if len(errs) > 0 {
 		s.renderAlertForm(w, alertFormView{
-			Active: "alerts", ReadOnly: s.readOnly, IsNew: isNew, Dest: d, Errs: errs,
+			Active: "settings", ReadOnly: s.readOnly, IsNew: isNew, Dest: d, Errs: errs,
 			HasPassword: !isNew && d.SMTPPassword != "",
 		})
 		return
@@ -95,14 +81,14 @@ func (s *Server) handleAlertSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if isUniqueViolation(err) {
 		errs["name"] = "A destination with this name already exists."
-		s.renderAlertForm(w, alertFormView{Active: "alerts", ReadOnly: s.readOnly, IsNew: isNew, Dest: d, Errs: errs})
+		s.renderAlertForm(w, alertFormView{Active: "settings", ReadOnly: s.readOnly, IsNew: isNew, Dest: d, Errs: errs})
 		return
 	}
 	if err != nil {
 		s.serverError(w, "save alert destination", err)
 		return
 	}
-	http.Redirect(w, r, "/alerts?flash="+flash("Saved "+d.Name), http.StatusSeeOther)
+	settingsRedirect(w, r, "alerts", "Saved "+d.Name)
 }
 
 func (s *Server) handleAlertDelete(w http.ResponseWriter, r *http.Request) {
@@ -114,7 +100,7 @@ func (s *Server) handleAlertDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "delete alert destination", err)
 		return
 	}
-	http.Redirect(w, r, "/alerts?flash="+flash("Deleted "+d.Name), http.StatusSeeOther)
+	settingsRedirect(w, r, "alerts", "Deleted "+d.Name)
 }
 
 // handleAlertTest sends a synthetic alert to one destination and reports the
@@ -125,10 +111,10 @@ func (s *Server) handleAlertTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if terr := notify.NewDispatcher(s.store, s.log, 0).SendTest(d); terr != nil {
-		http.Redirect(w, r, "/alerts?err="+flash("Test to "+d.Name+" failed: "+terr.Error()), http.StatusSeeOther)
+		http.Redirect(w, r, "/settings?tab=alerts&err="+flash("Test to "+d.Name+" failed: "+terr.Error()), http.StatusSeeOther)
 		return
 	}
-	http.Redirect(w, r, "/alerts?flash="+flash("Test alert sent to "+d.Name), http.StatusSeeOther)
+	settingsRedirect(w, r, "alerts", "Test alert sent to "+d.Name)
 }
 
 func alertFromForm(r *http.Request) store.Destination {

@@ -239,7 +239,7 @@ func TestPreview(t *testing.T) {
 	}
 
 	settingsV := SettingsView{
-		Active: "settings", ReadOnly: true, Msg: "Router identity saved",
+		Active: "settings", Tab: "general", ReadOnly: true, Msg: "Router identity saved",
 		Settings: store.Settings{
 			RouterLabel: "cl1", RouterID: "192.0.2.1",
 			LocalASN:       sql.NullInt64{Int64: 65551, Valid: true},
@@ -249,7 +249,14 @@ func TestPreview(t *testing.T) {
 		BogonsV4:       defaultBogonText(store.FamilyV4),
 		BogonsV6:       defaultBogonText(store.FamilyV6),
 		BogonASNs:      store.FormatBogonASNs(store.DefaultBogonASNs()),
+		Destinations: []store.Destination{
+			{ID: 1, Name: "noc-slack", Type: store.AlertSlack, Enabled: true, URL: "https://hooks.slack.com/services/T00/B00/xxx"},
+			{ID: 2, Name: "oncall-email", Type: store.AlertEmail, Enabled: true, SMTPHost: "smtp.example.com", SMTPTo: "noc@example.com"},
+		},
 	}
+	// A second view fixed to the Alerts tab, for that screenshot.
+	settingsAlertsV := settingsV
+	settingsAlertsV.Tab = "alerts"
 	timelineV := TimelineView{Active: "timeline", Events: dash.RecentEvents, NextID: 42}
 
 	// Looking glass with "show all" attributes: decoded communities of every kind.
@@ -298,6 +305,7 @@ func TestPreview(t *testing.T) {
 	mux.HandleFunc("/export-policy-form", page("policy_form.html", expFormV))
 	mux.HandleFunc("/peer-form-lint", page("peer_form.html", leakyV))
 	mux.HandleFunc("/lg", page("lg.html", lgV))
+	mux.HandleFunc("/settings-alerts", page("settings.html", settingsAlertsV))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -318,6 +326,7 @@ func TestPreview(t *testing.T) {
 		{"export-policy-form", "/export-policy-form", "1600,1200"},
 		{"peer-form-lint", "/peer-form-lint", "1600,1500"},
 		{"settings", "/settings", "1600,1100"},
+		{"settings-alerts", "/settings-alerts", "1600,700"},
 		{"timeline", "/timeline", "1600,700"},
 		{"lg", "/lg", "1600,700"},
 		{"lg-dark", "/lg?dark", "1600,700"},

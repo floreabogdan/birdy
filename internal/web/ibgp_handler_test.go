@@ -231,10 +231,10 @@ func TestAlertDestinationCRUD(t *testing.T) {
 		t.Fatalf("destination not saved: %+v", dests)
 	}
 
-	// It shows on the list.
-	body := env.do(t, "GET", "/alerts", nil).Body.String()
+	// It shows on the Settings → Alerts tab.
+	body := env.do(t, "GET", "/settings?tab=alerts", nil).Body.String()
 	if !strings.Contains(body, "noc-slack") || !strings.Contains(body, "Slack") {
-		t.Error("the destination should appear on the alerts page")
+		t.Error("the destination should appear on the Settings alerts tab")
 	}
 
 	// A Slack destination with a non-http URL is refused.

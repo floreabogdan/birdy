@@ -17,6 +17,7 @@ import (
 
 type SettingsView struct {
 	Active         string
+	Tab            string
 	ReadOnly       bool
 	Settings       store.Settings
 	SocketPath     string
@@ -25,6 +26,10 @@ type SettingsView struct {
 	Msg            string
 	Err            string
 	IdentityErrs   map[string]string
+
+	// Destinations backs the Alerts tab — the notification channels that used to
+	// live on their own page.
+	Destinations []store.Destination
 
 	// The bogon lists live here rather than in the Library: generated filters
 	// name them directly, so they are router settings, not composable objects.
@@ -46,14 +51,31 @@ type SettingsView struct {
 	ConnectingIP    string
 }
 
+// settingsTabs are the tab keys in display order; the first is the default.
+var settingsTabs = []string{"general", "bogons", "access", "alerts", "advanced"}
+
 func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	s.renderSettings(w, SettingsView{
-		Active: "settings", ReadOnly: s.readOnly, Msg: r.URL.Query().Get("flash"),
+		Active: "settings", ReadOnly: s.readOnly,
+		Tab: tabParam(r, settingsTabs...),
+		Msg: r.URL.Query().Get("flash"), Err: r.URL.Query().Get("err"),
 		ConnectingIP: clientAddr(r).String(),
 	})
 }
 
+// settingsRedirect returns to a specific Settings tab with a flash message, so a
+// save keeps the operator on the panel they were editing.
+func settingsRedirect(w http.ResponseWriter, r *http.Request, tab, msg string) {
+	http.Redirect(w, r, "/settings?tab="+tab+"&flash="+flash(msg), http.StatusSeeOther)
+}
+
 func (s *Server) renderSettings(w http.ResponseWriter, v SettingsView) {
+	if v.Tab == "" {
+		v.Tab = settingsTabs[0]
+	}
+	if dests, err := s.store.ListAlertDestinations(); err == nil {
+		v.Destinations = dests
+	}
 	if settings, ok, err := s.store.GetSettings(); err == nil && ok {
 		// A rejected form keeps what the user typed; otherwise show what's stored.
 		if len(v.IdentityErrs) == 0 {
@@ -154,7 +176,7 @@ func (s *Server) handleSettingsBogons(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(errs) > 0 {
-		v := SettingsView{Active: "settings", ReadOnly: s.readOnly, BogonErrs: errs,
+		v := SettingsView{Active: "settings", Tab: "bogons", ReadOnly: s.readOnly, BogonErrs: errs,
 			BogonsV4: v4Text, BogonsV6: v6Text, BogonASNs: asnText}
 		s.renderSettings(w, v)
 		return
@@ -172,7 +194,7 @@ func (s *Server) handleSettingsBogons(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "save bogon ASNs", err)
 		return
 	}
-	http.Redirect(w, r, "/settings?flash="+flash("Bogon lists saved"), http.StatusSeeOther)
+	settingsRedirect(w, r, "bogons", "Bogon lists saved")
 }
 
 // parseEntries reads the prefix textarea, ignoring blanks and # comments.
@@ -227,7 +249,7 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if len(errs) > 0 {
-		v := SettingsView{Active: "settings", ReadOnly: s.readOnly, IdentityErrs: errs}
+		v := SettingsView{Active: "settings", Tab: "general", ReadOnly: s.readOnly, IdentityErrs: errs}
 		v.Settings.RouterID = routerID
 		v.Settings.LocalASN = sql.NullInt64{Int64: asn, Valid: errs["localAsn"] == ""}
 		v.Settings.RRClusterID = probe.RRClusterID
@@ -242,7 +264,7 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 		s.serverError(w, "save settings", err)
 		return
 	}
-	http.Redirect(w, r, "/settings?flash="+flash("Router identity saved"), http.StatusSeeOther)
+	settingsRedirect(w, r, "general", "Router identity saved")
 }
 
 // maxRawConfig bounds the escape hatch. It is a router config, not a document;
@@ -263,7 +285,7 @@ func (s *Server) handleSettingsRaw(w http.ResponseWriter, r *http.Request) {
 
 	fail := func(msg, output string) {
 		s.renderSettings(w, SettingsView{
-			Active: "settings", ReadOnly: s.readOnly,
+			Active: "settings", Tab: "advanced", ReadOnly: s.readOnly,
 			RawConfig: raw, RawErr: msg, RawOutput: output,
 		})
 	}
@@ -310,7 +332,7 @@ func (s *Server) handleSettingsRaw(w http.ResponseWriter, r *http.Request) {
 	if unchecked {
 		msg = "Raw config saved, but not checked: " + reason
 	}
-	http.Redirect(w, r, "/settings?flash="+flash(msg), http.StatusSeeOther)
+	settingsRedirect(w, r, "advanced", msg)
 }
 
 // handleSettingsAccess saves the access whitelist. It is a birdy setting, not a
@@ -328,7 +350,7 @@ func (s *Server) handleSettingsAccess(w http.ResponseWriter, r *http.Request) {
 	prefixes, errs := store.ParseAccessWhitelist(text)
 	if len(errs) > 0 {
 		s.renderSettings(w, SettingsView{
-			Active: "settings", ReadOnly: s.readOnly,
+			Active: "settings", Tab: "access", ReadOnly: s.readOnly,
 			AccessWhitelist: text, AccessErr: strings.Join(errs, "\n"),
 			ConnectingIP: clientAddr(r).String(),
 		})
@@ -346,7 +368,7 @@ func (s *Server) handleSettingsAccess(w http.ResponseWriter, r *http.Request) {
 			" is not in it. You can still reach birdy over an SSH tunnel (loopback is always allowed)."
 	}
 	s.audit(r, "updated the access whitelist")
-	http.Redirect(w, r, "/settings?flash="+flash(msg), http.StatusSeeOther)
+	settingsRedirect(w, r, "access", msg)
 }
 
 // apiSnapshotDownload always produces a fresh, consistent snapshot on demand

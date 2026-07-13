@@ -17,196 +17,242 @@
 			<div class="page-header">
 				<div>
 					<h1>Settings</h1>
-					<div class="page-sub">Router identity, bogon lists and database snapshots.</div>
+					<div class="page-sub">Router identity, bogon lists, access control, alerts and the raw-config escape hatch.</div>
 				</div>
 			</div>
 
 			{{if .Msg}}<div class="flash">{{.Msg}}</div>{{end}}
 			{{if .Err}}<div class="flash flash-error">{{.Err}}</div>{{end}}
 
-			<div class="card">
-				<div class="card-header"><span class="card-title">{{template "icon-settings"}}Router identity</span></div>
-				<div class="card-body">
-					<p class="text-muted" style="margin-top:0">These two values open every rendered config. BIRD will not start without a router ID.</p>
-					<form method="post" action="/settings/identity">
-						<div class="field-row">
+			<nav class="page-tabs" data-tabs role="tablist">
+				<a href="?tab=general" data-tab="general" role="tab" aria-selected="{{if eq .Tab "general"}}true{{else}}false{{end}}">{{template "icon-settings"}}General</a>
+				<a href="?tab=bogons" data-tab="bogons" role="tab" aria-selected="{{if eq .Tab "bogons"}}true{{else}}false{{end}}">{{template "icon-shield"}}Bogons</a>
+				<a href="?tab=access" data-tab="access" role="tab" aria-selected="{{if eq .Tab "access"}}true{{else}}false{{end}}">{{template "icon-key"}}Access</a>
+				<a href="?tab=alerts" data-tab="alerts" role="tab" aria-selected="{{if eq .Tab "alerts"}}true{{else}}false{{end}}">{{template "icon-bell"}}Alerts</a>
+				<a href="?tab=advanced" data-tab="advanced" role="tab" aria-selected="{{if eq .Tab "advanced"}}true{{else}}false{{end}}">{{template "icon-terminal"}}Advanced</a>
+			</nav>
+
+			<section data-tab-panel="general" {{if ne .Tab "general"}}hidden{{end}} class="tab-panel">
+				<div class="card">
+					<div class="card-header"><span class="card-title">{{template "icon-settings"}}Router identity</span></div>
+					<div class="card-body">
+						<p class="text-muted" style="margin-top:0">These two values open every rendered config. BIRD will not start without a router ID.</p>
+						<form method="post" action="/settings/identity">
+							<div class="field-row">
+								<div class="field">
+									<label for="routerId">Router ID</label>
+									<input type="text" id="routerId" name="routerId" class="mono" value="{{.Settings.RouterID}}" placeholder="192.0.2.1" autocomplete="off">
+									<div class="hint">A 32-bit value, conventionally written as one of your IPv4 addresses.</div>
+									{{with index .IdentityErrs "routerId"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field">
+									<label for="localAsn">Local ASN</label>
+									<input type="number" id="localAsn" name="localAsn" class="mono" value="{{if .Settings.LocalASN.Valid}}{{.Settings.LocalASN.Int64}}{{end}}" min="1" max="4294967295">
+									<div class="hint">Rendered as <code class="mono">define LOCAL_ASN</code> and used in the AS-path loop guard.</div>
+									{{with index .IdentityErrs "localAsn"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field">
+									<label for="rrClusterId">Route reflector cluster ID</label>
+									<input type="text" id="rrClusterId" name="rrClusterId" class="mono" value="{{.Settings.RRClusterID}}" placeholder="optional" autocomplete="off">
+									<div class="hint">Only used by peers marked as reflector clients. Blank means BIRD uses the router ID, which is right until you run a second reflector for the same clients.</div>
+									{{with index .IdentityErrs "rrClusterId"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+							</div>
+							<button type="submit" class="btn btn-primary">Save identity</button>
+						</form>
+					</div>
+				</div>
+
+				<div class="card">
+					<div class="card-header">Router</div>
+					<div class="card-body">
+						<dl class="kv">
+							<dt>Label</dt><dd>{{.Settings.RouterLabel}}</dd>
+							<dt>BIRD socket</dt><dd>{{.Settings.BirdSocketPath}}</dd>
+							<dt>Listen address</dt><dd>{{.Settings.ListenAddr}}</dd>
+							<dt>Mode</dt><dd>{{if .ReadOnly}}<span class="badge badge-warning">read-only</span>{{else}}<span class="badge badge-success">read-write</span>{{end}}</dd>
+						</dl>
+					</div>
+				</div>
+
+				<div class="card">
+					<div class="card-header">Database snapshots</div>
+					<div class="card-body">
+						<p class="text-muted">birdy's entire state — settings, sessions, users, the event timeline — lives in one SQLite file. A fresh, consistent snapshot is taken nightly and can also be downloaded on demand below. The <strong>backup bundle</strong> also includes the rendered config, so you have an off-box copy of both.</p>
+						<p class="form-actions" style="margin-top:0">
+							<a class="btn btn-primary" href="/api/backup/download">Download backup bundle</a>
+							<a class="btn" href="/api/snapshot/download">Database only</a>
+						</p>
+
+						{{if not .ReadOnly}}
+						<hr style="border:none;border-top:1px solid var(--border);margin:18px 0">
+						<form id="restore-form" enctype="multipart/form-data">
 							<div class="field">
-								<label for="routerId">Router ID</label>
-								<input type="text" id="routerId" name="routerId" class="mono" value="{{.Settings.RouterID}}" placeholder="192.0.2.1" autocomplete="off">
-								<div class="hint">A 32-bit value, conventionally written as one of your IPv4 addresses.</div>
-								{{with index .IdentityErrs "routerId"}}<div class="field-error">{{.}}</div>{{end}}
+								<label for="db">Restore from a snapshot file</label>
+								<input type="file" id="db" name="db" accept=".db">
+							</div>
+							<button type="submit" class="btn">Stage restore</button>
+							<span id="restore-msg" class="text-muted" style="margin-left:10px"></span>
+						</form>
+						<p class="text-muted" style="margin-top:8px">Restoring is staged, not applied live: birdy backs up the current database and swaps in the uploaded one the next time it starts. Run <code class="mono">systemctl restart birdy</code> afterward.</p>
+						<script>
+						document.getElementById("restore-form").addEventListener("submit", function (e) {
+							e.preventDefault();
+							var msg = document.getElementById("restore-msg");
+							var data = new FormData(e.target);
+							msg.textContent = "Uploading...";
+							fetch("/api/snapshot/restore", { method: "POST", body: data, credentials: "same-origin" })
+								.then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+								.then(function (res) {
+									msg.textContent = res.ok ? res.j.message : (res.j.error || "restore failed");
+								})
+								.catch(function () { msg.textContent = "restore failed"; });
+						});
+						</script>
+						{{end}}
+					</div>
+				</div>
+			</section>
+
+			<section data-tab-panel="bogons" {{if ne .Tab "bogons"}}hidden{{end}} class="tab-panel">
+				<div class="card">
+					<div class="card-header"><span class="card-title">{{template "icon-shield"}}Bogons</span></div>
+					<div class="card-body">
+						<p class="text-muted" style="margin-top:0">
+							Address space and AS numbers that must never appear in BGP. Every import policy with
+							"reject bogon prefixes" or an AS-path check reads these lists, and generated filters name them
+							directly — which is why they live here rather than in the Library, and cannot be deleted or announced.
+						</p>
+						<form method="post" action="/settings/bogons">
+							<div class="field-row">
+								<div class="field">
+									<label for="bogonsV4">IPv4 bogon prefixes</label>
+									<textarea id="bogonsV4" name="bogonsV4" rows="16" class="mono" spellcheck="false">{{.BogonsV4}}</textarea>
+									<div class="hint">One per line. Suffix <code class="mono">+</code> also matches more specifics.</div>
+									{{with index .BogonErrs "bogonsV4"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
+								</div>
+								<div class="field">
+									<label for="bogonsV6">IPv6 bogon prefixes</label>
+									<textarea id="bogonsV6" name="bogonsV6" rows="16" class="mono" spellcheck="false">{{.BogonsV6}}</textarea>
+									<div class="hint">Rendered as <code class="mono">define BOGONS_V6</code>.</div>
+									{{with index .BogonErrs "bogonsV6"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
+								</div>
 							</div>
 							<div class="field">
-								<label for="localAsn">Local ASN</label>
-								<input type="number" id="localAsn" name="localAsn" class="mono" value="{{if .Settings.LocalASN.Valid}}{{.Settings.LocalASN.Int64}}{{end}}" min="1" max="4294967295">
-								<div class="hint">Rendered as <code class="mono">define LOCAL_ASN</code> and used in the AS-path loop guard.</div>
-								{{with index .IdentityErrs "localAsn"}}<div class="field-error">{{.}}</div>{{end}}
+								<label for="bogonAsns">Bogon AS numbers</label>
+								<textarea id="bogonAsns" name="bogonAsns" rows="11" class="mono" spellcheck="false">{{.BogonASNs}}</textarea>
+								<div class="hint">
+									One per line: <code class="mono">64512</code> or <code class="mono">64512-65534</code>, optionally followed by
+									<code class="mono">private</code> and a <code class="mono">#</code> comment.
+									Ranges marked <strong>private</strong> are the ones a policy set to "all except private" will tolerate —
+									that is what lets you peer with someone who legitimately uses a private ASN.
+								</div>
+								{{with index .BogonErrs "bogonAsns"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
 							</div>
+							<div class="form-actions" style="margin-bottom:0">
+								<button type="submit" class="btn btn-primary">Save bogon lists</button>
+								<button type="submit" name="restore" value="defaults" class="btn"
+									onclick="return confirm('Replace all three lists with the values birdy ships with?')">Restore defaults</button>
+							</div>
+						</form>
+					</div>
+				</div>
+			</section>
+
+			<section data-tab-panel="access" {{if ne .Tab "access"}}hidden{{end}} class="tab-panel">
+				<div class="card">
+					<div class="card-header"><span class="card-title">{{template "icon-key"}}Access control</span></div>
+					<div class="card-body">
+						<p style="margin-top:0">
+							An application-level firewall: only these IPs and CIDRs may reach birdy at all. A blocked client gets
+							<strong>no response</strong> &mdash; the connection is simply closed &mdash; and it applies to every
+							request, including the unauthenticated <span class="mono">/metrics</span>. Empty, or a
+							<span class="mono">0.0.0.0/0</span> entry, means no restriction; <strong>loopback is always allowed</strong>,
+							so an SSH tunnel can never be locked out.
+						</p>
+						<p class="hint" style="margin-bottom:14px">
+							You are connecting from <span class="chip mono">{{if .ConnectingIP}}{{.ConnectingIP}}{{else}}unknown{{end}}</span>
+							&mdash; add it before you restrict, or reach birdy over an SSH tunnel (<span class="mono">ssh -L 8080:127.0.0.1:8080</span>).
+						</p>
+						{{if .AccessErr}}<div class="error-text" style="white-space:pre-line">{{.AccessErr}}</div>{{end}}
+						<form method="post" action="/settings/access">
 							<div class="field">
-								<label for="rrClusterId">Route reflector cluster ID</label>
-								<input type="text" id="rrClusterId" name="rrClusterId" class="mono" value="{{.Settings.RRClusterID}}" placeholder="optional" autocomplete="off">
-								<div class="hint">Only used by peers marked as reflector clients. Blank means BIRD uses the router ID, which is right until you run a second reflector for the same clients.</div>
-								{{with index .IdentityErrs "rrClusterId"}}<div class="field-error">{{.}}</div>{{end}}
+								<label for="accessWhitelist">Allowed IPs / CIDRs</label>
+								<textarea id="accessWhitelist" name="accessWhitelist" rows="5" class="mono" spellcheck="false" placeholder="0.0.0.0/0&#10;203.0.113.4&#10;10.0.0.0/8">{{.AccessWhitelist}}</textarea>
+								<div class="hint">One per line or comma-separated; a bare IP is a single host. Blank lines and <code class="mono">#</code> comments are ignored.</div>
 							</div>
-						</div>
-						<button type="submit" class="btn btn-primary">Save identity</button>
-					</form>
+							<button type="submit" class="btn btn-primary">Save access control</button>
+						</form>
+					</div>
 				</div>
-			</div>
+			</section>
 
-			<div class="card">
-				<div class="card-header">Router</div>
-				<div class="card-body">
-					<dl class="kv">
-						<dt>Label</dt><dd>{{.Settings.RouterLabel}}</dd>
-						<dt>BIRD socket</dt><dd>{{.Settings.BirdSocketPath}}</dd>
-						<dt>Listen address</dt><dd>{{.Settings.ListenAddr}}</dd>
-						<dt>Mode</dt><dd>{{if .ReadOnly}}<span class="badge badge-warning">read-only</span>{{else}}<span class="badge badge-success">read-write</span>{{end}}</dd>
-					</dl>
-				</div>
-			</div>
-
-			<div class="card">
-				<div class="card-header"><span class="card-title">{{template "icon-shield"}}Bogons</span></div>
-				<div class="card-body">
-					<p class="text-muted" style="margin-top:0">
-						Address space and AS numbers that must never appear in BGP. Every import policy with
-						"reject bogon prefixes" or an AS-path check reads these lists, and generated filters name them
-						directly — which is why they live here rather than in the Library, and cannot be deleted or announced.
+			<section data-tab-panel="alerts" {{if ne .Tab "alerts"}}hidden{{end}} class="tab-panel">
+				<div class="card">
+					<div class="card-header">
+						<span class="card-title">{{template "icon-bell"}}Alert destinations</span>
+						<a class="btn btn-success" href="/alerts/new">{{template "icon-plus"}}Add destination</a>
+					</div>
+					<p class="card-intro">
+						Where birdy sends a notification when a session goes down, recovers, flaps, or hits its import limit — and
+						when a config is applied or reverted. Add as many as you like; each gets a message shaped for its platform.
+						Save a destination, then use <strong>Test</strong> to confirm it before you rely on it.
 					</p>
-					<form method="post" action="/settings/bogons">
-						<div class="field-row">
+					<div class="table-scroll">
+					<table>
+						<thead><tr><th>Name</th><th>Type</th><th>Target</th><th>Enabled</th><th class="num">Actions</th></tr></thead>
+						<tbody data-search-target>
+							{{range .Destinations}}
+							<tr>
+								<td class="mono"><a href="/alerts/{{.ID}}/edit">{{.Name}}</a></td>
+								<td><span class="chip chip-primary">{{.TypeName}}</span></td>
+								<td class="mono" style="font-size:0.8125rem;max-width:32ch;overflow:hidden;text-overflow:ellipsis">{{.Target}}</td>
+								<td>{{if .Enabled}}<span class="badge badge-success">enabled</span>{{else}}<span class="badge">disabled</span>{{end}}</td>
+								<td class="row-actions">
+									<form method="post" action="/alerts/{{.ID}}/test"><button type="submit" class="btn btn-sm" title="Send a test alert">Test</button></form>
+									<a class="icon-action a-primary" href="/alerts/{{.ID}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
+									<form method="post" action="/alerts/{{.ID}}/delete" onsubmit="return confirm('Delete alert destination {{.Name}}?')">
+										<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
+									</form>
+								</td>
+							</tr>
+							{{else}}
+							<tr><td colspan="5" class="empty">
+								No alert destinations. <a href="/alerts/new">Add one</a> to get notified when a session changes state.
+							</td></tr>
+							{{end}}
+						</tbody>
+					</table>
+					</div>
+				</div>
+			</section>
+
+			<section data-tab-panel="advanced" {{if ne .Tab "advanced"}}hidden{{end}} class="tab-panel">
+				<div class="card {{if .RawErr}}panel-danger{{else}}panel-warning{{end}}">
+					<div class="panel-head">{{template "icon-terminal"}}Raw configuration</div>
+					<div class="card-body">
+						<p style="margin-top:0;font-size:0.8125rem" class="text-muted">
+							Appended verbatim to the end of the generated <span class="mono">bird.conf</span>. The escape hatch for what birdy does not
+							model &mdash; BFD, extra tables, graceful restart tuning. <strong>birdy does not understand any of it.</strong>
+							Nothing here is linted, diffed intelligently, or protected from you; the only check it gets is
+							<span class="mono">bird -p</span>, which runs before this saves.
+						</p>
+						{{if .RawErr}}
+						<div class="error-text">{{.RawErr}}</div>
+						{{if .RawOutput}}<pre class="code-block" style="margin-top:12px">{{.RawOutput}}</pre>{{end}}
+						{{end}}
+						<form method="post" action="/settings/raw">
 							<div class="field">
-								<label for="bogonsV4">IPv4 bogon prefixes</label>
-								<textarea id="bogonsV4" name="bogonsV4" rows="16" class="mono" spellcheck="false">{{.BogonsV4}}</textarea>
-								<div class="hint">One per line. Suffix <code class="mono">+</code> also matches more specifics.</div>
-								{{with index .BogonErrs "bogonsV4"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
+								<label for="rawConfig">Config appended to the end of the file</label>
+								<textarea id="rawConfig" name="rawConfig" rows="10" class="mono" spellcheck="false"
+									placeholder="protocol bfd {&#10;&#9;interface &quot;eno1&quot;;&#10;}">{{.RawConfig}}</textarea>
+								<div class="hint">Leave empty if you do not need it. It cannot reference the filters birdy generates &mdash; it is appended after them, not before.</div>
 							</div>
-							<div class="field">
-								<label for="bogonsV6">IPv6 bogon prefixes</label>
-								<textarea id="bogonsV6" name="bogonsV6" rows="16" class="mono" spellcheck="false">{{.BogonsV6}}</textarea>
-								<div class="hint">Rendered as <code class="mono">define BOGONS_V6</code>.</div>
-								{{with index .BogonErrs "bogonsV6"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
-							</div>
-						</div>
-						<div class="field">
-							<label for="bogonAsns">Bogon AS numbers</label>
-							<textarea id="bogonAsns" name="bogonAsns" rows="11" class="mono" spellcheck="false">{{.BogonASNs}}</textarea>
-							<div class="hint">
-								One per line: <code class="mono">64512</code> or <code class="mono">64512-65534</code>, optionally followed by
-								<code class="mono">private</code> and a <code class="mono">#</code> comment.
-								Ranges marked <strong>private</strong> are the ones a policy set to "all except private" will tolerate —
-								that is what lets you peer with someone who legitimately uses a private ASN.
-							</div>
-							{{with index .BogonErrs "bogonAsns"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
-						</div>
-						<div class="form-actions" style="margin-bottom:0">
-							<button type="submit" class="btn btn-primary">Save bogon lists</button>
-							<button type="submit" name="restore" value="defaults" class="btn"
-								onclick="return confirm('Replace all three lists with the values birdy ships with?')">Restore defaults</button>
-						</div>
-					</form>
+							<button type="submit" class="btn btn-primary">Save raw config</button>
+						</form>
+					</div>
 				</div>
-			</div>
-
-			<div class="card {{if .RawErr}}panel-danger{{else}}panel-warning{{end}}">
-				<div class="panel-head">{{template "icon-terminal"}}Raw configuration</div>
-				<div class="card-body">
-					<p style="margin-top:0;font-size:0.8125rem" class="text-muted">
-						Appended verbatim to the end of the generated <span class="mono">bird.conf</span>. The escape hatch for what birdy does not
-						model &mdash; BFD, extra tables, graceful restart tuning. <strong>birdy does not understand any of it.</strong>
-						Nothing here is linted, diffed intelligently, or protected from you; the only check it gets is
-						<span class="mono">bird -p</span>, which runs before this saves.
-					</p>
-					{{if .RawErr}}
-					<div class="error-text">{{.RawErr}}</div>
-					{{if .RawOutput}}<pre class="code-block" style="margin-top:12px">{{.RawOutput}}</pre>{{end}}
-					{{end}}
-					<form method="post" action="/settings/raw">
-						<div class="field">
-							<label for="rawConfig">Config appended to the end of the file</label>
-							<textarea id="rawConfig" name="rawConfig" rows="10" class="mono" spellcheck="false"
-								placeholder="protocol bfd {&#10;&#9;interface &quot;eno1&quot;;&#10;}">{{.RawConfig}}</textarea>
-							<div class="hint">Leave empty if you do not need it. It cannot reference the filters birdy generates &mdash; it is appended after them, not before.</div>
-						</div>
-						<button type="submit" class="btn btn-primary">Save raw config</button>
-					</form>
-				</div>
-			</div>
-
-			<div class="card">
-				<div class="card-header"><span class="card-title">{{template "icon-shield"}}Access control</span></div>
-				<div class="card-body">
-					<p style="margin-top:0">
-						An application-level firewall: only these IPs and CIDRs may reach birdy at all. A blocked client gets
-						<strong>no response</strong> &mdash; the connection is simply closed &mdash; and it applies to every
-						request, including the unauthenticated <span class="mono">/metrics</span>. Empty, or a
-						<span class="mono">0.0.0.0/0</span> entry, means no restriction; <strong>loopback is always allowed</strong>,
-						so an SSH tunnel can never be locked out.
-					</p>
-					<p class="hint" style="margin-bottom:14px">
-						You are connecting from <span class="chip mono">{{if .ConnectingIP}}{{.ConnectingIP}}{{else}}unknown{{end}}</span>
-						&mdash; add it before you restrict, or reach birdy over an SSH tunnel (<span class="mono">ssh -L 8080:127.0.0.1:8080</span>).
-					</p>
-					{{if .AccessErr}}<div class="error-text" style="white-space:pre-line">{{.AccessErr}}</div>{{end}}
-					<form method="post" action="/settings/access">
-						<div class="field">
-							<label for="accessWhitelist">Allowed IPs / CIDRs</label>
-							<textarea id="accessWhitelist" name="accessWhitelist" rows="5" class="mono" spellcheck="false" placeholder="0.0.0.0/0&#10;203.0.113.4&#10;10.0.0.0/8">{{.AccessWhitelist}}</textarea>
-							<div class="hint">One per line or comma-separated; a bare IP is a single host. Blank lines and <code class="mono">#</code> comments are ignored.</div>
-						</div>
-						<button type="submit" class="btn btn-primary">Save access control</button>
-					</form>
-				</div>
-			</div>
-
-			<div class="card">
-				<div class="card-header"><span class="card-title">{{template "icon-bell"}}Alerts</span></div>
-				<div class="card-body">
-					<p class="text-muted" style="margin-top:0">
-						Session alerts (down, recovery, flap, import-limit) now go to one or more destinations &mdash; Slack, Discord,
-						a generic webhook, or email. Manage them on the <a href="/alerts">Alerts</a> page.
-					</p>
-				</div>
-			</div>
-
-			<div class="card">
-				<div class="card-header">Database snapshots</div>
-				<div class="card-body">
-					<p class="text-muted">birdy's entire state — settings, sessions, users, the event timeline — lives in one SQLite file. A fresh, consistent snapshot is taken nightly and can also be downloaded on demand below. The <strong>backup bundle</strong> also includes the rendered config, so you have an off-box copy of both.</p>
-					<p class="form-actions" style="margin-top:0">
-						<a class="btn btn-primary" href="/api/backup/download">Download backup bundle</a>
-						<a class="btn" href="/api/snapshot/download">Database only</a>
-					</p>
-
-					{{if not .ReadOnly}}
-					<hr style="border:none;border-top:1px solid var(--border);margin:18px 0">
-					<form id="restore-form" enctype="multipart/form-data">
-						<div class="field">
-							<label for="db">Restore from a snapshot file</label>
-							<input type="file" id="db" name="db" accept=".db">
-						</div>
-						<button type="submit" class="btn">Stage restore</button>
-						<span id="restore-msg" class="text-muted" style="margin-left:10px"></span>
-					</form>
-					<p class="text-muted" style="margin-top:8px">Restoring is staged, not applied live: birdy backs up the current database and swaps in the uploaded one the next time it starts. Run <code class="mono">systemctl restart birdy</code> afterward.</p>
-					<script>
-					document.getElementById("restore-form").addEventListener("submit", function (e) {
-						e.preventDefault();
-						var msg = document.getElementById("restore-msg");
-						var data = new FormData(e.target);
-						msg.textContent = "Uploading...";
-						fetch("/api/snapshot/restore", { method: "POST", body: data, credentials: "same-origin" })
-							.then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
-							.then(function (res) {
-								msg.textContent = res.ok ? res.j.message : (res.j.error || "restore failed");
-							})
-							.catch(function () { msg.textContent = "restore failed"; });
-					});
-					</script>
-					{{end}}
-				</div>
-			</div>
+			</section>
 		</div>
 	</div>
 </div>

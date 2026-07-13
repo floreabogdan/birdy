@@ -32,7 +32,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	metric("birdy_last_poll_timestamp_seconds", "gauge", "Unix time of the last completed poll.")
 	fmt.Fprintf(&b, "birdy_last_poll_timestamp_seconds %d\n", snap.UpdatedAt.Unix())
 
-	metric("birdy_routes_total", "gauge", "Total routes across all BIRD tables.")
+	metric("birdy_routes_total", "gauge", "Total routes across all BIRD tables, excluding RPKI ROA tables.")
 	fmt.Fprintf(&b, "birdy_routes_total %d\n", snap.TotalRoutes)
 
 	// buildProtoRows counts every protocol; the BGP metrics must count only the
