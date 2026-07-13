@@ -90,9 +90,11 @@ type DashboardView struct {
 	StatusOK   bool   `json:"statusOK"`
 
 	// History is a short, downsampled imported-route series per session name, for
-	// the dashboard's trend sparklines. Sent in the JSON so the sparkline survives
-	// the live table rebuild, and drawn identically server-side on first paint.
-	History map[string][]int `json:"history"`
+	// the dashboard's trend sparklines. Each point carries its timestamp so the
+	// chart can name what is under the cursor. Sent in the JSON so the sparkline
+	// survives the live table rebuild, and drawn identically server-side on first
+	// paint.
+	History map[string]Series `json:"history"`
 }
 
 // buildProtoRows turns a poll snapshot into the table rows shared by the

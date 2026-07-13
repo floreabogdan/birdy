@@ -81,20 +81,25 @@
 	// Twin of sparklineHTML in sparkline.go: a route-count series as an SVG line,
 	// so the trend cell survives the live table rebuild that server-rendered HTML
 	// would not.
-	function sparkline(vals, w, h) {
-		if (!vals || vals.length < 2) return '<span class="spark-empty text-muted">—</span>';
-		var lo = vals[0], hi = vals[0];
-		for (var i = 0; i < vals.length; i++) {
-			if (vals[i] < lo) lo = vals[i];
-			if (vals[i] > hi) hi = vals[i];
+	// The twin of sparklineHTML in sparkline.go: same shape, same data attributes.
+	// The series is {t, v} points — the timestamps are what spark-hover.js names
+	// under the cursor, so a rebuilt row must carry them or hovering it goes dead
+	// on the first poll.
+	function sparkline(series, w, h) {
+		if (!series || series.length < 2) return '<span class="spark-empty text-muted">—</span>';
+		var lo = series[0].v, hi = series[0].v;
+		for (var i = 0; i < series.length; i++) {
+			if (series[i].v < lo) lo = series[i].v;
+			if (series[i].v > hi) hi = series[i].v;
 		}
-		var span = hi - lo, pad = 2, n = vals.length, pts = [];
+		var span = hi - lo, pad = 2, n = series.length, pts = [];
 		for (var j = 0; j < n; j++) {
 			var x = pad + (j / (n - 1)) * (w - 2 * pad);
-			var y = span === 0 ? h / 2 : h - pad - ((vals[j] - lo) / span) * (h - 2 * pad);
+			var y = span === 0 ? h / 2 : h - pad - ((series[j].v - lo) / span) * (h - 2 * pad);
 			pts.push(x.toFixed(1) + "," + y.toFixed(1));
 		}
-		return '<svg class="sparkline" viewBox="0 0 ' + w + " " + h + '" preserveAspectRatio="none" role="img" aria-label="route-count history">' +
+		return '<svg class="sparkline" viewBox="0 0 ' + w + " " + h + '" preserveAspectRatio="none" role="img" aria-label="route-count history"' +
+			' data-spark="' + esc(JSON.stringify(series)) + '" data-spark-w="' + w + '" data-spark-h="' + h + '" data-spark-pad="' + pad + '">' +
 			'<polyline fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" points="' + pts.join(" ") + '"/></svg>';
 	}
 

@@ -9,33 +9,70 @@ import (
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
+// series builds a Series with one point per value, a minute apart.
+func series(vals ...int) Series {
+	base := time.Date(2026, 7, 13, 12, 0, 0, 0, time.UTC)
+	out := make(Series, len(vals))
+	for i, v := range vals {
+		out[i] = Point{Ts: base.Add(time.Duration(i) * time.Minute).UnixMilli(), V: v}
+	}
+	return out
+}
+
 func TestSparklineHTML(t *testing.T) {
-	svg := string(sparklineHTML([]int{1, 5, 2, 8}, 100, 20))
+	svg := string(sparklineHTML(series(1, 5, 2, 8), 100, 20))
 	if !strings.Contains(svg, "<svg") || !strings.Contains(svg, "<polyline") {
 		t.Errorf("a series should render an SVG polyline, got %q", svg)
 	}
+	// The hover script names the point under the cursor from this attribute; without
+	// it the chart can only say "something changed", not how many and when.
+	if !strings.Contains(svg, "data-spark=") || !strings.Contains(svg, "&#34;v&#34;:8") {
+		t.Errorf("the series should ride along for the hover tooltip, got %q", svg)
+	}
 	// Too few points to draw a line.
-	if got := string(sparklineHTML([]int{7}, 100, 20)); strings.Contains(got, "<polyline") {
+	if got := string(sparklineHTML(series(7), 100, 20)); strings.Contains(got, "<polyline") {
 		t.Errorf("a single point has no line to draw, got %q", got)
 	}
 }
 
 func TestDownsample(t *testing.T) {
 	// Short series is returned unchanged.
-	if got := downsample([]int{1, 2, 3}, 8); len(got) != 3 {
+	if got := downsample(series(1, 2, 3), 8); len(got) != 3 {
 		t.Errorf("a series within the cap should be unchanged, got %d", len(got))
 	}
-	// Long series is reduced, keeping the first and last value.
-	in := make([]int, 100)
-	for i := range in {
-		in[i] = i
+	// Long series is reduced, keeping the first and last point — value AND time, so
+	// the chart's x axis still spans the window it claims to.
+	vals := make([]int, 100)
+	for i := range vals {
+		vals[i] = i
 	}
+	in := series(vals...)
 	got := downsample(in, 10)
 	if len(got) != 10 {
 		t.Fatalf("want 10 points, got %d", len(got))
 	}
-	if got[0] != 0 || got[len(got)-1] != 99 {
-		t.Errorf("downsample must keep the endpoints, got first=%d last=%d", got[0], got[len(got)-1])
+	if got[0] != in[0] || got[len(got)-1] != in[len(in)-1] {
+		t.Errorf("downsample must keep the endpoints, got first=%+v last=%+v", got[0], got[len(got)-1])
+	}
+}
+
+// Every point keeps the timestamp of the sample it came from — that is what the
+// tooltip reads back.
+func TestSeriesByProtocolCarriesTimestamps(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	out := seriesByProtocol([]store.Sample{
+		{Ts: now.Add(-2 * time.Minute), Protocol: "edge_v4", Imported: 10},
+		{Ts: now.Add(-1 * time.Minute), Protocol: "edge_v4", Imported: 20},
+	}, 32)
+	got := out["edge_v4"]
+	if len(got) != 2 {
+		t.Fatalf("want 2 points, got %d", len(got))
+	}
+	if got[0].Ts != now.Add(-2*time.Minute).UnixMilli() || got[0].V != 10 {
+		t.Errorf("point 0 = %+v, want the first sample's time and count", got[0])
+	}
+	if got[1].Ts <= got[0].Ts {
+		t.Error("points must stay in time order, oldest first")
 	}
 }
 

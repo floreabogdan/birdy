@@ -7,6 +7,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **The route-history charts are hoverable.** Point at any spot on a sparkline —
+  the peer page's Route history, or the dashboard's Trend column — and it names the
+  sample under the cursor: `984,213 routes` and when it was taken, with a guide line
+  and a dot on the line itself. The charts used to draw values with the timestamps
+  thrown away, so you could see that a session halved but not *when*, which is the
+  only question worth asking. Points now carry their time all the way to the
+  browser. (These are the only charts in birdy; the stat cards and import-limit bars
+  are meters, not series.)
 - **Every table is paginated, with numbered pages.** One pager, shared by all of
   them: prev/next, a window of page numbers around the current one, ellipses for
   the gaps, first and last always reachable, and a "rows 201–250 of 1,240" summary.

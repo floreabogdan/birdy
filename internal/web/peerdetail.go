@@ -24,9 +24,10 @@ type SessionDetailView struct {
 	Configured bool `json:"configured"`
 
 	// Imported/Exported are the recent route-count history for this session, drawn
-	// as sparklines. Empty until the poller has recorded at least two samples.
-	Imported []int `json:"imported,omitempty"`
-	Exported []int `json:"exported,omitempty"`
+	// as sparklines. Empty until the poller has recorded at least two samples. Each
+	// point keeps its timestamp: hovering the chart names the count and the moment.
+	Imported Series `json:"imported,omitempty"`
+	Exported Series `json:"exported,omitempty"`
 }
 
 // HasHistory reports whether there are enough samples to draw a trend.
@@ -39,8 +40,8 @@ func (s *Server) buildSessionDetailView(name string) SessionDetailView {
 	}
 	if samples, err := s.store.ListSamples(name, time.Now().Add(-peerHistoryWindow)); err == nil {
 		for _, sm := range samples {
-			v.Imported = append(v.Imported, sm.Imported)
-			v.Exported = append(v.Exported, sm.Exported)
+			v.Imported = append(v.Imported, Point{Ts: sm.Ts.UnixMilli(), V: sm.Imported})
+			v.Exported = append(v.Exported, Point{Ts: sm.Ts.UnixMilli(), V: sm.Exported})
 		}
 		v.Imported = downsample(v.Imported, peerHistoryPoints)
 		v.Exported = downsample(v.Exported, peerHistoryPoints)

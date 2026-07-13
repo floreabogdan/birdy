@@ -384,6 +384,26 @@ svg.sparkline { display: block; width: 108px; height: 26px; color: var(--seconda
 .spark-lg svg.sparkline { width: 100%; height: 56px; }
 .spark-imported svg.sparkline { color: var(--secondary-deep); }
 .spark-exported svg.sparkline { color: var(--primary); }
+
+/* Hovering a chart names the point under the cursor: how many routes, and when.
+   The guide line and dot are drawn inside the SVG (see spark-hover.js). */
+svg.sparkline[data-spark] { cursor: crosshair; }
+.spark-tip {
+	position: fixed;
+	z-index: 50;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	padding: 6px 9px;
+	border-radius: 8px;
+	background: var(--tooltip-bg, #1f2430);
+	color: #fff;
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+	pointer-events: none; /* never eat the mousemove that positions it */
+	white-space: nowrap;
+}
+.spark-tip-count { font-size: 0.8125rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.spark-tip-when { font-size: 0.6875rem; opacity: 0.75; font-variant-numeric: tabular-nums; }
 .live-badge {
 	font-size: 0.625rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
 	color: var(--success-deep); background: color-mix(in srgb, var(--success) 16%, var(--surface));
