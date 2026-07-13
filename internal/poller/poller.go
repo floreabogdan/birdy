@@ -247,7 +247,13 @@ func (p *Poller) poll() {
 
 		if !first && (!seen || prior.Up != up) {
 			state.LastChange = time.Now()
-			p.recordTransition(proto, prior, seen, up)
+			// Only BGP sessions get down/up/flap events. Infrastructure protocols
+			// (RPKI, device, kernel, static, direct) are not sessions, and treating
+			// them as such alerts on things like an RPKI RTR cache reconnecting —
+			// harmless, but noisy. Their state is still on the dashboard's infra card.
+			if proto.Proto == "BGP" {
+				p.recordTransition(proto, prior, seen, up)
+			}
 		}
 
 		if proto.Proto == "BGP" && up {

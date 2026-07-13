@@ -182,6 +182,29 @@ func (c *capturingNotifier) Notify(kind, protocol, message string) {
 	c.kinds = append(c.kinds, kind)
 }
 
+// Infrastructure protocols (RPKI, device, kernel, static) are not sessions, so a
+// down/up transition on one must not emit a session event — an RPKI RTR cache
+// reconnecting was spamming down/flap alerts.
+func TestPollerNoTransitionEventsForInfra(t *testing.T) {
+	st := openTestStore(t)
+	rpki := func(state string) birdc.ProtocolSummary {
+		return birdc.ProtocolSummary{Name: "cloudflare", Proto: "RPKI", Table: "---", State: state, Since: "2026-07-13"}
+	}
+	fc := &fakeClient{polls: [][]birdc.ProtocolSummary{
+		{rpki("up")},   // baseline
+		{rpki("down")}, // would be a down for a BGP session
+		{rpki("up")},   // would be a flap for a BGP session
+	}}
+	p := New(fc, st, time.Second, nil)
+	p.poll()
+	p.poll()
+	p.poll()
+	events, _ := st.ListEvents(10, 0)
+	if len(events) != 0 {
+		t.Fatalf("infra protocol transitions must not emit session events, got %+v", events)
+	}
+}
+
 func TestPollerNotifiesOnTransition(t *testing.T) {
 	st := openTestStore(t)
 	fc := &fakeClient{polls: [][]birdc.ProtocolSummary{
