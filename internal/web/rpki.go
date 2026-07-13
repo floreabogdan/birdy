@@ -30,10 +30,13 @@ type rpkiView struct {
 	// up here once a config carrying it has been applied.
 	Live map[string]protoRow
 
-	// Which policies validate, and how.
-	Rejecting []string
-	Logging   []string
-	Flash     string
+	// Policies is every import policy and what it does about RPKI — including the
+	// ones doing nothing, because "which of my policies is not validating, and who
+	// does it carry?" is the question this page should answer. HasLogging gates the
+	// dry-run panel: only a log-only policy tags invalids for it to count.
+	Policies   []rpkiPolicyRow
+	HasLogging bool
+	Flash      string
 
 	// Invalids are the routes BIRD is currently tagging RPKI-invalid in log-only
 	// mode — exactly what a policy would drop if switched to reject. Populated
@@ -50,6 +53,17 @@ type rpkiView struct {
 	// Pager pages the listing, using the real total for its page numbers.
 	Pager Pager
 }
+
+// rpkiPolicyRow is one import policy on the "which policies validate" table: what
+// it does about RPKI, and — the part a list of names could never tell you — which
+// peers ride on it. That is the blast radius of switching it to reject.
+type rpkiPolicyRow struct {
+	Name  string
+	ROV   string // off | log | reject
+	Peers []string
+}
+
+func (r rpkiPolicyRow) Validates() bool { return r.ROV == store.ROVLog || r.ROV == store.ROVReject }
 
 type rpkiFormView struct {
 	Active   string
@@ -75,19 +89,35 @@ func (s *Server) handleRPKIPage(w http.ResponseWriter, r *http.Request) {
 	v := rpkiView{Active: "rpki", ReadOnly: s.readOnly, Servers: serverPage,
 		ServerPager: pagerForNamed(r, "soffset", sOff, sLimit, len(serverPage), len(servers)),
 		Live:        s.liveStates(), Flash: r.URL.Query().Get("flash")}
+	// Which peers ride on each import policy. A policy that validates nothing but
+	// carries every session is a very different thing from one nobody uses, and the
+	// old list of names could not tell them apart.
+	peerNames := map[int64][]string{}
+	if peers, err := s.store.ListPeers(); err == nil {
+		for _, peer := range peers {
+			imports, _, err := s.store.PeerPolicies(peer.ID)
+			if err != nil {
+				continue
+			}
+			for _, pol := range imports {
+				peerNames[pol.ID] = append(peerNames[pol.ID], peer.Name)
+			}
+		}
+	}
 	for _, p := range policies {
-		switch p.ROV {
-		case store.ROVReject:
-			v.Rejecting = append(v.Rejecting, p.Name)
-		case store.ROVLog:
-			v.Logging = append(v.Logging, p.Name)
+		if !p.IsImport() {
+			continue // RPKI validation is an import-side check; export policies cannot do it
+		}
+		v.Policies = append(v.Policies, rpkiPolicyRow{Name: p.Name, ROV: p.ROV, Peers: peerNames[p.ID]})
+		if p.ROV == store.ROVLog {
+			v.HasLogging = true
 		}
 	}
 
 	// The dry-run: while a policy is in log-only mode, BIRD tags invalids with
 	// RPKI_INVALID instead of dropping them. List them so the operator can count
 	// what they would lose before switching to reject.
-	if len(v.Logging) > 0 {
+	if v.HasLogging {
 		if settings, ok, err := s.store.GetSettings(); err == nil && ok && settings.LocalASN.Valid {
 			asn := settings.LocalASN.Int64
 

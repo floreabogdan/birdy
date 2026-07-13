@@ -178,8 +178,14 @@ func TestPreview(t *testing.T) {
 			{ID: 2, Name: "cloudflare", Description: "Public fallback", Host: "rtr.rpki.cloudflare.com", Port: 8282,
 				Enabled: false},
 		},
-		Live:    map[string]protoRow{"rpki_local": {Name: "rpki_local", Up: true, State: "up", Info: "Established"}},
-		Logging: []string{"IMPORT_SANITY"},
+		Live:       map[string]protoRow{"rpki_local": {Name: "rpki_local", Up: true, State: "up", Info: "Established"}},
+		HasLogging: true,
+		Policies: []rpkiPolicyRow{
+			{Name: "IMPORT_SANITY", ROV: "log", Peers: []string{"edge_v4", "edge_v6"}},
+			{Name: "IMPORT_DEFAULT_ONLY", ROV: "off", Peers: []string{"cust_a"}},
+		},
+		InvalidTotal:   742,
+		InvalidByTable: []birdc.RouteCountEntry{{Table: "master6", Routes: 742}},
 	}
 
 	sets := []store.PrefixSet{bogons, bogonsV6, announce}

@@ -7,6 +7,21 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **The RPKI dry run says how many routes are invalid.** It listed some of them and
+  never gave a number, so you could scroll a page of invalid prefixes and still not
+  know whether the total was 12 or 12,000 — which is the only thing the dry run is
+  for. BIRD counts them itself (`show route where … count`, one line back, instant
+  even on a 1.2M-route table), so the panel now leads with **"742 would be dropped"**,
+  broken down per table, and the pager gets real page numbers from the same count.
+  ROA tables are excluded — they hold ROAs, not routes, and would have made the
+  number nonsense.
+- **"Which policies validate" is a table, and lists the policies that *don't*.** It
+  was a row of policy-name chips, which could not tell you the thing you actually
+  need before switching one to reject: **which peers ride on it**. Now every import
+  policy is listed with its RPKI mode, a plain sentence about what it does to an
+  invalid route, and the sessions it carries. A policy that validates nothing but
+  carries half your peers is exactly what this page should surface, and it used to
+  be invisible here.
 - **The route-history charts are hoverable.** Point at any spot on a sparkline —
   the peer page's Route history, or the dashboard's Trend column — and it names the
   sample under the cursor: `984,213 routes` and when it was taken, with a guide line

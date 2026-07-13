@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,8 +20,17 @@ func TestRPKIPageShowsSeededDisabledServer(t *testing.T) {
 	if !strings.Contains(body, "disabled") {
 		t.Error("it should be shown as disabled")
 	}
-	if !strings.Contains(body, "No import policy validates") {
-		t.Error("with nothing validating, the page should say so")
+	// Policies that validate nothing are listed too, rather than being invisible:
+	// "which of my policies is not checking origins, and who rides on it" is the
+	// question this page exists to answer.
+	if !strings.Contains(body, "IMPORT_SANITY") {
+		t.Error("the seeded import policies should be listed, validating or not")
+	}
+	if !strings.Contains(body, "Accepted, unchecked") {
+		t.Error("a policy with RPKI off should say plainly that it checks nothing")
+	}
+	if strings.Contains(body, "reject invalid</span>") {
+		t.Error("nothing is set to reject, so no policy should claim to")
 	}
 }
 
@@ -199,6 +209,31 @@ func TestRPKIInvalidsDryRun(t *testing.T) {
 	}
 	if !strings.Contains(body, "master6") {
 		t.Error("the per-table breakdown should say how many are v6")
+	}
+}
+
+// The table names the peers each policy carries. That is the blast radius of
+// switching it to reject, and a bare list of policy names could never show it.
+func TestRPKIPolicyTableShowsTheBlastRadius(t *testing.T) {
+	env := applyReady(t)
+	id, err := env.store.CreatePolicy(store.Policy{
+		Name: "IMPORT_LOG", Direction: store.DirImport, ROV: store.ROVLog,
+		DefaultRoute: store.DefaultReject, BogonASNs: store.BogonASNsAll,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := peerForm()
+	f.Set("name", "edge_v4")
+	f.Set("importPolicyIds", strconv.FormatInt(id, 10))
+	env.do(t, "POST", "/peers/new", f)
+
+	body := env.do(t, "GET", "/rpki", nil).Body.String()
+	if !strings.Contains(body, "IMPORT_LOG") {
+		t.Fatal("the validating policy should be listed")
+	}
+	if !strings.Contains(body, "edge_v4") {
+		t.Error("the peers riding on the policy are what tells you what a switch to reject would affect")
 	}
 }
 

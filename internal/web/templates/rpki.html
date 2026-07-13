@@ -100,28 +100,47 @@
 
 			<div class="card">
 				<div class="card-header"><span class="card-title">{{template "icon-filter"}}Which policies validate</span></div>
-				<div class="card-body">
-					{{if .Rejecting}}
-					<p style="margin-top:0"><span class="badge badge-danger">reject invalid</span>
-						{{range .Rejecting}}<span class="chip">{{.}}</span> {{end}}
-					</p>
-					{{end}}
-					{{if .Logging}}
-					<p><span class="badge badge-warning">log only</span>
-						{{range .Logging}}<span class="chip">{{.}}</span> {{end}}
-						&mdash; invalid routes are tagged <span class="chip">RPKI_INVALID</span> and still used.
-					</p>
-					{{end}}
-					{{if and (not .Rejecting) (not .Logging)}}
-					<p class="text-muted" style="margin-top:0">
-						No import policy validates. Set <strong>RPKI validation</strong> on a
-						<a href="/policies">policy</a> to start checking origins.
-					</p>
-					{{end}}
+				<p class="card-intro">
+					Every import policy and what it does about RPKI. The ones doing <strong>nothing</strong> are here too:
+					a policy that carries half your sessions and never checks an origin is the thing you came to this page to find.
+					<strong>Used by</strong> is the blast radius &mdash; the sessions that change behaviour when you switch a policy to reject.
+				</p>
+				<div class="table-scroll">
+				<table>
+					<thead><tr><th>Import policy</th><th>RPKI</th><th>What it does to an invalid route</th><th>Used by</th><th class="num">Actions</th></tr></thead>
+					<tbody data-search-target>
+						{{range .Policies}}
+						<tr>
+							<td class="mono"><a href="/policies/{{.Name}}/edit">{{.Name}}</a></td>
+							<td>
+								{{if eq .ROV "reject"}}<span class="badge badge-danger">reject invalid</span>
+								{{else if eq .ROV "log"}}<span class="badge badge-warning">log only</span>
+								{{else}}<span class="badge">off</span>{{end}}
+							</td>
+							<td class="text-muted" style="font-size:0.8125rem">
+								{{if eq .ROV "reject"}}Dropped.
+								{{else if eq .ROV "log"}}Kept, and tagged <span class="chip">RPKI_INVALID</span> &mdash; counted in the dry run below.
+								{{else}}Accepted, unchecked. No origin validation happens on this policy.{{end}}
+							</td>
+							<td>
+								{{if .Peers}}{{range .Peers}}<span class="chip mono">{{.}}</span> {{end}}
+								{{else}}<span class="text-muted">no peers</span>{{end}}
+							</td>
+							<td class="row-actions">
+								<a class="icon-action a-primary" href="/policies/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
+							</td>
+						</tr>
+						{{else}}
+						<tr><td colspan="5" class="empty">
+							No import policies yet. <a href="/policies">Create one</a> and set <strong>RPKI validation</strong> on it to start checking origins.
+						</td></tr>
+						{{end}}
+					</tbody>
+				</table>
 				</div>
 			</div>
 
-			{{if .Logging}}
+			{{if .HasLogging}}
 			<div class="card">
 				<div class="card-header">
 					<span class="card-title">{{template "icon-alert"}}RPKI-invalid routes (dry run)</span>
