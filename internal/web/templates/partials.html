@@ -42,6 +42,30 @@
 
 {{define "community-datalist"}}<datalist id="community-names">{{range .}}<option value="{{.Name}}" label="{{.Pattern}}"></option>{{end}}</datalist>{{end}}
 
+{{/* The one pager every table in birdy uses: row summary, prev/next, and numbered
+     pages with ellipses so you can jump instead of clicking Next eleven times.
+     Renders nothing at all when the table fits on a single page. */}}
+{{define "pager"}}
+{{if .Show}}
+<div class="pager">
+	<div class="pager-nav">
+		{{if .PrevLink}}<a class="btn btn-sm" href="{{.PrevLink}}" rel="prev">&larr; Prev</a>
+		{{else}}<span class="btn btn-sm is-disabled" aria-disabled="true">&larr; Prev</span>{{end}}
+		<span class="pager-pages">
+			{{range .Links}}
+				{{if .Ellipsis}}<span class="pager-gap">&hellip;</span>
+				{{else if .Current}}<span class="pager-page is-current" aria-current="page">{{.Label}}</span>
+				{{else}}<a class="pager-page" href="{{.URL}}">{{.Label}}</a>{{end}}
+			{{end}}
+		</span>
+		{{if .NextLink}}<a class="btn btn-sm" href="{{.NextLink}}" rel="next">Next &rarr;</a>
+		{{else}}<span class="btn btn-sm is-disabled" aria-disabled="true">Next &rarr;</span>{{end}}
+	</div>
+	<div class="pager-summary">{{.Summary}}</div>
+</div>
+{{end}}
+{{end}}
+
 {{define "library-nav"}}
 <div class="subnav">
 	<a href="/library/prefix-sets" class="{{if eq . "prefix-sets"}}active{{end}}">Prefix sets</a>

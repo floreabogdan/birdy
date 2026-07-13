@@ -7,6 +7,7 @@
 	var prevBtn = document.getElementById("routes-prev");
 	var nextBtn = document.getElementById("routes-next");
 	var status = document.getElementById("routes-status");
+	var pages = document.getElementById("routes-pages");
 	var tabs = card.querySelectorAll(".tab-btn");
 
 	var LIMIT = 50;
@@ -55,6 +56,40 @@
 		nextBtn.disabled = busy || !state.hasMore;
 	}
 
+	// The numbered page selector, mirroring the server-side pager partial. A BIRD
+	// route table is never counted to draw one, so the last page is unknown: offer
+	// the pages we can prove exist — everything up to the next one.
+	function renderPages() {
+		if (!pages) return;
+		var cur = Math.floor(state.offset / LIMIT) + 1;
+		var last = state.hasMore ? cur + 1 : cur;
+		if (last <= 1) { pages.innerHTML = ""; return; }
+
+		var want = {};
+		want[1] = true;
+		want[last] = true;
+		for (var d = -2; d <= 2; d++) {
+			var n = cur + d;
+			if (n >= 1 && n <= last) want[n] = true;
+		}
+		var html = "", prev = 0;
+		for (var i = 1; i <= last; i++) {
+			if (!want[i]) continue;
+			if (prev && i !== prev + 1) html += '<span class="pager-gap">&hellip;</span>';
+			html += i === cur
+				? '<span class="pager-page is-current" aria-current="page">' + i + "</span>"
+				: '<button type="button" class="pager-page" data-page="' + i + '">' + i + "</button>";
+			prev = i;
+		}
+		pages.innerHTML = html;
+		pages.querySelectorAll("button[data-page]").forEach(function (b) {
+			b.addEventListener("click", function () {
+				state.offset = (parseInt(b.getAttribute("data-page"), 10) - 1) * LIMIT;
+				load();
+			});
+		});
+	}
+
 	function load() {
 		body.innerHTML = '<tr><td colspan="8" class="empty">Loading&hellip;</td></tr>';
 		status.textContent = "";
@@ -68,18 +103,19 @@
 					body.innerHTML = '<tr><td colspan="8" class="empty">' + esc(data.err) + "</td></tr>";
 					state.hasMore = false;
 					setBusy(false);
+					renderPages();
 					return;
 				}
 				var shown = renderRows(data.tables);
 				state.hasMore = !!data.hasMore;
 				setBusy(false);
-				if (shown > 0) {
-					status.textContent = "rows " + (state.offset + 1) + "–" + (state.offset + shown) +
-						(state.hasMore ? " · more available" : "");
-				}
+				renderPages();
+				status.textContent = shown > 0
+					? "rows " + (state.offset + 1) + "–" + (state.offset + shown) + (state.hasMore ? " · more available" : "")
+					: "no rows";
 			})
 			.catch(function () {
-				body.innerHTML = '<tr><td colspan="8" class="empty">Failed to load routes. Retry with Previous/Next or reload the page.</td></tr>';
+				body.innerHTML = '<tr><td colspan="8" class="empty">Failed to load routes. Retry with Prev/Next or reload the page.</td></tr>';
 				setBusy(false);
 			});
 	}

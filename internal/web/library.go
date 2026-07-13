@@ -13,6 +13,7 @@ type prefixSetsView struct {
 	ReadOnly bool
 	Sets     []store.PrefixSet
 	InUse    map[int64]int // set id -> number of peers announcing it
+	Pager    Pager
 	Flash    string
 }
 
@@ -43,8 +44,11 @@ func (s *Server) handlePrefixSetsList(w http.ResponseWriter, r *http.Request) {
 		}
 		inUse[ps.ID] = n
 	}
+	offset, limit := parsePageParams(r)
+	page := pageSlice(sets, offset, limit)
 	render(w, s.log, "prefix_sets.html", prefixSetsView{
-		Active: "library", ReadOnly: s.readOnly, Sets: sets, InUse: inUse,
+		Active: "library", ReadOnly: s.readOnly, Sets: page, InUse: inUse,
+		Pager: pagerFor(r, offset, limit, len(page), len(sets)),
 		Flash: r.URL.Query().Get("flash"),
 	})
 }

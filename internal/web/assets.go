@@ -14,6 +14,7 @@ type asSetsView struct {
 	ReadOnly bool
 	Bgpq4    bool // whether IRR expansion is enabled
 	Sets     []store.ASSet
+	Pager    Pager
 	InUse    map[int64]int // set id -> policies filtering through it
 	Flash    string
 }
@@ -45,8 +46,11 @@ func (s *Server) handleASSetsList(w http.ResponseWriter, r *http.Request) {
 		}
 		inUse[as.ID] = n
 	}
+	offset, limit := parsePageParams(r)
+	page := pageSlice(sets, offset, limit)
 	render(w, s.log, "as_sets.html", asSetsView{
-		Active: "library", ReadOnly: s.readOnly, Bgpq4: s.bgpq4Bin != "", Sets: sets, InUse: inUse,
+		Active: "library", ReadOnly: s.readOnly, Bgpq4: s.bgpq4Bin != "", Sets: page, InUse: inUse,
+		Pager: pagerFor(r, offset, limit, len(page), len(sets)),
 		Flash: r.URL.Query().Get("flash"),
 	})
 }

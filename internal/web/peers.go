@@ -13,6 +13,7 @@ type peersView struct {
 	Active   string
 	ReadOnly bool
 	Peers    []store.Peer
+	Pager    Pager
 	// Live indexes the running BIRD protocols by name, so each configured peer
 	// can say whether it is actually up — and link to its live session.
 	Live  map[string]protoRow
@@ -65,8 +66,11 @@ func (s *Server) handlePeersList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	offset, limit := parsePageParams(r)
+	page := pageSlice(peers, offset, limit)
 	render(w, s.log, "peers.html", peersView{
-		Active: "peers", ReadOnly: s.readOnly, Peers: peers, Live: s.liveStates(),
+		Active: "peers", ReadOnly: s.readOnly, Peers: page, Live: s.liveStates(),
+		Pager: pagerFor(r, offset, limit, len(page), len(peers)),
 		Flash: r.URL.Query().Get("flash"),
 	})
 }

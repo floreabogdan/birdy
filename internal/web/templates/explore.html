@@ -101,13 +101,7 @@
 						</div>
 					</div>
 					{{end}}
-					{{if or .PrevLink .NextLink}}
-					<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
-						<div>{{if .PrevLink}}<a class="btn btn-sm" href="{{.PrevLink}}">&larr; Previous</a>{{end}}</div>
-						<div class="text-muted" style="font-size:0.75rem">{{if .FirstRow}}rows {{.FirstRow}}&ndash;{{.LastRow}}{{if .HasMore}} &middot; more available{{end}}{{end}}</div>
-						<div>{{if .NextLink}}<a class="btn btn-sm" href="{{.NextLink}}">Next &rarr;</a>{{end}}</div>
-					</div>
-					{{end}}
+					{{template "pager" .Pager}}
 				{{end}}
 				{{end}}
 				<script>

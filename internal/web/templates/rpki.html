@@ -89,6 +89,7 @@
 					</tbody>
 				</table>
 				</div>
+				{{template "pager" .ServerPager}}
 				<div class="card-body preview-note">
 					<strong>In BIRD</strong> shows what the router is actually running, read from its control socket.
 					birdy is read-only and has never written <span class="mono">/etc/bird/bird.conf</span>, so an enabled server
@@ -124,7 +125,7 @@
 			<div class="card">
 				<div class="card-header">
 					<span class="card-title">{{template "icon-alert"}}RPKI-invalid routes (dry run)</span>
-					<span class="chip">{{len .Invalids}}{{if .InvalidsMore}}+{{end}}</span>
+					<span class="chip">{{.Pager.Summary}}</span>
 				</div>
 				<p class="card-intro">
 					Routes BIRD is tagging <span class="chip">RPKI_INVALID</span> right now under log-only mode &mdash; exactly
@@ -147,7 +148,7 @@
 						</tbody>
 					</table>
 					</div>
-					{{if .InvalidsMore}}<div class="card-body preview-note">Showing the first {{len .Invalids}}; there are more. A sample to size the switch, not the full list.</div>{{end}}
+					{{template "pager" .Pager}}
 				{{else}}
 					<div class="card-body text-muted">
 						BIRD is tagging no invalid routes right now &mdash; either there are none, or the config carrying

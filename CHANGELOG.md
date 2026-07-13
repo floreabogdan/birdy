@@ -7,6 +7,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Every table is paginated, with numbered pages.** One pager, shared by all of
+  them: prev/next, a window of page numbers around the current one, ellipses for
+  the gaps, first and last always reachable, and a "rows 201–250 of 1,240" summary.
+  Jumping to a page is the thing prev/next cannot do. It draws nothing at all when
+  a table fits on one page.
+  - **RPKI-invalid routes (dry run) is paginated** — it used to show the first 200
+    and stop, with no way to see the rest, which is useless when the whole point is
+    counting what a switch to *reject* would drop.
+  - The looking glass, peer route tabs, timeline, apply history, peers, policies,
+    prefix sets, AS sets, static routes, communities, BMP stations and RTR servers
+    all page the same way. The timeline gained real page numbers: it used to walk
+    backwards one page at a time on a cursor, so "what happened last Tuesday" meant
+    clicking *older* twenty times.
+  - Route tables streamed from BIRD (the looking glass, peer routes, RPKI invalids)
+    show the pages they can prove exist rather than a page count — birdy will not
+    walk a 2.6M-route table just to draw a "of 52,000" in a pager.
 - **Disable a session straight from the peers list.** A power button on each row
   switches a peer off (and back on) without opening the form — it is a thing you
   reach for in a hurry. Like every edit in birdy it changes the model, so the row

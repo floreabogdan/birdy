@@ -14,6 +14,7 @@ type bmpView struct {
 	// Live indexes the running BIRD protocols so a station's session state shows
 	// up once a config carrying it has been applied.
 	Live  map[string]protoRow
+	Pager Pager
 	Flash string
 }
 
@@ -31,9 +32,12 @@ func (s *Server) handleBMPPage(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "list BMP stations", err)
 		return
 	}
+	offset, limit := parsePageParams(r)
+	page := pageSlice(stations, offset, limit)
 	render(w, s.log, "bmp.html", bmpView{
-		Active: "bmp", ReadOnly: s.readOnly, Stations: stations,
-		Live: s.liveStates(), Flash: r.URL.Query().Get("flash"),
+		Active: "bmp", ReadOnly: s.readOnly, Stations: page,
+		Live: s.liveStates(), Pager: pagerFor(r, offset, limit, len(page), len(stations)),
+		Flash: r.URL.Query().Get("flash"),
 	})
 }
 

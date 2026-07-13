@@ -424,6 +424,41 @@ svg.sparkline { display: block; width: 108px; height: 26px; color: var(--seconda
    band, not as the top edge of the card. */
 .table-scroll { padding: 14px 16px 16px; }
 
+/* ---------- pager (shared by every table; see the "pager" partial) ---------- */
+.pager {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	flex-wrap: wrap;
+	padding: 0 16px 14px;
+}
+.pager-nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pager-pages { display: flex; align-items: center; gap: 2px; margin: 0 4px; }
+.pager-page {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 30px;
+	height: 28px;
+	padding: 0 6px;
+	border-radius: var(--radius-badge);
+	border: 1px solid transparent;
+	font-size: 0.8125rem;
+	font-variant-numeric: tabular-nums;
+	color: var(--text-muted);
+}
+a.pager-page:hover { background: var(--surface-alt); color: var(--text); text-decoration: none; }
+.pager-page.is-current {
+	background: var(--btn-primary-bg);
+	border-color: var(--btn-primary-bg);
+	color: #fff;
+	font-weight: 600;
+}
+.pager-gap { padding: 0 2px; color: var(--text-muted); }
+.pager-summary { font-size: 0.75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.btn.is-disabled { opacity: 0.45; pointer-events: none; }
+
 table { width: 100%; border-collapse: separate; border-spacing: 0; }
 th, td { text-align: left; padding: 12px 14px; font-size: 0.8125rem; }
 thead th {

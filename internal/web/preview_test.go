@@ -258,12 +258,15 @@ func TestPreview(t *testing.T) {
 	// A second view fixed to the Alerts tab, for that screenshot.
 	settingsAlertsV := settingsV
 	settingsAlertsV.Tab = "alerts"
-	timelineV := TimelineView{Active: "timeline", Events: dash.RecentEvents, NextID: 42}
+	// A timeline deep into a long history: the pager should show first/last, a
+	// window around the current page, and ellipses for the gaps.
+	pagerReq := httptest.NewRequest("GET", "/timeline?offset=200&limit=50", nil)
+	timelineV := TimelineView{Active: "timeline", Events: dash.RecentEvents,
+		Pager: pagerFor(pagerReq, 200, 50, 50, 1240)}
 
 	// Looking glass with "show all" attributes: decoded communities of every kind.
 	lgV := LGView{
 		Active: "lg", ReadOnly: true, Type: "for", Target: "203.0.113.0/24", All: true, Ran: true,
-		FirstRow: 1, LastRow: 2,
 		Tables: []lgTable{{
 			Name: "master4",
 			Routes: []lgRoute{

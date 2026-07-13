@@ -96,6 +96,38 @@ func (s *Store) ResolveConfigVersion(id int64, status, message string) error {
 	return affectedOne(res)
 }
 
+// CountConfigVersions is the total the history pager needs. Counting rows is
+// cheap; reading them is not — each carries a full rendered bird.conf.
+func (s *Store) CountConfigVersions() (int, error) {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM config_versions`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("store: count config versions: %w", err)
+	}
+	return n, nil
+}
+
+// ListConfigVersionsPage reads one page. Paging in SQL rather than in memory
+// matters here: every row holds an entire config, so "read them all and slice" is
+// megabytes of text to render fifty lines of table.
+func (s *Store) ListConfigVersionsPage(limit, offset int) ([]ConfigVersion, error) {
+	rows, err := s.db.Query(`
+		SELECT id, created_at, sha256, size, config_text, backup_path, status, timeout_deadline, message, resolved_at, baseline_sessions, config_files
+		FROM config_versions ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("store: list config versions: %w", err)
+	}
+	defer rows.Close()
+	var out []ConfigVersion
+	for rows.Next() {
+		v, err := scanConfigVersion(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListConfigVersions(limit int) ([]ConfigVersion, error) {
 	rows, err := s.db.Query(`
 		SELECT id, created_at, sha256, size, config_text, backup_path, status, timeout_deadline, message, resolved_at, baseline_sessions, config_files

@@ -34,12 +34,8 @@
 					<div class="empty">No events yet. Session ups and downs, flaps and limit hits will appear here as they happen.</div>
 					{{end}}
 				</div>
+				{{template "pager" .Pager}}
 			</div>
-			{{if .HasMore}}
-			<div style="display:flex;justify-content:center">
-				<a class="btn" href="/timeline?before={{.NextID}}">Load older events</a>
-			</div>
-			{{end}}
 		</div>
 	</div>
 </div>

@@ -33,12 +33,8 @@ type LGView struct {
 	Offset   int       `json:"offset"`
 	Limit    int       `json:"limit"`
 	HasMore  bool      `json:"hasMore"`
-	// FirstRow/LastRow are the 1-based row numbers of this page, precomputed
-	// because templates can't do arithmetic. Zero when the page is empty.
-	FirstRow int    `json:"firstRow"`
-	LastRow  int    `json:"lastRow"`
-	PrevLink string `json:"-"`
-	NextLink string `json:"-"`
+	// Pager draws the page controls, the same ones every other table in birdy has.
+	Pager Pager `json:"-"`
 }
 
 var lgTypes = map[string]string{
@@ -93,16 +89,10 @@ func (s *Server) runLookingGlass(r *http.Request) LGView {
 	for _, t := range page.Tables {
 		shown += len(t.Routes)
 	}
-	if shown > 0 {
-		v.FirstRow = v.Offset + 1
-		v.LastRow = v.Offset + shown
-	}
-	if v.Offset > 0 {
-		v.PrevLink = lgPageLink(v, max(0, v.Offset-v.Limit))
-	}
-	if v.HasMore {
-		v.NextLink = lgPageLink(v, v.Offset+v.Limit)
-	}
+	// A BIRD route table is never counted to draw a pager — the router carries
+	// millions of routes and the query streams — so the total stays unknown and the
+	// pager offers the pages it can prove exist.
+	v.Pager = newPager(r, offset, limit, shown, TotalUnknown, page.HasMore)
 	return v
 }
 

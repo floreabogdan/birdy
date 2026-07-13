@@ -2,7 +2,6 @@ package web
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/floreabogdan/birdy/internal/store"
 )
@@ -13,26 +12,33 @@ type TimelineView struct {
 	Active   string        `json:"-"`
 	ReadOnly bool          `json:"readOnly"`
 	Events   []store.Event `json:"events"`
-	NextID   int64         `json:"nextId,omitempty"`
 	HasMore  bool          `json:"hasMore"`
+	// Pager numbers the pages. The timeline used to walk backwards with a
+	// "before this id" cursor, which can only ever go one page at a time — no way
+	// to jump to what happened last Tuesday without clicking Next twenty times.
+	Pager Pager `json:"-"`
 }
 
 func (s *Server) buildTimelineView(r *http.Request) TimelineView {
-	var before int64
-	if b := r.URL.Query().Get("before"); b != "" {
-		before, _ = strconv.ParseInt(b, 10, 64)
+	offset, limit := parsePageParams(r)
+	if limit == defaultPageSize {
+		limit = timelinePageSize
 	}
 	v := TimelineView{Active: "timeline", ReadOnly: s.readOnly}
-	events, err := s.store.ListEvents(timelinePageSize, before)
+
+	total, err := s.store.CountEvents()
+	if err != nil {
+		s.log.Error("count events failed", "error", err)
+		return v
+	}
+	events, err := s.store.ListEventsPage(limit, offset)
 	if err != nil {
 		s.log.Error("list events failed", "error", err)
 		return v
 	}
 	v.Events = events
-	if len(events) == timelinePageSize {
-		v.NextID = events[len(events)-1].ID
-		v.HasMore = true
-	}
+	v.Pager = pagerFor(r, offset, limit, len(events), total)
+	v.HasMore = v.Pager.HasMore
 	return v
 }
 

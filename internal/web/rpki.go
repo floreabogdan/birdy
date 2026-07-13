@@ -8,14 +8,17 @@ import (
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
-// rpkiInvalidLimit caps the live-invalids list shown on the RPKI page. A router
-// with many invalids only needs a representative sample to decide about enforce.
-const rpkiInvalidLimit = 200
+// rpkiInvalidLimit is the page size of the live-invalids list. It used to be a hard
+// cap — the first 200 and no way to see the rest — which is no good when the whole
+// point is counting what you would lose by switching to reject.
+const rpkiInvalidLimit = 50
 
 type rpkiView struct {
 	Active   string
 	ReadOnly bool
 	Servers  []store.RPKIServer
+	// ServerPager pages the RTR list; InvalidsPager (below) pages the dry run.
+	ServerPager Pager
 	// Live indexes the running BIRD protocols so an RTR session's state shows
 	// up here once a config carrying it has been applied.
 	Live map[string]protoRow
@@ -28,9 +31,12 @@ type rpkiView struct {
 	// Invalids are the routes BIRD is currently tagging RPKI-invalid in log-only
 	// mode — exactly what a policy would drop if switched to reject. Populated
 	// only when a policy is in log-only mode (that is what tags them).
-	Invalids     []birdc.RouteEntry
-	InvalidsMore bool
-	InvalidsErr  string
+	Invalids    []birdc.RouteEntry
+	InvalidsErr string
+	// Pager pages the invalids. Their total is unknown: counting them means walking
+	// the whole table, which on a full-table router is millions of routes read to
+	// draw a page number.
+	Pager Pager
 }
 
 type rpkiFormView struct {
@@ -52,8 +58,11 @@ func (s *Server) handleRPKIPage(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "list policies", err)
 		return
 	}
-	v := rpkiView{Active: "rpki", ReadOnly: s.readOnly, Servers: servers,
-		Live: s.liveStates(), Flash: r.URL.Query().Get("flash")}
+	sOff, sLimit := parsePageParamsNamed(r, "soffset")
+	serverPage := pageSlice(servers, sOff, sLimit)
+	v := rpkiView{Active: "rpki", ReadOnly: s.readOnly, Servers: serverPage,
+		ServerPager: pagerForNamed(r, "soffset", sOff, sLimit, len(serverPage), len(servers)),
+		Live:        s.liveStates(), Flash: r.URL.Query().Get("flash")}
 	for _, p := range policies {
 		switch p.ROV {
 		case store.ROVReject:
@@ -68,14 +77,18 @@ func (s *Server) handleRPKIPage(w http.ResponseWriter, r *http.Request) {
 	// what they would lose before switching to reject.
 	if len(v.Logging) > 0 {
 		if settings, ok, err := s.store.GetSettings(); err == nil && ok && settings.LocalASN.Valid {
-			page, err := s.client.RoutesRPKIInvalidPage(settings.LocalASN.Int64, 0, rpkiInvalidLimit)
+			offset, limit := parsePageParams(r)
+			if limit == defaultPageSize {
+				limit = rpkiInvalidLimit
+			}
+			page, err := s.client.RoutesRPKIInvalidPage(settings.LocalASN.Int64, offset, limit)
 			if err != nil {
 				v.InvalidsErr = err.Error()
 			} else {
 				for _, tbl := range page.Tables {
 					v.Invalids = append(v.Invalids, tbl.Routes...)
 				}
-				v.InvalidsMore = page.HasMore
+				v.Pager = newPager(r, offset, limit, len(v.Invalids), TotalUnknown, page.HasMore)
 			}
 		}
 	}

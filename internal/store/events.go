@@ -90,3 +90,40 @@ func (s *Store) ListEvents(limit int, beforeID int64) ([]Event, error) {
 	}
 	return out, rows.Err()
 }
+
+// ListEventsPage is ListEvents by page number rather than cursor. The timeline
+// needs it to offer numbered pages: a "before this id" cursor can only ever walk
+// forwards one page at a time, which is exactly the limitation being removed.
+func (s *Store) ListEventsPage(limit, offset int) ([]Event, error) {
+	rows, err := s.db.Query(
+		`SELECT id, ts, kind, protocol, actor, message FROM events ORDER BY id DESC LIMIT ? OFFSET ?`, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("store: list events page: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Event
+	for rows.Next() {
+		var e Event
+		var ts string
+		if err := rows.Scan(&e.ID, &ts, &e.Kind, &e.Protocol, &e.Actor, &e.Message); err != nil {
+			return nil, fmt.Errorf("store: scan event: %w", err)
+		}
+		e.Ts, err = time.Parse(time.RFC3339Nano, ts)
+		if err != nil {
+			return nil, fmt.Errorf("store: parse event ts: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// CountEvents is the total the timeline's pager needs to know how many pages
+// there are. Cheap: the events table is indexed and bounded by retention.
+func (s *Store) CountEvents() (int, error) {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("store: count events: %w", err)
+	}
+	return n, nil
+}

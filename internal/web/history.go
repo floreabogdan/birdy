@@ -14,6 +14,7 @@ type historyView struct {
 	ReadOnly bool
 	Flash    string
 	Versions []store.ConfigVersion
+	Pager    Pager
 }
 
 type versionView struct {
@@ -29,7 +30,13 @@ type versionView struct {
 }
 
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
-	versions, err := s.store.ListConfigVersions(100)
+	offset, limit := parsePageParams(r)
+	total, err := s.store.CountConfigVersions()
+	if err != nil {
+		s.serverError(w, "count config versions", err)
+		return
+	}
+	versions, err := s.store.ListConfigVersionsPage(limit, offset)
 	if err != nil {
 		s.serverError(w, "list config versions", err)
 		return
@@ -37,6 +44,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	render(w, s.log, "history.html", historyView{
 		Active: "changes", ReadOnly: s.readOnly, Flash: r.URL.Query().Get("flash"),
 		Versions: versions,
+		Pager:    pagerFor(r, offset, limit, len(versions), total),
 	})
 }
 

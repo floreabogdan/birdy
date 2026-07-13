@@ -15,9 +15,13 @@ type policiesView struct {
 	ReadOnly bool
 	Imports  []store.Policy
 	Exports  []store.Policy
-	InUse    map[int64]int // policy id -> peers attached
-	SetNames map[int64]string
-	Flash    string
+	// Two tables on one page, so they cannot share the plain "offset" parameter —
+	// paging the imports must not drag the exports along with it.
+	ImportPager Pager
+	ExportPager Pager
+	InUse       map[int64]int // policy id -> peers attached
+	SetNames    map[int64]string
+	Flash       string
 }
 
 type policyFormView struct {
@@ -68,13 +72,20 @@ func (s *Server) handlePoliciesList(w http.ResponseWriter, r *http.Request) {
 
 	v := policiesView{Active: "policies", ReadOnly: s.readOnly, InUse: inUse, SetNames: names,
 		Flash: r.URL.Query().Get("flash")}
+	var imports, exports []store.Policy
 	for _, p := range policies {
 		if p.IsImport() {
-			v.Imports = append(v.Imports, p)
+			imports = append(imports, p)
 		} else {
-			v.Exports = append(v.Exports, p)
+			exports = append(exports, p)
 		}
 	}
+	iOff, limit := parsePageParamsNamed(r, "offset")
+	eOff, _ := parsePageParamsNamed(r, "eoffset")
+	v.Imports = pageSlice(imports, iOff, limit)
+	v.Exports = pageSlice(exports, eOff, limit)
+	v.ImportPager = pagerForNamed(r, "offset", iOff, limit, len(v.Imports), len(imports))
+	v.ExportPager = pagerForNamed(r, "eoffset", eOff, limit, len(v.Exports), len(exports))
 	render(w, s.log, "policies.html", v)
 }
 

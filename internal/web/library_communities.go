@@ -13,6 +13,7 @@ type communitiesView struct {
 	Active   string
 	ReadOnly bool
 	Defs     []store.CommunityDef
+	Pager    Pager
 	Flash    string
 }
 
@@ -33,8 +34,12 @@ func (s *Server) handleCommunitiesList(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "list communities", err)
 		return
 	}
+	offset, limit := parsePageParams(r)
+	page := pageSlice(defs, offset, limit)
 	render(w, s.log, "communities.html", communitiesView{
-		Active: "library", ReadOnly: s.readOnly, Defs: defs, Flash: r.URL.Query().Get("flash"),
+		Active: "library", ReadOnly: s.readOnly, Defs: page,
+		Pager: pagerFor(r, offset, limit, len(page), len(defs)),
+		Flash: r.URL.Query().Get("flash"),
 	})
 }
 

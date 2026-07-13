@@ -146,10 +146,15 @@
 						</tbody>
 					</table>
 					</div>
-					<div class="card-body" style="display:flex;justify-content:space-between;align-items:center;padding-top:12px;padding-bottom:12px">
-						<button type="button" id="routes-prev" class="btn btn-sm" disabled>&larr; Previous</button>
-						<span id="routes-status" class="text-muted" style="font-size:0.75rem"></span>
-						<button type="button" id="routes-next" class="btn btn-sm" disabled>Next &rarr;</button>
+					{{/* Same pager as every other table, built client-side: this one loads over
+					     the API so the tab can page without reloading the page. */}}
+					<div class="pager">
+						<div class="pager-nav">
+							<button type="button" id="routes-prev" class="btn btn-sm" disabled>&larr; Prev</button>
+							<span class="pager-pages" id="routes-pages"></span>
+							<button type="button" id="routes-next" class="btn btn-sm" disabled>Next &rarr;</button>
+						</div>
+						<div class="pager-summary" id="routes-status"></div>
 					</div>
 				</div>
 			</section>

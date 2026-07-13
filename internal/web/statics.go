@@ -13,6 +13,7 @@ type staticRoutesView struct {
 	Active   string
 	ReadOnly bool
 	Routes   []store.StaticRoute
+	Pager    Pager
 	Flash    string
 }
 
@@ -32,8 +33,11 @@ func (s *Server) handleStaticRoutesList(w http.ResponseWriter, r *http.Request) 
 		s.serverError(w, "list static routes", err)
 		return
 	}
+	offset, limit := parsePageParams(r)
+	page := pageSlice(routes, offset, limit)
 	render(w, s.log, "static_routes.html", staticRoutesView{
-		Active: "library", ReadOnly: s.readOnly, Routes: routes,
+		Active: "library", ReadOnly: s.readOnly, Routes: page,
+		Pager: pagerFor(r, offset, limit, len(page), len(routes)),
 		Flash: r.URL.Query().Get("flash"),
 	})
 }
