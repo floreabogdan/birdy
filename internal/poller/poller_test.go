@@ -15,6 +15,7 @@ import (
 type fakeClient struct {
 	polls  [][]birdc.ProtocolSummary
 	detail map[string]birdc.ProtocolDetail
+	counts []birdc.RouteCountEntry // optional; RouteCount returns a default when nil
 	i      int
 	step   int
 	errAt  map[int]error // poll (call) number -> error, to script BIRD-unreachable
@@ -44,6 +45,9 @@ func (f *fakeClient) ProtocolDetail(name string) (birdc.ProtocolDetail, error) {
 }
 
 func (f *fakeClient) RouteCount() ([]birdc.RouteCountEntry, error) {
+	if f.counts != nil {
+		return f.counts, nil
+	}
 	return []birdc.RouteCountEntry{{Table: "master4", Routes: 5, Networks: 4}}, nil
 }
 
@@ -286,5 +290,33 @@ func TestPollerIgnoresSmallDrops(t *testing.T) {
 		if e.Kind == store.EventPrefixDrop {
 			t.Errorf("a drop below the baseline should not alert: %+v", e)
 		}
+	}
+}
+
+func TestIsROATable(t *testing.T) {
+	roa := []string{"rpki4", "rpki6", "RPKI4", "rpki_cache", " rpki4 "}
+	for _, n := range roa {
+		if !isROATable(n) {
+			t.Errorf("isROATable(%q) = false, want true", n)
+		}
+	}
+	notRoa := []string{"master4", "master6", "", "rp", "ki4", "backbone"}
+	for _, n := range notRoa {
+		if isROATable(n) {
+			t.Errorf("isROATable(%q) = true, want false", n)
+		}
+	}
+}
+
+func TestTotalRoutesExcludesROATables(t *testing.T) {
+	fc := &fakeClient{
+		polls:  [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+		counts: []birdc.RouteCountEntry{{Table: "master4", Routes: 5}, {Table: "master6", Routes: 5}, {Table: "rpki4", Routes: 745832}, {Table: "rpki6", Routes: 228482}},
+	}
+	st := openTestStore(t)
+	p := New(fc, st, time.Second, nil)
+	p.poll()
+	if got := p.Snapshot().TotalRoutes; got != 10 {
+		t.Fatalf("TotalRoutes = %d, want 10 (ROA tables excluded)", got)
 	}
 }

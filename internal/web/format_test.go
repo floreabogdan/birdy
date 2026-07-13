@@ -51,7 +51,7 @@ func TestSessionVerdict(t *testing.T) {
 		wantOK   bool
 	}{
 		{"poll error outranks counts", "dial unix: no such file", 2, 0, "BIRD unreachable", false},
-		{"no protocols", "", 0, 0, "No protocols configured", false},
+		{"no sessions", "", 0, 0, "No BGP sessions", false},
 		{"all up", "", 2, 0, "All 2 sessions up", true},
 		{"single session up", "", 1, 0, "All 1 session up", true},
 		{"some down", "", 4, 1, "1 of 4 sessions down", false},

@@ -37,27 +37,27 @@
 					<div class="stat-label">Sessions</div>
 					<div class="stat-main">
 						<span class="stat-icon">{{template "icon-activity"}}</span>
-						<span class="stat-value" id="stat-total">{{len .Protocols}}</span>
+						<span class="stat-value" id="stat-total">{{len .Sessions}}</span>
 					</div>
 					<div class="stat-rule"></div>
-					<span class="stat-note">all BIRD protocols</span>
+					<span class="stat-note">BGP sessions{{if .Infra}} · {{len .Infra}} infra{{end}}</span>
 				</div>
 				<div class="stat tint-success">
 					<div class="stat-label">Established</div>
 					<div class="stat-main">
 						<span class="stat-icon">{{template "icon-check"}}</span>
-						<span class="stat-value"><span id="stat-up">{{.UpCount}}</span><span class="stat-total"> / <span id="stat-up-total">{{len .Protocols}}</span></span></span>
+						<span class="stat-value"><span id="stat-up">{{.SessionUp}}</span><span class="stat-total"> / <span id="stat-up-total">{{len .Sessions}}</span></span></span>
 					</div>
-					<div class="stat-rule"><span class="stat-rule-fill" id="bar-up" style="width:{{printf "%.0f" (ratio .UpCount (len .Protocols))}}%"></span></div>
+					<div class="stat-rule"><span class="stat-rule-fill" id="bar-up" style="width:{{printf "%.0f" (ratio .SessionUp (len .Sessions))}}%"></span></div>
 					<a class="stat-link" href="/lg"><span class="arr" aria-hidden="true">&#8599;</span>Looking glass</a>
 				</div>
 				<div class="stat tint-danger">
 					<div class="stat-label">Down</div>
 					<div class="stat-main">
 						<span class="stat-icon">{{template "icon-alert"}}</span>
-						<span class="stat-value" id="stat-down">{{.DownCount}}</span>
+						<span class="stat-value" id="stat-down">{{.SessionDown}}</span>
 					</div>
-					<div class="stat-rule"><span class="stat-rule-fill" id="bar-down" style="width:{{printf "%.0f" (ratio .DownCount (len .Protocols))}}%"></span></div>
+					<div class="stat-rule"><span class="stat-rule-fill" id="bar-down" style="width:{{printf "%.0f" (ratio .SessionDown (len .Sessions))}}%"></span></div>
 					<a class="stat-link" href="/timeline"><span class="arr" aria-hidden="true">&#8599;</span>Timeline</a>
 				</div>
 				<div class="stat tint-secondary">
@@ -67,7 +67,7 @@
 						<span class="stat-value" id="stat-routes">{{comma .TotalRoutes}}</span>
 					</div>
 					<div class="stat-rule"></div>
-					<span class="stat-note">across all tables</span>
+					<span class="stat-note">excludes RPKI ROA tables</span>
 				</div>
 			</div>
 

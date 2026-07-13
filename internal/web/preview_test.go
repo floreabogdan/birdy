@@ -68,11 +68,16 @@ func TestPreview(t *testing.T) {
 		if row.IsBGP() {
 			row.Configured = row.Name != "edge_v6"
 			dash.Sessions = append(dash.Sessions, row)
+			if row.Up {
+				dash.SessionUp++
+			} else {
+				dash.SessionDown++
+			}
 		} else {
 			dash.Infra = append(dash.Infra, row)
 		}
 	}
-	dash.StatusText, dash.StatusOK = sessionVerdict(dash.PollErr, len(dash.Protocols), dash.DownCount)
+	dash.StatusText, dash.StatusOK = sessionVerdict(dash.PollErr, len(dash.Sessions), dash.SessionDown)
 
 	peer := SessionDetailView{
 		Active:     "peers",

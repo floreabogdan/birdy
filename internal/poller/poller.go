@@ -263,6 +263,9 @@ func (p *Poller) poll() {
 		p.log.Warn("show route count failed", "error", err)
 	} else {
 		for _, c := range counts {
+			if isROATable(c.Table) {
+				continue // RPKI ROA tables hold ROAs, not routes — don't count them in the RIB
+			}
 			totalRoutes += c.Routes
 		}
 	}
@@ -280,6 +283,13 @@ func isUp(p birdc.ProtocolSummary) bool {
 		return strings.TrimSpace(p.Info) == "Established"
 	}
 	return p.State == "up"
+}
+
+// isROATable reports whether a routing-table name is an RPKI ROA table. birdy
+// renders these as rpki4/rpki6 (see internal/render); their entries are ROAs,
+// not routes, and pollute the RIB count — often dwarfing it by a million.
+func isROATable(name string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(name)), "rpki")
 }
 
 // dropBaseline is the smallest prior count worth alerting on — below it, a

@@ -164,14 +164,16 @@
 				renderRows(data.protocols, data.history);
 				renderEvents(data.recentEvents);
 
-				var total = (data.protocols || []).length;
-				setText("stat-total", total);
-				setText("stat-up", data.upCount);
-				setText("stat-up-total", total);
-				setText("stat-down", data.downCount);
+				// Session stats count BGP only; infrastructure protocols
+				// (device/kernel/static/RPKI) are not sessions.
+				var sessions = (data.protocols || []).filter(isBGP).length;
+				setText("stat-total", sessions);
+				setText("stat-up", data.sessionUp);
+				setText("stat-up-total", sessions);
+				setText("stat-down", data.sessionDown);
 				setText("stat-routes", comma(data.totalRoutes));
-				setWidth("bar-up", ratio(data.upCount, total));
-				setWidth("bar-down", ratio(data.downCount, total));
+				setWidth("bar-up", ratio(data.sessionUp, sessions));
+				setWidth("bar-down", ratio(data.sessionDown, sessions));
 
 				var hero = document.getElementById("hero-status");
 				if (hero) {

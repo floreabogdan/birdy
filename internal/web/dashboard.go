@@ -60,11 +60,16 @@ type DashboardView struct {
 	LocalASN string       `json:"localASN"`
 	// Protocols is every protocol BIRD reports; Sessions and Infra are the same
 	// rows split for display. The API keeps the flat list.
-	Protocols    []protoRow    `json:"protocols"`
-	Sessions     []protoRow    `json:"-"`
-	Infra        []protoRow    `json:"-"`
+	Protocols []protoRow `json:"protocols"`
+	Sessions  []protoRow `json:"-"`
+	Infra     []protoRow `json:"-"`
+	// UpCount/DownCount count every protocol; SessionUp/SessionDown count only the
+	// BGP sessions. The dashboard's session stats and health verdict use the latter
+	// — device/kernel/static/RPKI are infrastructure, not sessions.
 	UpCount      int           `json:"upCount"`
 	DownCount    int           `json:"downCount"`
+	SessionUp    int           `json:"sessionUp"`
+	SessionDown  int           `json:"sessionDown"`
 	TotalRoutes  int           `json:"totalRoutes"`
 	PollErr      string        `json:"pollErr,omitempty"`
 	UpdatedAt    time.Time     `json:"updatedAt"`
@@ -151,6 +156,11 @@ func (s *Server) buildDashboardView() DashboardView {
 		if row.IsBGP() {
 			row.Configured = configured[row.Name]
 			v.Sessions = append(v.Sessions, *row)
+			if row.Up {
+				v.SessionUp++
+			} else {
+				v.SessionDown++
+			}
 		} else {
 			v.Infra = append(v.Infra, *row)
 		}
@@ -162,7 +172,7 @@ func (s *Server) buildDashboardView() DashboardView {
 	if samples, err := s.store.RecentSamples(time.Now().Add(-dashboardHistoryWindow)); err == nil {
 		v.History = seriesByProtocol(samples, dashboardHistoryPoints)
 	}
-	v.StatusText, v.StatusOK = sessionVerdict(v.PollErr, len(v.Protocols), v.DownCount)
+	v.StatusText, v.StatusOK = sessionVerdict(v.PollErr, len(v.Sessions), v.SessionDown)
 	return v
 }
 
@@ -172,7 +182,7 @@ func sessionVerdict(pollErr string, total, down int) (string, bool) {
 	case pollErr != "":
 		return "BIRD unreachable", false
 	case total == 0:
-		return "No protocols configured", false
+		return "No BGP sessions", false
 	case down == 0:
 		return fmt.Sprintf("All %d %s up", total, plural(total, "session")), true
 	default:
