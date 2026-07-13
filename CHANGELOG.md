@@ -6,6 +6,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-07-13
+
+A release about reading what birdy is telling you. The RPKI dry run now answers the
+question it exists for, the charts say *when*, every table has pages, and a session
+you switched off stops being reported as a session that failed.
+
 ### Added
 - **The RPKI dry run says how many routes are invalid.** It listed some of them and
   never gave a number, so you could scroll a page of invalid prefixes and still not

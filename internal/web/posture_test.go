@@ -49,13 +49,13 @@ func TestAccessPageQuietOnLoopback(t *testing.T) {
 
 func TestListenLoopbackDetection(t *testing.T) {
 	cases := map[string]bool{
-		"127.0.0.1:8080":    true,
-		"localhost:8080":    true,
-		"[::1]:8080":        true,
-		"0.0.0.0:8080":      false,
-		":8080":             false, // every interface
-		"81.181.164.1:8080": false,
-		"":                  false,
+		"127.0.0.1:8080":   true,
+		"localhost:8080":   true,
+		"[::1]:8080":       true,
+		"0.0.0.0:8080":     false,
+		":8080":            false, // every interface
+		"203.0.113.7:8080": false,
+		"":                 false,
 	}
 	for addr, want := range cases {
 		s := &Server{listenAddr: addr}

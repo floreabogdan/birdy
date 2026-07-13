@@ -38,7 +38,7 @@ const fixtureShowProtocolsLongNames = "2002-Name       Proto      Table      Sta
 	" originate_ANNOUNCE_V4 Static     master4    up     09:01:15.741\n" +
 	" originate_ANNOUNCE_V6 Static     master6    up     09:01:15.741\n" +
 	" cloudflare RPKI       ---        up     09:04:16.870  Established\n" +
-	" nav_v4     BGP        ---        up     09:01:17.983  Established\n" +
+	" edge_v4     BGP        ---        up     09:01:17.983  Established\n" +
 	"0000 \n"
 
 const fixtureShowProtocolsAllBGP = "2002-Name       Proto      Table      State  Since         Info\n" +

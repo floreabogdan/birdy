@@ -391,9 +391,18 @@ model, so it works in read-only mode. Import, review the diff until "would remov
 is empty, then apply.
 
 **Route history.** The dashboard grid and each peer's detail page draw route-count
-history sparklines from samples birdy records itself on `--sample-interval`
-(pruned to `--sample-retain`) — enough to see when a session started leaking or
-losing prefixes without a Prometheus/Grafana stack.
+history charts from samples birdy records itself on `--sample-interval` (pruned to
+`--sample-retain`) — enough to see when a session started leaking or losing prefixes
+without a Prometheus/Grafana stack. **Hover a chart** and it names the point under
+the cursor: the route count and the moment it was sampled. "It halved" is only half
+an answer; *when* it halved is what you correlate against a flap or an apply.
+
+**Pagination.** Every table pages the same way: prev/next, numbered pages with
+ellipses, first and last always reachable, and a `rows 201–250 of 1,240` summary. It
+draws nothing when a table fits on one page. Tables streamed from BIRD (the looking
+glass, the per-peer route browsers, the RPKI invalids) offer the pages they can prove
+exist rather than a page count — birdy will not walk a multi-million-route table just
+to number a pager.
 
 **Backups.** Each apply (and each adopt) snapshots the whole config — `bird.conf`
 plus `birdy.d/` — into a timestamped directory under the backup path, and a
@@ -415,6 +424,7 @@ apply to the role you pick.
 |-----------|-----------|--------------|
 | **Name** | all | The BIRD protocol name. Letters, digits, underscore; starts with a letter or underscore. |
 | **Description** | all | Free text, rendered as the protocol's `description`. |
+| **Enabled** | all | Off renders BIRD's `disabled`, so BIRD makes **no connection attempts at all**. Toggle it straight from the peers list (the power button) — like every edit it changes the model, so the row reads *pending apply* until you apply. A disabled peer shows as **disabled**, not *down*, and raises no down/flap alerts: switching it off is a decision, not an outage. |
 | **Role** | all | The relationship: **upstream** (sells you transit), **IX peer** (settlement-free), **customer** (buys transit from you), or **iBGP** (inside your AS). Routes learned from a peer are tagged with its role via a large community, so export policies can say "announce what my customers sent me" without knowing their prefixes. iBGP also switches the session to internal. |
 | **Enabled** | all | Unchecked renders `disabled;` — the session is configured but not brought up. |
 | **Neighbor address** | all | The peer's IP. Its family decides whether the session carries an ipv4 or ipv6 channel. |
@@ -528,10 +538,18 @@ usual production answer; a public RTR endpoint is fine to start with. Timers lef
 at `0` mean "leave BIRD's default alone". Validation itself is turned on per
 import policy via the **RPKI ROV** knob (log-only or drop-invalid).
 
-While any policy is in **log-only** mode, the RPKI page also lists a live sample of
-the routes BIRD is currently tagging invalid (capped at 200). That is the dry-run:
-it shows the blast radius — which prefixes, from which peers — so you can size the
-impact before switching a policy from log-only to drop-invalid.
+**Which policies validate** is a table of every import policy: its RPKI mode, what
+that does to an invalid route, and — the part that matters before you enforce — the
+peers riding on it. Policies doing *nothing* are listed too: one that carries half
+your sessions and never checks an origin is exactly what you came here to find.
+
+While any policy is in **log-only** mode, the page also runs the **dry run**. BIRD
+counts the routes it is tagging invalid right now (`show route where … count`, so
+nothing walks the RIB across the socket), and the panel leads with the number:
+*"742 would be dropped"*, broken down per table. Below it, the routes themselves,
+paginated — which prefixes, from which peers. The number is the answer; the list is
+the evidence. Both exist so you can size the impact before switching a policy from
+log-only to drop-invalid.
 
 ---
 
@@ -583,9 +601,12 @@ button.
 
 ## 13. Settings
 
-- **Router identity** — router ID (an IPv4-formatted 32-bit value) and local ASN.
-  These open every rendered config; BIRD will not start without a router ID.
-  Optionally a route-reflector cluster ID.
+- **Router identity** — the **router label** (what to call this router; it names the
+  router in alerts and is never rendered into `bird.conf`), the router ID (an
+  IPv4-formatted 32-bit value) and the local ASN. The last two open every rendered
+  config; BIRD will not start without a router ID. Optionally a route-reflector
+  cluster ID. Note the big name on the dashboard is *not* the label — that is the
+  system hostname, which BIRD reports and birdy only displays.
 - **Bogons** — the bogon prefix lists (v4/v6) and bogon ASN list. Generated filters
   name these directly, which is why they live here rather than in the Library and
   cannot be deleted or announced. "Restore defaults" resets them to what birdy

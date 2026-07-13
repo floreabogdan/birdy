@@ -92,8 +92,8 @@ func TestParseProtocolsLongNames(t *testing.T) {
 	if r := byName["cloudflare"]; r.Proto != "RPKI" || r.State != "up" || r.Info != "Established" {
 		t.Errorf("cloudflare = %+v, want Proto=RPKI State=up Info=Established", r)
 	}
-	if r := byName["nav_v4"]; r.Proto != "BGP" || r.Info != "Established" {
-		t.Errorf("nav_v4 = %+v, want Proto=BGP Info=Established", r)
+	if r := byName["edge_v4"]; r.Proto != "BGP" || r.Info != "Established" {
+		t.Errorf("edge_v4 = %+v, want Proto=BGP Info=Established", r)
 	}
 }
 

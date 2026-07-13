@@ -248,7 +248,7 @@ func TestPreview(t *testing.T) {
 	settingsV := SettingsView{
 		Active: "settings", Tab: "general", ReadOnly: true, Msg: "Router identity saved",
 		Settings: store.Settings{
-			RouterLabel: "cl1", RouterID: "192.0.2.1",
+			RouterLabel: "rtr1.example.net", RouterID: "192.0.2.1",
 			LocalASN:       sql.NullInt64{Int64: 65551, Valid: true},
 			BirdSocketPath: "/run/bird/bird.ctl", ListenAddr: "0.0.0.0:8080",
 		},

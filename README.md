@@ -215,14 +215,19 @@ things follow from that, and both are one setting away:
 - An alert when BIRD itself becomes unreachable — the one failure session alerts can't catch
 - A config-drift alert when `bird.conf` changes outside birdy — a hand edit, a `birdc` reconfigure, or a
   revert birdy did not perform
-- Route-count history sparklines, on the dashboard grid and per peer, from samples birdy records itself —
-  no Prometheus or Grafana needed to see when a session started leaking
+- Route-count history charts, on the dashboard grid and per peer, from samples birdy records itself —
+  no Prometheus or Grafana needed to see when a session started leaking. Hover one and it names the
+  point under the cursor: how many routes, and when
 - A Prometheus `/metrics` endpoint (on once the access list is narrowed) and a public `/healthz` probe
 - Login rate-limiting (per-IP lockout) and a downloadable off-box backup bundle
 - Live BIRD-code preview on every editor: the generated config updates as you type, before you save
+- Every table paginated with numbered pages — the route browsers, the timeline, the apply history, and
+  each library list
 
 **Model**
 - Peers with roles (upstream, IX peer, customer, iBGP), which drive automatic origin tagging
+- Disable a session from the peers list: it renders BIRD's `disabled`, so BIRD stops connecting
+  entirely — and birdy reads that back as *disabled*, not as a session that failed
 - iBGP with next-hop-self and route reflection; AS-path prepending, export communities, one-click
   drain (RFC 8326 graceful shutdown), and BFD per peer
 - Composable import and export policy chains that can match communities, rather than one policy per
@@ -235,8 +240,9 @@ things follow from that, and both are one setting away:
 - RFC 7999 customer blackhole (RTBH); PeeringDB lookups on the peer form
 - BMP monitoring stations (RFC 7854) — stream every session's pre- and post-policy RIB to a collector
 - Bogon prefixes and bogon ASNs, editable, in Settings
-- RPKI: RTR servers and per-policy validation (log-only or drop-invalid), with a live list of the
-  routes BIRD is currently tagging invalid — the dry-run for sizing the impact before you enforce
+- RPKI: RTR servers and per-policy validation (log-only or drop-invalid). The dry run says how many
+  routes BIRD is tagging invalid right now — **the number you would drop by enforcing** — and lists
+  them; a table shows every import policy, whether it validates, and which peers ride on it
 - A raw config block for everything birdy does not model, checked by `bird -p` before it saves
 
 **Preview and apply**
