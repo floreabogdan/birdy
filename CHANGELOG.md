@@ -6,6 +6,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-07-14
+
+A single change, for the router that is not alone. An internal session could only
+ever be `import all; export all;` — fine in a full mesh with one exit, a route
+leak and a dead tunnel the moment the far router has an upstream of its own. iBGP
+now takes the same policy chains eBGP does, and a session with no chain renders
+byte for byte what it rendered before.
+
 ### Added
 - **iBGP sessions take import and export policies.** They used to be refused —
   `iBGP sessions do not take policies yet` — and every internal session rendered
@@ -251,7 +259,10 @@ router and gives you:
 - Multi-arch release binaries (Linux amd64/arm64/arm, FreeBSD, macOS) and a
   multi-arch container image on GHCR.
 
-[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.3.5...HEAD
+[0.3.5]: https://github.com/floreabogdan/birdy/compare/v0.3.4...v0.3.5
+[0.3.4]: https://github.com/floreabogdan/birdy/compare/v0.3.3...v0.3.4
+[0.3.3]: https://github.com/floreabogdan/birdy/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/floreabogdan/birdy/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/floreabogdan/birdy/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/floreabogdan/birdy/compare/v0.2.0...v0.3.0
