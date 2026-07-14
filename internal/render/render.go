@@ -859,8 +859,18 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 		if hasExport {
 			writePeerExportFilter(b, in, p, fam)
 		}
-	} else if hasImport || hasExport {
-		return fmt.Errorf("iBGP sessions do not take policies yet")
+	} else {
+		// An iBGP session without policies carries everything, which is the
+		// conventional full-mesh config and stays byte-identical to what birdy
+		// rendered before policies were allowed here. With a chain attached, it gets
+		// filters — because "carry everything" is wrong the moment one router has an
+		// upstream the other should not inherit.
+		if hasImport {
+			writePeerImportFilter(b, in, p, fam)
+		}
+		if hasExport {
+			writePeerExportFilter(b, in, p, fam)
+		}
 	}
 
 	fmt.Fprintf(b, "protocol bgp %s {\n", p.Name)
@@ -932,9 +942,22 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 
 	fmt.Fprintf(b, "\t%s {\n", fam.channel)
 	if p.IsIBGP() {
-		// iBGP peers are inside our own trust boundary and carry routes we
-		// already filtered at the edge, tags and all.
-		b.WriteString("\t\timport all;\n\t\texport all;\n")
+		// Inside our own trust boundary the default is to carry everything: routes
+		// crossing an internal session were already filtered at the edge, tags and
+		// all. But "everything" includes a default route learned from an upstream —
+		// and a router that reaches this one through a tunnel will then try to route
+		// the tunnel's own endpoint through the tunnel. Attach a policy chain and
+		// this session filters like any other.
+		if hasImport {
+			fmt.Fprintf(b, "\t\timport filter ibgp_in_%s;\n", p.Name)
+		} else {
+			b.WriteString("\t\timport all;\n")
+		}
+		if hasExport {
+			fmt.Fprintf(b, "\t\texport filter ibgp_out_%s;\n", p.Name)
+		} else {
+			b.WriteString("\t\texport all;\n")
+		}
 		if p.NextHopSelf {
 			// Without this, a route learned from an eBGP peer is readvertised
 			// carrying that peer's address as its next hop. The router at the far
@@ -957,8 +980,18 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 	return nil
 }
 
+// filterPrefix names a peer's generated filters. iBGP and eBGP filters differ in
+// what they are allowed to do to a route, so they differ in name too — reading
+// "ibgp_in_core" in a config tells you immediately that no re-tagging happened.
+func filterPrefix(p store.Peer) string {
+	if p.IsIBGP() {
+		return "ibgp"
+	}
+	return "ebgp"
+}
+
 func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam family) {
-	fmt.Fprintf(b, "filter ebgp_in_%s\n{\n", p.Name)
+	fmt.Fprintf(b, "filter %s_in_%s\n{\n", filterPrefix(p), p.Name)
 	if p.EnforceFirstAS {
 		fmt.Fprintf(b, "\t# The peer must be the first AS in the path. Turn this off for an\n"+
 			"\t# IXP route server, which does not prepend itself.\n"+
@@ -970,9 +1003,21 @@ func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 	if p.OriginPeerOnly {
 		fmt.Fprintf(b, "\tif bgp_path.last != %d then reject \"prefix not originated by this peer\";\n", p.RemoteASN)
 	}
-	// A peer must never be able to pretend a route came from somewhere else by
-	// sending it to us pre-tagged with one of our own large communities.
-	fmt.Fprintf(b, "\tbgp_large_community.delete([(%d, *, *)]);\n", in.LocalASN)
+	if p.IsIBGP() {
+		// The opposite of the eBGP rule below, and the reason iBGP gets its own
+		// filter: our large communities are how a route says where it came from
+		// (FROM_UPSTREAM / FROM_IX / FROM_CUSTOMER). They are stamped once, at the
+		// edge that accepted the route, and every export policy downstream reads
+		// them. Stripping them on an internal session would silently unmake every
+		// "announce what my customers sent me" decision on the far router.
+		fmt.Fprintf(b, "\t# Our own large communities are kept: on an internal session they are the\n"+
+			"\t# origin tags this route was stamped with at the edge, not something a peer\n"+
+			"\t# is trying to forge.\n")
+	} else {
+		// A peer must never be able to pretend a route came from somewhere else by
+		// sending it to us pre-tagged with one of our own large communities.
+		fmt.Fprintf(b, "\tbgp_large_community.delete([(%d, *, *)]);\n", in.LocalASN)
+	}
 
 	// Draining: deprefer everything this peer sends, so we route around it while
 	// its own traffic bleeds off. Part of RFC 8326 graceful shutdown.
@@ -983,6 +1028,8 @@ func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 	for _, pol := range p.ImportPolicies {
 		fmt.Fprintf(b, "\t%s;\n", policyFunc(pol, fam))
 	}
+	// Only eBGP stamps an origin tag; an iBGP route already carries the one it was
+	// given at the edge, and roleTag has no entry for iBGP.
 	if tag, ok := roleTag[p.Role]; ok {
 		fmt.Fprintf(b, "\tbgp_large_community.add(%s);\n", tag.name)
 	}
@@ -990,7 +1037,7 @@ func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 }
 
 func writePeerExportFilter(b *strings.Builder, in Input, p store.Peer, fam family) {
-	fmt.Fprintf(b, "filter ebgp_out_%s\n{\n", p.Name)
+	fmt.Fprintf(b, "filter %s_out_%s\n{\n", filterPrefix(p), p.Name)
 
 	// Transforms run before the policy calls, because a policy function accepts
 	// the route and terminates the filter — so the route must already carry these

@@ -218,10 +218,6 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 // checkChains rejects a chain that names a policy of the wrong direction, or a
 // policy that no longer exists. iBGP sessions take no policies yet.
 func (s *Server) checkChains(p store.Peer, importIDs, exportIDs []int64, errs map[string]string) {
-	if p.IsIBGP() && (len(importIDs) > 0 || len(exportIDs) > 0) {
-		errs["policies"] = "iBGP sessions import and export everything and do not take policies yet."
-		return
-	}
 	// Resolve every referenced policy from one table scan, not one per id.
 	all, err := s.store.ListPolicies()
 	if err != nil {

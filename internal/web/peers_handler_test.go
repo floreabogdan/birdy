@@ -231,21 +231,38 @@ func TestPolicyChainRejectsWrongDirection(t *testing.T) {
 	}
 }
 
-func TestIBGPPeerTakesNoPolicies(t *testing.T) {
+// An internal session takes policy chains like any other now: "carry everything"
+// is right for a full mesh and wrong the moment the far router has its own
+// upstream you do not want to inherit.
+func TestIBGPPeerTakesPolicies(t *testing.T) {
 	env := newTestEnv(t, false)
 	sanity, _ := env.store.GetPolicyByName("IMPORT_SANITY")
 
 	form := peerForm()
+	form.Set("name", "core")
 	form.Set("role", "ibgp")
 	form.Set("neighborIp", "10.0.0.2")
+	form.Set("remoteAsn", "65551") // iBGP: the far end carries our own ASN
 	form["importPolicyIds"] = []string{strconv.FormatInt(sanity.ID, 10)}
 
-	rec := env.do(t, "POST", "/peers/new", form)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected the form back, got %d", rec.Code)
+	if rec := env.do(t, "POST", "/peers/new", form); rec.Code != http.StatusSeeOther {
+		t.Fatalf("the peer should save, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "do not take policies") {
-		t.Error("attaching a policy to an iBGP session should be explained")
+	p, err := env.store.GetPeerByName("core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	imports, _, err := env.store.PeerPolicies(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(imports) != 1 || imports[0].Name != "IMPORT_SANITY" {
+		t.Errorf("the import chain should be attached to the internal session, got %+v", imports)
+	}
+	// The AS-path guards that compare against the peer's ASN are meaningless inside
+	// our own AS — enforce-first-AS would reject every route carrying a path.
+	if p.EnforceFirstAS || p.OriginPeerOnly {
+		t.Error("peer-ASN guards must be normalised off for an internal session")
 	}
 }
 

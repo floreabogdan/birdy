@@ -90,6 +90,14 @@ func Lint(in Input) []Warning {
 				"Next-hop-self is off. Routes learned from an eBGP peer will be readvertised on this session carrying that peer's address as the next hop; the far end can only use them if your IGP carries the peering subnets.")
 		}
 
+		// NOTE: deliberately no lint for "iBGP session without policies". Carrying
+		// everything is the conventional full-mesh config and correct for most
+		// routers, so warning about it would fire on the normal case — and a warning
+		// you see every time is one you stop reading. The trap it would be pointing
+		// at (the far router inheriting a default it should not have, and killing a
+		// tunnel by routing the tunnel's own endpoint through it) is explained on the
+		// peer form, where the decision is actually made.
+
 		// A drained peer is a deliberate, temporary state — but an easy one to
 		// forget, so surface it every time the config is reviewed.
 		if p.Drained {

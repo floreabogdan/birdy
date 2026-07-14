@@ -392,7 +392,7 @@ func TestAcceptOnlySetRejectsTheOtherFamily(t *testing.T) {
 	}
 }
 
-func TestIBGPTakesNoFilters(t *testing.T) {
+func TestIBGPDefaultsToCarryEverything(t *testing.T) {
 	p := ebgpPeer()
 	p.Name, p.Role, p.NeighborIP, p.RemoteASN = "core", store.RoleIBGP, "10.0.0.2", 65551
 	in := baseInput()
@@ -406,12 +406,14 @@ func TestIBGPTakesNoFilters(t *testing.T) {
 	if strings.Contains(out, "filter ebgp_in_core") {
 		t.Error("no eBGP filter should be emitted for an iBGP peer")
 	}
-	// Attaching policies to iBGP is not supported yet; say so instead of
-	// rendering something that silently ignores them.
+	// Policies on an internal session are supported now: attaching one swaps
+	// "import all" for a filter rather than being refused. See ibgp_policy_test.go
+	// for what that filter may and may not do.
 	p.ImportPolicies = []store.Policy{sanityPolicy()}
 	in.Peers = []store.Peer{p}
-	if _, err := Config(in); err == nil {
-		t.Error("expected an error when policies are attached to an iBGP peer")
+	out = mustRender(t, in)
+	if !strings.Contains(out, "import filter ibgp_in_core;") {
+		t.Error("an iBGP peer with an import chain should use the generated filter")
 	}
 }
 

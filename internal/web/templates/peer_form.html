@@ -95,9 +95,17 @@
 						</div>
 					</div>
 
-					<div class="card" data-role-only="ebgp" {{if eq .Peer.Role "ibgp"}}hidden{{end}}>
+					<div class="card">
 						<div class="card-header"><span class="card-title">{{template "icon-filter"}}Policies</span></div>
 						<div class="card-body">
+							<div class="hint" data-role-only="ibgp" {{if ne .Peer.Role "ibgp"}}hidden{{end}} style="margin-bottom:10px">
+								<strong>Leave both chains empty</strong> and this internal session carries everything, in both directions &mdash;
+								the conventional full-mesh config. That includes any <span class="mono">0.0.0.0/0</span> the other router learned
+								from <em>its</em> upstream: if this session runs over a tunnel, that default can make the tunnel&rsquo;s own endpoint
+								route through the tunnel, and it dies. Attach policies to carry only what you mean to.
+								Your own large communities are <strong>never stripped</strong> on an internal session &mdash; they are the origin tags
+								the route was stamped with at the edge.
+							</div>
 							<label>Import chain — what we accept from this peer</label>
 							<div class="hint" style="margin-bottom:8px">Applied in order. Each policy can only reject, so a route must survive all of them.</div>
 							<div class="chain" data-name="importPolicyIds">

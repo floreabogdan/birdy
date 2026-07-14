@@ -178,6 +178,12 @@ func (p *Peer) Validate() map[string]string {
 		// GTSM is offered as eBGP protection; iBGP sessions are inside the trust
 		// boundary and often multihop to loopbacks where it does not fit.
 		p.GTSM = false
+		// Both of these test the AS path against the peer's ASN — which on an
+		// internal session is our own. "First AS must be 210622" would reject every
+		// route with a path, and "origin must be 210622" would reject everything we
+		// did not originate ourselves. Silently disastrous; normalise them off.
+		p.EnforceFirstAS = false
+		p.OriginPeerOnly = false
 	}
 	if p.GracefulRestart == "" {
 		p.GracefulRestart = GRAware

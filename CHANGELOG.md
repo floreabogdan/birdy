@@ -6,6 +6,27 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **iBGP sessions take import and export policies.** They used to be refused —
+  `iBGP sessions do not take policies yet` — and every internal session rendered
+  `import all; export all;`. That is right for a full mesh where every router shares
+  one exit, and wrong the moment a second router has an upstream of its own: it
+  inherits a default route it should never have had. Over a **tunnel** that is not
+  merely untidy but fatal — the far router installs the default, then tries to reach
+  the tunnel's own endpoint through the tunnel, the kernel drops the packets as a
+  dead loop, keepalives stop, and the session flaps on the hold timer forever.
+  Attaching a chain now renders `ibgp_in_<peer>` / `ibgp_out_<peer>` filters; leaving
+  it empty renders exactly what it did before, byte for byte.
+  - **An internal import filter never strips your own large communities.** The eBGP
+    one deletes them so a peer cannot forge an origin tag; on an internal session
+    those same communities *are* the origin tags, stamped at the edge, and every
+    downstream export policy reads them. Deleting them would have silently unmade
+    every "announce what my customers sent me" decision on the far router.
+  - **Enforce-first-AS and origin-peer-only are forced off on iBGP.** Both compare
+    the AS path against the peer's ASN, which internally is your own — the first
+    would reject every route carrying a path, the second everything you did not
+    originate yourself.
+
 ## [0.3.4] - 2026-07-13
 
 A release about reading what birdy is telling you. The RPKI dry run now answers the
