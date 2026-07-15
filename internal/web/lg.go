@@ -2,8 +2,6 @@ package web
 
 import (
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
@@ -124,14 +122,4 @@ func (s *Server) blankLG() LGView {
 
 func (s *Server) apiLookingGlass(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.runLookingGlass(r))
-}
-
-// lgPageLink builds a /lg URL preserving the current query and target but with a
-// different offset — used for the Prev/Next controls.
-func lgPageLink(v LGView, newOffset int) string {
-	q := url.Values{"type": {v.Type}, "target": {v.Target}, "offset": {strconv.Itoa(newOffset)}}
-	if v.All {
-		q.Set("all", "1")
-	}
-	return "/lg?" + q.Encode()
 }
