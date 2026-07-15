@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-07-15
+
 ### Fixed
 - **Apply now actually takes effect — no more `birdc configure` by hand.** Every
   apply defaulted to a BIRD *soft* reconfigure, and soft is defined to leave the
