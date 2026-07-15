@@ -36,6 +36,7 @@
 							<td class="mono">
 								<a href="/library/prefix-sets/{{.Name}}/edit">{{.Name}}</a>
 								{{if .Builtin}}<span class="badge">built-in</span>{{end}}
+								{{if .Disabled}}<span class="badge badge-warning" title="Switched off in birdy. Its define and originator are not rendered; a filter that still references it will fail bird -p on the next apply.">disabled</span>{{end}}
 								{{if .Description}}<div class="text-muted" style="font-size:0.75rem">{{.Description}}</div>{{end}}
 							</td>
 							<td><span class="chip chip-primary">{{if eq .Family "ipv4"}}IPv4{{else}}IPv6{{end}}</span></td>
@@ -47,6 +48,15 @@
 							</td>
 							<td class="row-actions">
 								<a class="icon-action a-primary" href="/library/prefix-sets/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
+								{{if not .System}}
+								<form method="post" action="/library/prefix-sets/{{.Name}}/toggle">
+									{{if .Disabled}}
+									<button type="submit" class="icon-action a-success" title="Enable {{.Name}}" aria-label="Enable {{.Name}}">{{template "icon-power"}}</button>
+									{{else}}
+									<button type="submit" class="icon-action a-danger" title="Disable {{.Name}} — stops rendering its define and originator" aria-label="Disable {{.Name}}">{{template "icon-power"}}</button>
+									{{end}}
+								</form>
+								{{end}}
 								<form method="post" action="/library/prefix-sets/{{.Name}}/delete" onsubmit="return confirm('Delete prefix set {{.Name}}?')">
 									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
 								</form>

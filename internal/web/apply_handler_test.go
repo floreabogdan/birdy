@@ -165,8 +165,11 @@ func TestApplyRollbackRevertsAndUndoes(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("rollback: code=%d", rec.Code)
 	}
-	if env.fc.calls[len(env.fc.calls)-1] != "undo" {
-		t.Fatalf("rollback should call configure undo, calls=%v", env.fc.calls)
+	// The initial apply here is hard (no soft field), so it does not reload; the
+	// rollback undoes the armed config and then reloads to pull the table back to
+	// the restored filters.
+	if got := strings.Join(env.fc.calls, ","); !strings.HasSuffix(got, "undo,reload") {
+		t.Fatalf("rollback should undo then reload filters, calls=%v", env.fc.calls)
 	}
 	// Disk stays at the previous (absent) state; birdy never took ownership.
 	if _, err := os.Stat(env.confPath); !os.IsNotExist(err) {
@@ -371,8 +374,10 @@ func TestReapplyOldVersion(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("reapply: code=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if got := strings.Join(env.fc.calls, ","); got != "check,timeout" {
-		t.Fatalf("reapply should run the pipeline, calls=%q", got)
+	// Emergency re-apply is soft, so the pipeline reloads filters onto the table
+	// after arming — otherwise the reverted policy would not take effect.
+	if got := strings.Join(env.fc.calls, ","); got != "check,timeout,reload" {
+		t.Fatalf("reapply should run the pipeline and reload, calls=%q", got)
 	}
 	pending, ok, _ := env.store.PendingConfigVersion()
 	if !ok || strings.Contains(pending.ConfigText, "extra_peer") {
@@ -401,6 +406,11 @@ func TestApplySoftByDefault(t *testing.T) {
 	if !env.fc.lastSoft {
 		t.Error("apply with soft=on should request a soft reconfigure")
 	}
+	// A soft reconfigure does not re-run filters on routes already in the table,
+	// so the apply must reload to make a policy change take effect.
+	if got := strings.Join(env.fc.calls, ","); !strings.HasSuffix(got, "timeout,reload") {
+		t.Errorf("a soft apply must reload filters after arming, calls=%v", env.fc.calls)
+	}
 }
 
 func TestApplyHardWhenUnchecked(t *testing.T) {
@@ -408,6 +418,34 @@ func TestApplyHardWhenUnchecked(t *testing.T) {
 	env.do(t, "POST", "/apply", nil) // no soft field -> hard
 	if env.fc.lastSoft {
 		t.Error("apply without soft should be a hard reconfigure")
+	}
+	// A hard reconfigure restarts the affected protocols, which re-runs their
+	// filters — so there is nothing to reload.
+	for _, c := range env.fc.calls {
+		if c == "reload" {
+			t.Errorf("a hard apply should not reload, calls=%v", env.fc.calls)
+		}
+	}
+}
+
+// When BIRD cannot refresh a peer (no route-refresh capability), the soft apply
+// still succeeds — the config is applied — but the operator is told the import
+// change to that peer may need a restart to fully take effect.
+func TestApplySoftReloadIssueSurfaced(t *testing.T) {
+	env := applyReady(t)
+	env.fc.cfgReloadFail = true
+	rec := env.do(t, "POST", "/apply", url.Values{"soft": {"on"}})
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("apply: code=%d", rec.Code)
+	}
+	// The apply is not rolled back over a reload hiccup.
+	if _, ok, _ := env.store.PendingConfigVersion(); !ok {
+		t.Fatal("a reload issue must not roll back the apply; it should still be pending")
+	}
+	// The heads-up rides the flash, URL-escaped into the redirect. "restart" carries
+	// no characters that escaping would alter, so match on it directly.
+	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "restart") {
+		t.Errorf("operator should be warned a peer could not be refreshed, redirect=%q", loc)
 	}
 }
 

@@ -95,6 +95,23 @@ func (c *Client) ConfigureUndo() (ConfigureResult, error) {
 	return c.configure("configure undo")
 }
 
+// Reload re-runs every protocol's import and export against the routes already
+// in the table: it re-imports (asking BGP peers for a route refresh) and
+// re-exports preferred routes. A reconfigure alone does not do this — a soft one
+// especially, which by design keeps propagating whatever the old filters already
+// accepted and only applies the new filters to routes that arrive afterward. So
+// a soft reconfigure is paired with a reload to make a policy or prefix change
+// actually take effect on the current table, without restarting — and so without
+// bouncing — any session.
+//
+// It is best-effort: re-import needs the peer's route-refresh capability, and a
+// peer that lacks it cannot be refreshed without a restart. BIRD reports that per
+// protocol and still reloads the rest, so the caller treats a non-OK result as a
+// warning, not a failure — the config it applies is unaffected either way.
+func (c *Client) Reload() (ConfigureResult, error) {
+	return c.configure("reload all")
+}
+
 // configure runs one configure command on a fresh, disposable connection with a
 // generous deadline — never the shared read connection, which uses a short
 // timeout tuned for "show" queries.

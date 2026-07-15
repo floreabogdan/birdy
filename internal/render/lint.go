@@ -173,6 +173,28 @@ func Lint(in Input) []Warning {
 		}
 	}
 
+	// A policy that names a disabled prefix set renders as though the reference
+	// were not there — fail-safe, but silent. Say so, so "why did this stop
+	// announcing / accepting?" is never a mystery. The import allow-list is a
+	// danger because the policy then permits nothing; a dropped announce is only
+	// a warning, since announcing less is usually the point of disabling a set.
+	for _, pol := range in.Policies {
+		if pol.AcceptOnlySetID.Valid {
+			if ps, ok := prefixSets[pol.AcceptOnlySetID.Int64]; ok && ps.Disabled {
+				add(SeverityDanger, "",
+					"%s accepts only prefixes in %s, which is disabled — the policy now permits nothing and rejects every route. Re-enable %s or point the policy at another set.",
+					pol.Name, ps.Name, ps.Name)
+			}
+		}
+		for _, id := range pol.SetIDs {
+			if ps, ok := prefixSets[id]; ok && ps.Disabled {
+				add(SeverityWarn, "",
+					"%s announces %s, which is disabled — it will not be announced until you re-enable the set.",
+					pol.Name, ps.Name)
+			}
+		}
+	}
+
 	for _, p := range in.Peers {
 		if p.IsIBGP() {
 			continue
@@ -258,7 +280,7 @@ func Lint(in Input) []Warning {
 		for _, pol := range p.ExportPolicies {
 			var withEntries int
 			for _, id := range pol.SetIDs {
-				if ps, ok := prefixSets[id]; ok && len(ps.Entries) > 0 {
+				if ps, ok := prefixSets[id]; ok && !ps.Disabled && len(ps.Entries) > 0 {
 					withEntries++
 				}
 			}

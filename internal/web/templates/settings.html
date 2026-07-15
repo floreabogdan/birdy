@@ -64,6 +64,20 @@
 									{{with index .IdentityErrs "rrClusterId"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
 							</div>
+							<div class="field-row">
+								<div class="field">
+									<label for="kernelPrefsrcV4">Kernel source (IPv4)</label>
+									<input type="text" id="kernelPrefsrcV4" name="kernelPrefsrcV4" class="mono" value="{{.Settings.KernelPrefSrcV4}}" placeholder="optional" autocomplete="off">
+									<div class="hint">Pins <code class="mono">krt_prefsrc</code> on the routes birdy installs into the kernel, so the router's own traffic to those destinations leaves with this source — typically a loopback. Blank leaves the export as <code class="mono">export all</code> and lets the kernel choose.</div>
+									{{with index .IdentityErrs "kernelPrefsrcV4"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field">
+									<label for="kernelPrefsrcV6">Kernel source (IPv6)</label>
+									<input type="text" id="kernelPrefsrcV6" name="kernelPrefsrcV6" class="mono" value="{{.Settings.KernelPrefSrcV6}}" placeholder="optional" autocomplete="off">
+									<div class="hint">The IPv6 counterpart, applied to the <code class="mono">kernel6</code> protocol. Blank leaves it to the kernel.</div>
+									{{with index .IdentityErrs "kernelPrefsrcV6"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+							</div>
 							<button type="submit" class="btn btn-primary">Save identity</button>
 						</form>
 					</div>

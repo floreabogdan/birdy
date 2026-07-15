@@ -87,6 +87,12 @@ type Input struct {
 
 	// RRClusterID is emitted beside "rr client". Empty lets BIRD use the router ID.
 	RRClusterID string
+
+	// KernelPrefSrcV4 and KernelPrefSrcV6 pin krt_prefsrc on the kernel4 / kernel6
+	// export. Empty leaves that channel as `export all`, byte for byte what birdy
+	// rendered before this option existed.
+	KernelPrefSrcV4 string
+	KernelPrefSrcV6 string
 	// RawConfig is appended verbatim at the end of the file. birdy neither
 	// parses it nor knows what it does.
 	RawConfig string
@@ -219,7 +225,7 @@ func Sections(in Input) ([]Section, error) {
 	add("sets/as", "AS sets", func(b *strings.Builder) error { writeASSets(b, asSets); return nil })
 	add("bogons/asns", "Bogon AS numbers", func(b *strings.Builder) error { writeBogonASNs(b, bogons); return nil })
 	add("rpki/tables", "RPKI ROA tables", func(b *strings.Builder) error { writeRPKITables(b, rtr); return nil })
-	add("protocols/base", "Device, direct & kernel", func(b *strings.Builder) error { writeBaseProtocols(b); return nil })
+	add("protocols/base", "Device, direct & kernel", func(b *strings.Builder) error { writeBaseProtocols(b, in); return nil })
 	add("protocols/bfd", "BFD", func(b *strings.Builder) error { writeBFDProtocol(b, peers); return nil })
 	add("protocols/bmp", "BMP monitoring stations", func(b *strings.Builder) error { writeBMP(b, bmpStations); return nil })
 	add("rpki/servers", "RPKI RTR servers", func(b *strings.Builder) error { writeRPKIProtocols(b, rtr); return nil })
@@ -320,6 +326,13 @@ define RPKI_INVALID  = (%d, 2, 1);
 
 func writeSets(b *strings.Builder, sets []store.PrefixSet) {
 	for _, ps := range sets {
+		if ps.Disabled {
+			// Switched off in the library: the define is withheld on purpose. A
+			// filter that still names it will fail the pre-apply `bird -p`, which
+			// is the intended cue to remove the reference.
+			fmt.Fprintf(b, "# prefix set %s is disabled and was not rendered\n\n", ps.Name)
+			continue
+		}
 		if len(ps.Entries) == 0 {
 			// BIRD has no syntax for an empty prefix set, and a set that
 			// matches nothing is never what the operator meant.
@@ -484,7 +497,7 @@ func writeBMP(b *strings.Builder, stations []store.BMPStation) {
 	}
 }
 
-func writeBaseProtocols(b *strings.Builder) {
+func writeBaseProtocols(b *strings.Builder, in Input) {
 	b.WriteString(`protocol device {
 	scan time 10;
 }
@@ -502,18 +515,33 @@ protocol direct direct1 {
 protocol kernel kernel4 {
 	ipv4 {
 		import none;
-		export all;
-	};
+`)
+	writeKernelExport(b, in.KernelPrefSrcV4)
+	b.WriteString(`	};
 }
 
 protocol kernel kernel6 {
 	ipv6 {
 		import none;
-		export all;
-	};
+`)
+	writeKernelExport(b, in.KernelPrefSrcV6)
+	b.WriteString(`	};
 }
 
 `)
+}
+
+// writeKernelExport writes the export clause for one kernel channel. With no
+// preferred source it is the plain `export all` birdy has always written; with
+// one it becomes an export filter that stamps krt_prefsrc on every route, so the
+// kernel uses that address as the source for locally-originated traffic to the
+// destinations BIRD installs.
+func writeKernelExport(b *strings.Builder, prefSrc string) {
+	if prefSrc == "" {
+		b.WriteString("\t\texport all;\n")
+		return
+	}
+	fmt.Fprintf(b, "\t\texport filter {\n\t\t\tkrt_prefsrc = %s;\n\t\t\taccept;\n\t\t};\n", prefSrc)
 }
 
 // writeBFDProtocol emits a single BFD protocol when any enabled peer uses it.
@@ -551,7 +579,7 @@ func writeRawConfig(b *strings.Builder, in Input) {
 // nothing unless some protocol actually puts that route in the table.
 func writeOriginators(b *strings.Builder, sets []store.PrefixSet) error {
 	for _, ps := range sets {
-		if !ps.Originate || len(ps.Entries) == 0 {
+		if ps.Disabled || !ps.Originate || len(ps.Entries) == 0 {
 			continue
 		}
 		channel := "ipv4"
@@ -650,10 +678,17 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 		if !ok {
 			return fmt.Errorf("accept-only prefix set %d not found", pol.AcceptOnlySetID.Int64)
 		}
-		if len(ps.Entries) == 0 {
+		switch {
+		case ps.Disabled:
+			// The allow-list this policy is built on is switched off. Fail closed —
+			// permit nothing — rather than dropping the check, which would turn
+			// "accept only these prefixes" into "accept anything" and leak the table.
+			fmt.Fprintf(b, "\t# %s is disabled, so this policy permits nothing here.\n", ps.Name)
+			fmt.Fprintf(b, "\treject \"%s is disabled; no prefixes are permitted\";\n", ps.Name)
+			return nil
+		case len(ps.Entries) == 0:
 			return fmt.Errorf("accept-only prefix set %q is empty", ps.Name)
-		}
-		if familyOf(ps) != fam.suffix {
+		case familyOf(ps) != fam.suffix:
 			fmt.Fprintf(b, "\t# %s is %s, so this policy permits nothing here.\n", ps.Name, ps.Family)
 			fmt.Fprintf(b, "\treject \"no %s prefixes are permitted by this policy\";\n", fam.channel)
 			return nil
@@ -776,6 +811,13 @@ func writeExportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 		}
 		if familyOf(ps) != fam.suffix {
 			continue // a v6 set says nothing about the v4 filter
+		}
+		// A disabled set is dropped from what this policy announces — the same as
+		// if it were unlisted. Announcing less is fail-safe, so no error: the set's
+		// own define is withheld too, so emitting the reference would break the parse.
+		if ps.Disabled {
+			fmt.Fprintf(b, "\t# %s is disabled, so it is not announced\n", ps.Name)
+			continue
 		}
 		// An empty set is not an error here: birdy ships ANNOUNCE_V4/V6 empty so
 		// a fresh install has somewhere to put its aggregates. It simply permits

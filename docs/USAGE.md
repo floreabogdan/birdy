@@ -354,8 +354,20 @@ Editing the model changes nothing on the router. When you visit **Changes**, bir
 If birdy is **not** read-only, you can then **Apply**: it snapshots the current
 config, writes the new one, runs `configure check`, then `configure timeout`. BIRD
 holds the new config with an **armed auto-revert** — confirm within the window
-(`--apply-timeout`) to keep it, or do nothing and BIRD rolls back on its own. A
-**soft** reload re-runs filters without bouncing sessions.
+(`--apply-timeout`) to keep it, or do nothing and BIRD rolls back on its own.
+
+A **soft** reload (the default) keeps BGP sessions up. This matters more than it
+sounds: BIRD's soft reconfigure leaves the routes already in the table under the
+*old* filters — it only applies the new ones to routes that arrive afterward — so
+on its own a soft apply would silently do nothing to a policy or prefix change.
+birdy therefore follows the soft reconfigure with a `reload`, which re-imports
+(via route-refresh) and re-exports preferred routes so the change reaches the
+existing table without a session bounce. The reload runs while the config is still
+armed, so its effect is visible in the safety window and a bad filter still
+auto-reverts. A peer that does not support route-refresh cannot be refreshed
+without a restart; birdy notes that after applying rather than failing the apply.
+Uncheck **soft** to restart the affected protocols instead — a harder apply that
+bounces sessions but needs no route-refresh support.
 
 **Split layout.** birdy does not write one giant `bird.conf`. It writes a small
 `bird.conf` that `include`s one file per section from a `birdy.d/` directory
@@ -504,6 +516,15 @@ not a blank page.
   changes — it **never applies on its own**, so the change waits on the Changes page
   for you to review and apply. The form shows the last sync time and any error; an
   empty expansion is treated as a mirror failure and the previous list is kept.
+  A set can be **disabled** from the list (the power toggle, as on a peer) to switch
+  it off without deleting it: while disabled, birdy renders neither its `define` nor
+  its originator, so you stop announcing an aggregate and can flip it back on later
+  with its prefixes intact. A policy that references a disabled set **drops the
+  reference** rather than failing to parse — an **export** policy just stops
+  announcing that set, and an **import allow-list** (*accept only from set*) **fails
+  closed**, permitting nothing rather than accepting everything. Lint flags both so
+  the effect is never silent. The bogon lists cannot be disabled; they are wired into
+  every generated filter.
 - **AS sets** — named lists of AS numbers (and ranges). This is where an expanded
   IRR `AS-SET` lands, since BIRD has no `AS-SET` concept. Point an import policy at
   one to accept a customer's downstreams by origin AS: the prefix set says *which
@@ -608,6 +629,14 @@ button.
   config; BIRD will not start without a router ID. Optionally a route-reflector
   cluster ID. Note the big name on the dashboard is *not* the label — that is the
   system hostname, which BIRD reports and birdy only displays.
+  - **Kernel source (IPv4/IPv6)** — a preferred source address pinned on the routes
+    birdy installs into the kernel FIB (`krt_prefsrc`). It is the source the kernel
+    stamps on the router's *own* traffic to those destinations — set it to a stable,
+    announced address (typically a loopback) so control-plane traffic does not leave
+    with whatever egress interface address the kernel would otherwise pick. Set per
+    family, because `kernel4` and `kernel6` are separate protocols. Leave a field
+    blank and that channel stays `export all`, exactly as before — the address must
+    be one actually configured on the box, or the kernel refuses to install the route.
 - **Bogons** — the bogon prefix lists (v4/v6) and bogon ASN list. Generated filters
   name these directly, which is why they live here rather than in the Library and
   cannot be deleted or announced. "Restore defaults" resets them to what birdy

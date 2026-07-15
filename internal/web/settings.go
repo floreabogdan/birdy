@@ -89,6 +89,9 @@ func (s *Server) renderSettings(w http.ResponseWriter, v SettingsView) {
 			stored.RouterLabel = v.Settings.RouterLabel
 			stored.RouterID = v.Settings.RouterID
 			stored.LocalASN = v.Settings.LocalASN
+			stored.RRClusterID = v.Settings.RRClusterID
+			stored.KernelPrefSrcV4 = v.Settings.KernelPrefSrcV4
+			stored.KernelPrefSrcV6 = v.Settings.KernelPrefSrcV6
 			v.Settings = stored
 		}
 	}
@@ -259,9 +262,19 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 	if err != nil || asn < 1 || asn > 4294967295 {
 		errs["localAsn"] = "Enter an AS number between 1 and 4294967295."
 	}
-	probe := store.Settings{RRClusterID: r.FormValue("rrClusterId")}
+	probe := store.Settings{
+		RRClusterID:     r.FormValue("rrClusterId"),
+		KernelPrefSrcV4: r.FormValue("kernelPrefsrcV4"),
+		KernelPrefSrcV6: r.FormValue("kernelPrefsrcV6"),
+	}
 	if msg := probe.ValidateRRClusterID(); msg != "" {
 		errs["rrClusterId"] = msg
+	}
+	if msg := probe.ValidateKernelPrefSrcV4(); msg != "" {
+		errs["kernelPrefsrcV4"] = msg
+	}
+	if msg := probe.ValidateKernelPrefSrcV6(); msg != "" {
+		errs["kernelPrefsrcV6"] = msg
 	}
 
 	if len(errs) > 0 {
@@ -270,6 +283,8 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 		v.Settings.RouterID = routerID
 		v.Settings.LocalASN = sql.NullInt64{Int64: asn, Valid: errs["localAsn"] == ""}
 		v.Settings.RRClusterID = probe.RRClusterID
+		v.Settings.KernelPrefSrcV4 = probe.KernelPrefSrcV4
+		v.Settings.KernelPrefSrcV6 = probe.KernelPrefSrcV6
 		s.renderSettings(w, v)
 		return
 	}
@@ -278,6 +293,8 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 	settings.RouterID = routerID
 	settings.LocalASN = sql.NullInt64{Int64: asn, Valid: true}
 	settings.RRClusterID = probe.RRClusterID
+	settings.KernelPrefSrcV4 = probe.KernelPrefSrcV4
+	settings.KernelPrefSrcV6 = probe.KernelPrefSrcV6
 	if err := s.store.SaveSettings(settings); err != nil {
 		s.serverError(w, "save settings", err)
 		return

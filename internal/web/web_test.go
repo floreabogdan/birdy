@@ -35,6 +35,7 @@ type fakeClient struct {
 	cfgCheckFail   bool
 	cfgApplyFail   bool
 	cfgConfirmFail bool
+	cfgReloadFail  bool // reload reports a non-OK result (e.g. a peer without route-refresh)
 	cfgErr         error
 	calls          []string
 	lastSoft       bool // whether the last ConfigureTimeout asked for a soft reconfigure
@@ -66,6 +67,17 @@ func (f *fakeClient) ConfigureConfirm() (birdc.ConfigureResult, error) {
 func (f *fakeClient) ConfigureUndo() (birdc.ConfigureResult, error) {
 	f.calls = append(f.calls, "undo")
 	return f.result(true, "undone")
+}
+func (f *fakeClient) Reload() (birdc.ConfigureResult, error) {
+	f.calls = append(f.calls, "reload")
+	if f.cfgErr != nil {
+		return birdc.ConfigureResult{}, f.cfgErr
+	}
+	msg := "reloaded"
+	if f.cfgReloadFail {
+		msg = "edge1: BGP neighbor does not support route refresh"
+	}
+	return f.result(!f.cfgReloadFail, msg)
 }
 
 func (f *fakeClient) Status() (birdc.Status, error)               { return birdc.Status{Version: "2.17.1"}, nil }

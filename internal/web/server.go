@@ -43,6 +43,9 @@ type birdClient interface {
 	ConfigureTimeout(seconds int, soft bool) (birdc.ConfigureResult, error)
 	ConfigureConfirm() (birdc.ConfigureResult, error)
 	ConfigureUndo() (birdc.ConfigureResult, error)
+	// Reload re-runs filters on existing routes without restarting protocols;
+	// birdy pairs it with a soft reconfigure so a filter change actually applies.
+	Reload() (birdc.ConfigureResult, error)
 }
 
 // Server is birdy's HTTP handler: it holds the store, the BIRD client, the
@@ -295,6 +298,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /library/prefix-sets/{name}/edit", s.requireAuth(s.handlePrefixSetEdit))
 	s.mux.Handle("POST /library/prefix-sets/{name}/edit", s.requireAuth(s.handlePrefixSetSave))
 	s.mux.Handle("POST /library/prefix-sets/{name}/delete", s.requireAuth(s.handlePrefixSetDelete))
+	s.mux.Handle("POST /library/prefix-sets/{name}/toggle", s.requireAuth(s.handlePrefixSetToggle))
 	s.mux.Handle("GET /library/as-sets", s.requireAuth(s.handleASSetsList))
 	s.mux.Handle("GET /library/as-sets/new", s.requireAuth(s.handleASSetNew))
 	s.mux.Handle("POST /library/as-sets/new", s.requireAuth(s.handleASSetSave))

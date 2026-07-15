@@ -377,7 +377,30 @@ func (s *Server) reconcilePending() error {
 		return err
 	}
 	s.emitEvent(store.EventConfigRevert, "", "Config apply auto-reverted (not confirmed in time)")
+	// The apply reloaded filters onto the table while it was armed; BIRD has since
+	// reverted the config on its own, so re-run the restored filters to pull the
+	// table back off the un-confirmed policy.
+	s.reloadFilters("auto-revert")
 	return nil
+}
+
+// reloadFilters re-runs import/export filters on the routes already in the table,
+// so a soft reconfigure's filter changes actually take hold without restarting —
+// and so without bouncing — any session. It is best-effort: a peer that does not
+// support route-refresh cannot be re-imported without a restart, which BIRD
+// reports per protocol while reloading the rest, so a non-OK result is a warning,
+// not a failure — the config birdy applied stands either way. Returns BIRD's note
+// when something was off, for the operator-facing flash.
+func (s *Server) reloadFilters(reason string) (ok bool, note string) {
+	res, err := s.client.Reload()
+	if err != nil {
+		s.log.Warn("reload failed", "when", reason, "error", err)
+		return false, ""
+	}
+	if !res.OK {
+		s.log.Warn("reload reported an issue", "when", reason, "message", res.Message)
+	}
+	return res.OK, res.Message
 }
 
 // canStartApply gathers the gates every apply shares: not read-only, no stale
@@ -504,6 +527,21 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 		return
 	}
 
+	// A soft reconfigure leaves the routes already in the table under the old
+	// filters (see ConfigureTimeout) — it only applies the new ones to routes that
+	// arrive later. So a policy or prefix change would not visibly take effect. Re-
+	// run the filters against the current table now, while the config is armed, so
+	// the operator sees the real result within the safety window and can roll it
+	// back if it is wrong. A hard reconfigure restarted the affected protocols
+	// already, so it needs no reload.
+	var reloadNote string
+	if soft {
+		if ok, msg := s.reloadFilters("apply"); !ok && msg != "" {
+			reloadNote = " Heads up — a peer could not be refreshed, so an import-policy" +
+				" change to it may need a session restart to fully apply: " + msg
+		}
+	}
+
 	// The trick that keeps disk and daemon consistent: BIRD now holds the new
 	// config in memory (armed). Put the previous config back on disk, so if the
 	// timeout fires — or anything restarts BIRD — disk still matches the config
@@ -537,7 +575,7 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 	s.emitAuditedEvent(r, store.EventConfigApply,
 		fmt.Sprintf("Config applied with a %ds safety timeout (version %d)", s.applyTimeout, id))
 
-	s.redirectChanges(w, r, fmt.Sprintf("Applied. Confirm within %ds to keep it, or it reverts on its own.", s.applyTimeout))
+	s.redirectChanges(w, r, fmt.Sprintf("Applied. Confirm within %ds to keep it, or it reverts on its own.%s", s.applyTimeout, reloadNote))
 }
 
 func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
@@ -628,6 +666,9 @@ func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
 	} else if !res.OK {
 		msg = "Rolled back (" + res.Message + ")."
 	}
+	// The apply reloaded the new filters onto the table; now that the config is
+	// back to the previous one, re-run its filters so the table follows.
+	s.reloadFilters("rollback")
 	if err := s.store.ResolveConfigVersion(pending.ID, store.ConfigReverted, msg); err != nil {
 		s.serverError(w, "resolve version", err)
 		return

@@ -161,6 +161,32 @@ func (s *Server) handlePrefixSetDelete(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/library/prefix-sets?flash="+flash("Deleted "+ps.Name), http.StatusSeeOther)
 }
 
+// handlePrefixSetToggle switches a prefix set off (or back on) from the list, the
+// way a peer can be. It changes the model, not the router: a disabled set stops
+// rendering its define and originator on the next apply. A filter that still
+// names a disabled set will then fail `bird -p` at apply time, so the operator is
+// told to clear the reference first — nothing reaches the router until it parses.
+func (s *Server) handlePrefixSetToggle(w http.ResponseWriter, r *http.Request) {
+	ps, ok := namedEntity(s, w, r, s.store.GetPrefixSetByName, "prefix set")
+	if !ok {
+		return
+	}
+	if ps.System {
+		http.Redirect(w, r, "/library/prefix-sets?flash="+flash(ps.Name+" is a system set and cannot be disabled."), http.StatusSeeOther)
+		return
+	}
+	if err := s.store.SetPrefixSetDisabled(ps.ID, !ps.Disabled); err != nil {
+		s.serverError(w, "toggle prefix set", err)
+		return
+	}
+	verb := "Disabled"
+	if ps.Disabled {
+		verb = "Enabled"
+	}
+	s.audit(r, strings.ToLower(verb)+" prefix set "+ps.Name)
+	http.Redirect(w, r, "/library/prefix-sets?flash="+flash(verb+" "+ps.Name+" — review it under Changes and apply to take effect on the router."), http.StatusSeeOther)
+}
+
 func (s *Server) renderPrefixSetForm(w http.ResponseWriter, v prefixSetFormView) {
 	v.Bgpq4 = s.bgpq4Bin != ""
 	v.Preview, v.PreviewErr = previewPrefixSet(v.Set)

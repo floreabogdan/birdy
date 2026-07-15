@@ -52,6 +52,12 @@ type PrefixSet struct {
 	// They live under Settings, never appear in a prefix-set picker, and
 	// cannot be renamed, re-familied or deleted.
 	System bool
+	// Disabled switches the set off without deleting it: neither its define nor
+	// its originator renders. A filter that still references it then fails the
+	// pre-apply `bird -p`, which is deliberate — remove the reference by hand. It
+	// is a `disabled` flag, not `enabled`, so the zero value renders: a set built
+	// in memory (a preview probe, a test) stays on unless explicitly switched off.
+	Disabled bool
 	// Source is the IRR AS-SET this set's prefixes are expanded from (bgpq4),
 	// empty when maintained by hand.
 	Source string
@@ -159,7 +165,7 @@ func validModifier(mod string, p netip.Prefix) string {
 
 func (s *Store) ListPrefixSets() ([]PrefixSet, error) {
 	rows, err := s.db.Query(`
-		SELECT id, name, description, family, originate, originate_action, builtin, system, source, auto_refresh, last_refreshed, refresh_error
+		SELECT id, name, description, family, originate, originate_action, builtin, system, source, auto_refresh, last_refreshed, refresh_error, disabled
 		FROM prefix_sets ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("store: list prefix sets: %w", err)
@@ -168,7 +174,7 @@ func (s *Store) ListPrefixSets() ([]PrefixSet, error) {
 	var out []PrefixSet
 	for rows.Next() {
 		var ps PrefixSet
-		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System, &ps.Source, &ps.AutoRefresh, &ps.LastRefreshed, &ps.RefreshError); err != nil {
+		if err := rows.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System, &ps.Source, &ps.AutoRefresh, &ps.LastRefreshed, &ps.RefreshError, &ps.Disabled); err != nil {
 			return nil, err
 		}
 		out = append(out, ps)
@@ -206,9 +212,9 @@ func (s *Store) ListSelectablePrefixSets() ([]PrefixSet, error) {
 func (s *Store) GetPrefixSet(id int64) (PrefixSet, error) {
 	var ps PrefixSet
 	row := s.db.QueryRow(`
-		SELECT id, name, description, family, originate, originate_action, builtin, system, source, auto_refresh, last_refreshed, refresh_error
+		SELECT id, name, description, family, originate, originate_action, builtin, system, source, auto_refresh, last_refreshed, refresh_error, disabled
 		FROM prefix_sets WHERE id = ?`, id)
-	if err := row.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System, &ps.Source, &ps.AutoRefresh, &ps.LastRefreshed, &ps.RefreshError); err != nil {
+	if err := row.Scan(&ps.ID, &ps.Name, &ps.Description, &ps.Family, &ps.Originate, &ps.OriginateAction, &ps.Builtin, &ps.System, &ps.Source, &ps.AutoRefresh, &ps.LastRefreshed, &ps.RefreshError, &ps.Disabled); err != nil {
 		if err == sql.ErrNoRows {
 			return PrefixSet{}, ErrNotFound
 		}
@@ -297,6 +303,20 @@ func (s *Store) UpdatePrefixSet(ps PrefixSet) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// SetPrefixSetDisabled flips one set's disabled flag and nothing else, so the
+// toggle on the list cannot clobber entries someone is editing on the form at the
+// same moment. Like every model write it does not touch the router: the set stops
+// (or resumes) rendering on the next apply. System sets are refused — the bogon
+// lists are wired into generated filters and switching one off would break the
+// "reject bogons" checks that name it.
+func (s *Store) SetPrefixSetDisabled(id int64, disabled bool) error {
+	res, err := s.db.Exec(`UPDATE prefix_sets SET disabled = ?, updated_at = ? WHERE id = ? AND system = 0`, disabled, now(), id)
+	if err != nil {
+		return fmt.Errorf("store: set prefix set disabled: %w", err)
+	}
+	return affectedOne(res)
 }
 
 func replaceEntries(tx *sql.Tx, setID int64, entries []PrefixEntry) error {

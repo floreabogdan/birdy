@@ -6,6 +6,51 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Apply now actually takes effect — no more `birdc configure` by hand.** Every
+  apply defaulted to a BIRD *soft* reconfigure, and soft is defined to leave the
+  routes already in the table under the old filters: it applies the new filters
+  only to routes that arrive afterward. So a policy or prefix-set change — anything
+  that changes which routes you announce or accept — appeared to apply and confirm
+  but changed nothing, until you SSH'd in and ran a plain `birdc configure` (a hard
+  reconfigure, which restarts the affected protocols and re-runs everything). birdy
+  now pairs the soft reconfigure with a `reload`, which re-imports (via route-
+  refresh) and re-exports preferred routes, so the change reaches the existing
+  table **without bouncing any BGP session**. The reload runs while the config is
+  still armed, so its real effect is visible inside the safety window and a bad
+  filter still auto-reverts; a rollback or an auto-revert reloads too, so the table
+  never lingers on an un-confirmed policy. A peer that lacks the route-refresh
+  capability cannot be refreshed without a restart — that is reported after the
+  apply rather than failing it, and the config is applied either way. A hard apply
+  (Soft reload unchecked) restarts the affected protocols as before and needs no
+  reload.
+
+### Added
+- **Disable a prefix set without deleting it.** A prefix set now has a power toggle
+  on the library list, the way a peer does. A disabled set renders nothing — neither
+  its `define` nor, if it originates, its static protocol — so you can stop
+  announcing an aggregate and switch it straight back on later, without losing the
+  prefixes. The reference cascades: a policy that names a disabled set drops the
+  reference instead of emitting a symbol whose define was withheld (which would fail
+  `bird -p`). What "drop" means is chosen for safety per direction — an **export**
+  policy simply stops announcing that set, while an **import allow-list**
+  (*accept only from set*) **fails closed**: it permits nothing rather than silently
+  dropping the membership check and accepting the whole table. Lint surfaces both, so
+  the change is never silent: a danger for the allow-list that now permits nothing, a
+  warning for the announce that was dropped. System sets (the bogon lists) cannot be
+  disabled; they are wired into generated filters. The flag is stored so its default
+  is "on", so every set that predates the change stays exactly as it rendered before.
+- **A preferred source address for kernel routes.** birdy exported its best routes
+  into the kernel FIB with a bare `export all`, leaving the kernel to pick the source
+  address for the router's own traffic to those destinations — usually the egress
+  interface's address, which changes with the path and is rarely the one you announce.
+  Settings → General now takes a **Kernel source** address per family: set it and the
+  channel renders an `export filter` that stamps `krt_prefsrc` on every route, so
+  locally-originated traffic leaves with a stable, chosen source (typically a
+  loopback). It is set per family because `kernel4` and `kernel6` are separate
+  protocols. Leave a field blank and that channel renders `export all` byte for byte
+  as before, so an existing router is untouched across the upgrade.
+
 ## [0.3.5] - 2026-07-14
 
 A single change, for the router that is not alone. An internal session could only

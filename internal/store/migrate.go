@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 25
+const schemaVersion = 27
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -328,6 +328,29 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 		if err := ensureColumn(tx, "as_sets", "refresh_error", `ALTER TABLE as_sets ADD COLUMN refresh_error TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 26 {
+		// Pin the preferred source address (krt_prefsrc) on routes birdy exports
+		// to the kernel FIB — the address the kernel stamps as the source of
+		// locally-originated traffic to those destinations, typically a loopback.
+		// One per family; empty (the default) leaves the export as `export all`.
+		if err := ensureColumn(tx, "settings", "kernel_prefsrc_v4", `ALTER TABLE settings ADD COLUMN kernel_prefsrc_v4 TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "settings", "kernel_prefsrc_v6", `ALTER TABLE settings ADD COLUMN kernel_prefsrc_v6 TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 27 {
+		// A prefix set can be switched off without deleting it — its define and any
+		// originator stop rendering, like disabling a peer. Stored as `disabled`
+		// rather than `enabled` so the column's zero value is "on", which is what
+		// every set that predates this migration must stay.
+		if err := ensureColumn(tx, "prefix_sets", "disabled", `ALTER TABLE prefix_sets ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return err
 		}
 	}

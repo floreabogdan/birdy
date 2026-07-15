@@ -136,7 +136,8 @@
 						(so a mistake reverts itself), and waits for you to confirm. The current file is backed up first.
 					</p>
 					<form method="post" action="/apply" onsubmit="return confirm('Apply this config to BIRD? It reverts automatically unless you confirm within the timeout.')">
-						<label class="check" style="margin-bottom:12px"><input type="checkbox" name="soft" checked> Soft reload &mdash; re-run filters without restarting sessions where BIRD can avoid it</label>
+						<label class="check" style="margin-bottom:4px"><input type="checkbox" name="soft" checked> Soft reload &mdash; keep BGP sessions up. birdy re-runs the changed filters against existing routes with a route-refresh, so the change still takes effect without a session bounce.</label>
+						<div class="hint" style="margin-bottom:12px">Uncheck to restart affected protocols instead — a harder apply that bounces sessions but needs no route-refresh support. A peer that cannot route-refresh is noted after applying.</div>
 						<div class="form-actions" style="margin-top:0">
 							<button type="submit" class="btn btn-primary">{{template "icon-bolt"}}Apply to BIRD</button>
 						</div>
