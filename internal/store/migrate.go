@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 27
+const schemaVersion = 28
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -351,6 +351,15 @@ func migrate(db *sql.DB) error {
 		// rather than `enabled` so the column's zero value is "on", which is what
 		// every set that predates this migration must stay.
 		if err := ensureColumn(tx, "prefix_sets", "disabled", `ALTER TABLE prefix_sets ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+
+	if version < 28 {
+		// Link-local IPv6 addresses require BIRD to know which interface the
+		// neighbor sits on — without it BIRD rejects the config with "Link-local
+		// addresses require defined interface".
+		if err := ensureColumn(tx, "peers", "interface", `ALTER TABLE peers ADD COLUMN interface TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
 	}

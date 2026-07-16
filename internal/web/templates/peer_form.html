@@ -91,6 +91,12 @@
 									<div class="hint">Leave blank to let BIRD choose.</div>
 									{{with index .Errs "localIp"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
+								<div class="field">
+									<label for="interface">Interface</label>
+									<input type="text" id="interface" name="interface" class="mono" value="{{.Peer.Interface}}" placeholder="optional" autocomplete="off">
+									<div class="hint">Required when using link-local addresses (e.g. eth0).</div>
+									{{with index .Errs "interface"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
 							</div>
 						</div>
 					</div>

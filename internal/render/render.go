@@ -928,6 +928,9 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 		b.WriteString("\tlocal as LOCAL_ASN;\n")
 	}
 	fmt.Fprintf(b, "\tneighbor %s as %d;\n", p.NeighborIP, p.RemoteASN)
+	if p.Interface != "" {
+		fmt.Fprintf(b, "\tinterface \"%s\";\n", p.Interface)
+	}
 	if p.BGPRole {
 		if role, ok := bgpRoleName[p.Role]; ok {
 			// RFC 9234: BIRD tags exported routes with the Only-To-Customer

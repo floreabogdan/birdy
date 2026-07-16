@@ -87,7 +87,7 @@ func (s *Server) handlePeerNew(w http.ResponseWriter, r *http.Request) {
 				s.serverError(w, "peer policies", err)
 				return
 			}
-			src.ID, src.Name, src.NeighborIP, src.LocalIP, src.RemoteASN, src.Password = 0, "", "", "", 0, ""
+			src.ID, src.Name, src.NeighborIP, src.LocalIP, src.Interface, src.RemoteASN, src.Password = 0, "", "", "", "", 0, ""
 			src.Drained = false // a fresh session is not in maintenance
 			s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: true, Peer: src, ClonedFrom: from})
 			return
@@ -128,6 +128,7 @@ func peerFromForm(r *http.Request) store.Peer {
 		NeighborIP:        r.FormValue("neighborIp"),
 		RemoteASN:         int64(formInt(r, "remoteAsn")),
 		LocalIP:           r.FormValue("localIp"),
+		Interface:         r.FormValue("interface"),
 		Multihop:          formInt(r, "multihop"),
 		Passive:           r.FormValue("passive") == "on",
 		Password:          r.FormValue("password"),

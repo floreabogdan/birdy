@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"net/netip"
 	"strings"
 
 	"github.com/floreabogdan/birdy/internal/store"
@@ -82,6 +83,11 @@ func Lint(in Input) []Warning {
 			add(SeverityDanger, p.Name,
 				"This peer carries our own AS%d but is not marked iBGP, so birdy renders eBGP filters for it — including the check that rejects our own ASN in the AS path.",
 				in.LocalASN)
+		}
+
+		if addr, err := netip.ParseAddr(p.NeighborIP); err == nil && addr.IsLinkLocalUnicast() && p.Interface == "" {
+			add(SeverityDanger, p.Name,
+				"The neighbor address is link-local but no interface is set. BIRD will reject this config with \"Link-local addresses require defined interface\".")
 		}
 
 		// The one that black-holes traffic rather than merely dropping routes.
