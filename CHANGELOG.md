@@ -6,6 +6,17 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.7] - 2026-07-16
+
+### Added
+- **Per-peer interface for link-local BGP sessions.** BIRD requires an `interface`
+  directive when the neighbor address is link-local (`fe80::`), because the address
+  is ambiguous without knowing which link it sits on. The peer form now has an
+  **Interface** field: set it to the name of the network interface (e.g. `eth0`) and
+  birdy renders `interface "eth0";` inside the protocol block. Validation enforces
+  the field when the neighbor is link-local, and lint surfaces a danger finding for
+  the same condition. Optional for all other sessions.
+
 ## [0.3.6] - 2026-07-15
 
 ### Fixed
