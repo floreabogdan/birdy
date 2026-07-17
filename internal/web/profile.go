@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/floreabogdan/birdy/internal/store"
@@ -127,11 +128,18 @@ func (s *Server) handleProfilePassword(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "hash password", err)
 		return
 	}
-	if err := s.store.SetPassword(u.ID, hash); err != nil {
-		s.serverError(w, "set password", err)
+	token, err := newSessionToken()
+	if err != nil {
+		s.serverError(w, "generate replacement session", err)
 		return
 	}
-	http.Redirect(w, r, "/profile?flash="+flash("Password changed"), http.StatusSeeOther)
+	expires := time.Now().Add(sessionTTL)
+	if err := s.store.RotatePasswordSession(u.ID, hash, token, expires); err != nil {
+		s.serverError(w, "rotate password session", err)
+		return
+	}
+	setSessionCookie(w, token, r.TLS != nil)
+	http.Redirect(w, r, "/profile?flash="+flash("Password changed; other sessions signed out"), http.StatusSeeOther)
 }
 
 func (s *Server) renderProfile(w http.ResponseWriter, v profileView) {

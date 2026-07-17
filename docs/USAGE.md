@@ -300,6 +300,8 @@ Runs the web UI and the background poller.
 | `--db` | `/var/lib/birdy/birdy.db` | Path to birdy's SQLite database. |
 | `--socket` | *(from init)* | Override the BIRD control socket path. |
 | `--listen` | *(from init)* | Override the listen address. |
+| `--tls-cert` | *(empty)* | PEM certificate for native HTTPS. Must be used with `--tls-key`. |
+| `--tls-key` | *(empty)* | PEM private key for native HTTPS. Must be used with `--tls-cert`. |
 | `--read-only` | `false` | **Run as a pure viewer** — never issue a write command to BIRD and never write `bird.conf`. Note it does not stop birdy writing its **own** database: logins, events and history are written in any mode. |
 | `--bird-conf` | `/etc/bird/bird.conf` | The running BIRD config birdy reads and (unless read-only) writes. **Must be the same path BIRD was started with** (`bird -c`) for apply to work. |
 | `--bird-backup-dir` | `/var/lib/birdy/bird-backups` | Where a copy of `bird.conf` is saved before each apply overwrites it. |
@@ -449,6 +451,7 @@ apply to the role you pick.
 | **RFC 9234 role** | eBGP | Negotiate a BGP role and use the Only-To-Customer (OTC) attribute so BIRD drops route leaks in the protocol itself. birdy derives the role from the one above: you are a `customer` of an upstream, a `provider` to a customer, a lateral `peer` at an IX. **On by default for new peers.** Enabling it on an existing session can briefly reset it if the far end has a conflicting role configured. |
 | **Require first AS** | eBGP | Reject a route whose first AS-path entry is not the peer's AS. Turn this **off for an IXP route server**, which forwards routes without prepending itself. |
 | **Origin peer only** | eBGP | Accept a prefix only if the peer *originated* it — transit for them, but not for their downstreams. Their own prepending still works. To carry their downstreams instead, leave this off and point an import policy at an AS set. |
+| **Import communities** | eBGP | Communities added after a route passes this peer's import policy. Use a named library community or a literal standard/large value to identify a specific downstream, IX route server, location, or ingress. Birdy's broader relationship tag is added separately. |
 | **AS-path prepend** | eBGP | Prepend your own AS this many times (0–10) to everything you announce here. A longer path is less preferred, steering inbound traffic **away** from this peer. |
 | **Export communities** | eBGP | Communities attached to every route you announce here — e.g. an upstream's "do not export to your other peers" signal. One per line, standard (`ASN:value`) or large (`ASN:x:y`). |
 | **Drain** | eBGP | Signal RFC 8326 graceful shutdown to the peer and deprefer its routes, so traffic moves off the session before you take it down for maintenance. Does **not** disable the session. |
@@ -635,8 +638,15 @@ button.
     announced address (typically a loopback) so control-plane traffic does not leave
     with whatever egress interface address the kernel would otherwise pick. Set per
     family, because `kernel4` and `kernel6` are separate protocols. Leave a field
-    blank and that channel stays `export all`, exactly as before — the address must
-    be one actually configured on the box, or the kernel refuses to install the route.
+    blank and that channel exports nothing unless BGP installation is enabled.
+    The address must be one actually configured on the box, or the kernel refuses
+    to install the route.
+  - **Install selected BGP routes (IPv4/IPv6)** — explicitly synchronizes BIRD's
+    selected BGP route for each prefix into the corresponding Linux FIB. It never
+    renders a blanket `export all`, and remains off across upgrades. A full-table
+    peer can therefore install a full Internet table. This controls route
+    installation only: Linux forwarding, firewall policy, underlay host routes,
+    and capacity monitoring remain operator responsibilities.
 - **Bogons** — the bogon prefix lists (v4/v6) and bogon ASN list. Generated filters
   name these directly, which is why they live here rather than in the Library and
   cannot be deleted or announced. "Restore defaults" resets them to what birdy

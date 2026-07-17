@@ -41,9 +41,11 @@ func TestValidateKernelPrefSrc(t *testing.T) {
 func TestSettingsKernelPrefSrcRoundTrip(t *testing.T) {
 	s := openTest(t)
 	if err := s.SaveSettings(Settings{
-		RouterID:        "192.0.2.1",
-		KernelPrefSrcV4: "203.0.113.1",
-		KernelPrefSrcV6: "2001:db8::1",
+		RouterID:          "192.0.2.1",
+		KernelPrefSrcV4:   "203.0.113.1",
+		KernelPrefSrcV6:   "2001:db8::1",
+		KernelExportBGPV4: true,
+		KernelExportBGPV6: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -53,5 +55,8 @@ func TestSettingsKernelPrefSrcRoundTrip(t *testing.T) {
 	}
 	if got.KernelPrefSrcV4 != "203.0.113.1" || got.KernelPrefSrcV6 != "2001:db8::1" {
 		t.Errorf("kernel preferred source not persisted: %+v", got)
+	}
+	if !got.KernelExportBGPV4 || !got.KernelExportBGPV6 {
+		t.Errorf("kernel BGP export flags not persisted: %+v", got)
 	}
 }

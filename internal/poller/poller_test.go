@@ -13,12 +13,13 @@ import (
 // fakeClient lets tests script a sequence of "show protocols" results without
 // a live BIRD socket.
 type fakeClient struct {
-	polls  [][]birdc.ProtocolSummary
-	detail map[string]birdc.ProtocolDetail
-	counts []birdc.RouteCountEntry // optional; RouteCount returns a default when nil
-	i      int
-	step   int
-	errAt  map[int]error // poll (call) number -> error, to script BIRD-unreachable
+	polls    [][]birdc.ProtocolSummary
+	detail   map[string]birdc.ProtocolDetail
+	counts   []birdc.RouteCountEntry // optional; RouteCount returns a default when nil
+	countErr error
+	i        int
+	step     int
+	errAt    map[int]error // poll (call) number -> error, to script BIRD-unreachable
 }
 
 func (f *fakeClient) Status() (birdc.Status, error) { return birdc.Status{}, nil }
@@ -45,10 +46,37 @@ func (f *fakeClient) ProtocolDetail(name string) (birdc.ProtocolDetail, error) {
 }
 
 func (f *fakeClient) RouteCount() ([]birdc.RouteCountEntry, error) {
+	if f.countErr != nil {
+		return nil, f.countErr
+	}
 	if f.counts != nil {
 		return f.counts, nil
 	}
 	return []birdc.RouteCountEntry{{Table: "master4", Routes: 5, Networks: 4}}, nil
+}
+
+func TestRouteCountFailureKeepsPublishedSessionsAndPreviousTotal(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{
+		polls:  [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+		counts: []birdc.RouteCountEntry{{Table: "master4", Routes: 42}},
+	}
+	p := New(fc, st, time.Second, nil)
+	p.poll()
+	if got := p.Snapshot().TotalRoutes; got != 42 {
+		t.Fatalf("initial total = %d, want 42", got)
+	}
+
+	fc.countErr = context.DeadlineExceeded
+	p.lastRouteCount = time.Time{} // make the next poll attempt a refresh
+	p.poll()
+	snap := p.Snapshot()
+	if len(snap.Protocols) != 1 || !snap.States["edge_v4"].Up {
+		t.Fatalf("session state was not published after count failure: %+v", snap)
+	}
+	if snap.TotalRoutes != 42 {
+		t.Fatalf("count failure replaced previous total with %d, want 42", snap.TotalRoutes)
+	}
 }
 
 func openTestStore(t *testing.T) *store.Store {

@@ -65,6 +65,24 @@ func TestApplyWritesAndArmsTimeout(t *testing.T) {
 	}
 }
 
+func TestApplyRequiresAcknowledgementForSeriousLint(t *testing.T) {
+	env := applyReady(t)
+	if rec := env.do(t, "POST", "/peers/new", peerForm()); rec.Code != http.StatusSeeOther {
+		t.Fatalf("create peer: %d", rec.Code)
+	}
+
+	env.fc.calls = nil
+	env.do(t, "POST", "/apply", url.Values{})
+	if len(env.fc.calls) != 0 {
+		t.Fatalf("risky apply should stop before BIRD calls, got %v", env.fc.calls)
+	}
+
+	env.do(t, "POST", "/apply", url.Values{"ackRisks": {"on"}})
+	if got := strings.Join(env.fc.calls, ","); got != "check,timeout" {
+		t.Fatalf("acknowledged apply calls = %q, want check,timeout", got)
+	}
+}
+
 func TestApplyConfirmKeepsConfig(t *testing.T) {
 	env := applyReady(t)
 	env.do(t, "POST", "/apply", nil)
@@ -402,7 +420,7 @@ func TestReapplyBlockedInReadOnly(t *testing.T) {
 func TestApplySoftByDefault(t *testing.T) {
 	env := applyReady(t)
 	// The button submits soft=on; a soft apply asks BIRD not to bounce sessions.
-	env.do(t, "POST", "/apply", url.Values{"soft": {"on"}})
+	env.do(t, "POST", "/apply", url.Values{"soft": {"on"}, "ackRisks": {"on"}})
 	if !env.fc.lastSoft {
 		t.Error("apply with soft=on should request a soft reconfigure")
 	}
@@ -434,7 +452,7 @@ func TestApplyHardWhenUnchecked(t *testing.T) {
 func TestApplySoftReloadIssueSurfaced(t *testing.T) {
 	env := applyReady(t)
 	env.fc.cfgReloadFail = true
-	rec := env.do(t, "POST", "/apply", url.Values{"soft": {"on"}})
+	rec := env.do(t, "POST", "/apply", url.Values{"soft": {"on"}, "ackRisks": {"on"}})
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("apply: code=%d", rec.Code)
 	}

@@ -29,7 +29,7 @@
 					<thead><tr><th>When</th><th>Outcome</th><th class="num">Size</th><th>Hash</th><th>Note</th></tr></thead>
 					<tbody data-search-target>
 						{{range .Versions}}
-						<tr class="row-link" onclick="location.href='/changes/history/{{.ID}}'">
+						<tr class="row-link" data-href="/changes/history/{{.ID}}" tabindex="0">
 							<td>{{fmttime .CreatedAt}}<div class="rel text-muted" data-ts="{{isotime .CreatedAt}}" style="font-size:0.75rem"></div></td>
 							<td>{{versionBadge .Status}}</td>
 							<td class="num mono">{{comma .Size}}</td>

@@ -44,7 +44,7 @@
 							<td class="text-muted" style="font-size:0.8125rem">{{.Description}}</td>
 							<td class="row-actions">
 								<a class="icon-action a-primary" href="/library/communities/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
-								<form method="post" action="/library/communities/{{.Name}}/delete" onsubmit="return confirm('Delete community {{.Name}}?')">
+								<form method="post" action="/library/communities/{{.Name}}/delete" data-confirm="Delete community {{.Name}}?">
 									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
 								</form>
 							</td>

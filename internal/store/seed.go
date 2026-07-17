@@ -32,17 +32,20 @@ var (
 		"240.0.0.0/4",     // reserved (includes 255.255.255.255/32)
 	}
 	bogonsV6 = []string{
-		"::/8",          // includes ::/128 unspecified and ::1/128 loopback
-		"0100::/64",     // discard-only
-		"2001:2::/48",   // benchmarking
-		"2001:10::/28",  // deprecated ORCHID
-		"2001:db8::/32", // documentation
-		"2002::/16",     // deprecated 6to4
-		"3ffe::/16",     // former 6bone
-		"fc00::/7",      // unique local
-		"fe80::/10",     // link-local
-		"fec0::/10",     // deprecated site-local
-		"ff00::/8",      // multicast
+		"::/8",           // includes ::/128 unspecified and ::1/128 loopback
+		"100::/64",       // discard-only
+		"100:0:0:1::/64", // dummy IPv6 prefix
+		"2001:2::/48",    // benchmarking
+		"2001:10::/28",   // deprecated ORCHID
+		"2001:db8::/32",  // documentation
+		"2002::/16",      // deprecated 6to4
+		"3fff::/20",      // documentation
+		"3ffe::/16",      // former 6bone
+		"5f00::/16",      // segment-routing SIDs, not globally reachable
+		"fc00::/7",       // unique local
+		"fe80::/10",      // link-local
+		"fec0::/10",      // deprecated site-local
+		"ff00::/8",       // multicast
 	}
 )
 

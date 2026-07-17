@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 // User is a local login account — normally just the admin created by birdy init.
@@ -76,6 +77,36 @@ func (s *Store) SetPassword(userID int64, passwordHash string) error {
 	_, err := s.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, userID)
 	if err != nil {
 		return fmt.Errorf("store: set password: %w", err)
+	}
+	return nil
+}
+
+// RotatePasswordSession changes the password, invalidates every existing
+// session for the account, and creates one replacement session atomically.
+func (s *Store) RotatePasswordSession(userID int64, passwordHash, token string, expiresAt time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("store: begin password rotation: %w", err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, userID)
+	if err != nil {
+		return fmt.Errorf("store: rotate password: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n != 1 {
+		return fmt.Errorf("store: rotate password: user %d not found", userID)
+	}
+	if _, err := tx.Exec(`DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
+		return fmt.Errorf("store: revoke sessions: %w", err)
+	}
+	ts := now()
+	if _, err := tx.Exec(`INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
+		token, userID, ts, expiresAt.UTC().Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("store: create replacement session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: commit password rotation: %w", err)
 	}
 	return nil
 }

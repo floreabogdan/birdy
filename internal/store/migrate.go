@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 28
+const schemaVersion = 30
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -336,7 +336,7 @@ func migrate(db *sql.DB) error {
 		// Pin the preferred source address (krt_prefsrc) on routes birdy exports
 		// to the kernel FIB — the address the kernel stamps as the source of
 		// locally-originated traffic to those destinations, typically a loopback.
-		// One per family; empty (the default) leaves the export as `export all`.
+		// One per family; empty (the default) leaves kernel export disabled.
 		if err := ensureColumn(tx, "settings", "kernel_prefsrc_v4", `ALTER TABLE settings ADD COLUMN kernel_prefsrc_v4 TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
@@ -360,6 +360,26 @@ func migrate(db *sql.DB) error {
 		// neighbor sits on — without it BIRD rejects the config with "Link-local
 		// addresses require defined interface".
 		if err := ensureColumn(tx, "peers", "interface", `ALTER TABLE peers ADD COLUMN interface TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 29 {
+		// Per-neighbor inbound tagging: operators can identify routes learned
+		// from a route server, downstream, or other specific session using
+		// standard or large communities from the named community library.
+		if err := ensureColumn(tx, "peers", "import_communities", `ALTER TABLE peers ADD COLUMN import_communities TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 30 {
+		// Installing selected BGP routes into the host FIB is deliberately
+		// opt-in per family. Existing routers stay fail-closed across upgrade.
+		if err := ensureColumn(tx, "settings", "kernel_export_bgp_v4", `ALTER TABLE settings ADD COLUMN kernel_export_bgp_v4 INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "settings", "kernel_export_bgp_v6", `ALTER TABLE settings ADD COLUMN kernel_export_bgp_v6 INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return err
 		}
 	}

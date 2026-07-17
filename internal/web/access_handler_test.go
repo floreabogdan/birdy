@@ -55,6 +55,13 @@ func TestAccessWhitelistDefaultAllowsAll(t *testing.T) {
 	}
 }
 
+func TestAccessWhitelistRejectsMalformedPeerAddress(t *testing.T) {
+	env := applyReady(t)
+	if rec := fromIP(t, env, "GET", "/healthz", "not-a-peer-address", false); rec.Code != http.StatusForbidden {
+		t.Errorf("malformed peer address: code=%d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
 // The settings page shows the operator's connecting IP and the access-control
 // form, so they can add themselves before restricting.
 func TestSettingsShowsConnectingIP(t *testing.T) {

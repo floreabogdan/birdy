@@ -185,6 +185,9 @@ func (s *Server) communityInUse(name string) ([]string, error) {
 		if slices.Contains(store.NamedCommunityRefs(p.ExportCommunities), name) {
 			users = append(users, "peer "+p.Name)
 		}
+		if slices.Contains(store.NamedCommunityRefs(p.ImportCommunities), name) {
+			users = append(users, "peer "+p.Name)
+		}
 	}
 	policies, err := s.store.ListPolicies()
 	if err != nil {

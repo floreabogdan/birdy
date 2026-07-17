@@ -52,11 +52,16 @@ func Lint(in Input) []Warning {
 		communityNames[cd.Name] = true
 	}
 	for _, p := range in.Peers {
-		for _, name := range store.NamedCommunityRefs(p.ExportCommunities) {
-			if !communityNames[name] {
-				add(SeverityDanger, p.Name,
-					"Export communities reference %q, which is not defined in the library — bird -p would reject the config with an undefined symbol. Define it under Library → Communities, or remove the reference.",
-					name)
+		for direction, refs := range map[string]string{
+			"Import": p.ImportCommunities,
+			"Export": p.ExportCommunities,
+		} {
+			for _, name := range store.NamedCommunityRefs(refs) {
+				if !communityNames[name] {
+					add(SeverityDanger, p.Name,
+						"%s communities reference %q, which is not defined in the library — bird -p would reject the config with an undefined symbol. Define it under Library → Communities, or remove the reference.",
+						direction, name)
+				}
 			}
 		}
 	}
@@ -276,8 +281,12 @@ func Lint(in Input) []Warning {
 		}
 
 		if len(p.ImportPolicies) == 0 {
-			add(SeverityWarn, p.Name,
+			add(SeverityDanger, p.Name,
 				"No import policy. Everything this peer announces will be accepted, including bogons and routes with your own ASN in the path.")
+		}
+		if p.ImportLimit == 0 {
+			add(SeverityWarn, p.Name,
+				"No import limit. A route leak or accidental full table can consume unbounded routing memory; set a ceiling appropriate for this relationship and address family.")
 		}
 
 		// EXPORT_OWN ships pointing at the empty ANNOUNCE_V4/V6 sets, so an

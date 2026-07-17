@@ -53,6 +53,7 @@ type SettingsView struct {
 	// page that fixes it, rather than on the dashboard — a warning you cannot act
 	// on from where it appears is just noise you learn to skip.
 	WideOpen bool
+	TLS      bool
 }
 
 // settingsTabs are the tab keys in display order; the first is the default.
@@ -92,10 +93,13 @@ func (s *Server) renderSettings(w http.ResponseWriter, v SettingsView) {
 			stored.RRClusterID = v.Settings.RRClusterID
 			stored.KernelPrefSrcV4 = v.Settings.KernelPrefSrcV4
 			stored.KernelPrefSrcV6 = v.Settings.KernelPrefSrcV6
+			stored.KernelExportBGPV4 = v.Settings.KernelExportBGPV4
+			stored.KernelExportBGPV6 = v.Settings.KernelExportBGPV6
 			v.Settings = stored
 		}
 	}
 	v.WideOpen = s.WideOpen()
+	v.TLS = s.tls
 	if s.snap != nil {
 		if p, ok := s.snap.LatestSnapshot(); ok {
 			v.LatestSnapshot = p
@@ -263,9 +267,11 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 		errs["localAsn"] = "Enter an AS number between 1 and 4294967295."
 	}
 	probe := store.Settings{
-		RRClusterID:     r.FormValue("rrClusterId"),
-		KernelPrefSrcV4: r.FormValue("kernelPrefsrcV4"),
-		KernelPrefSrcV6: r.FormValue("kernelPrefsrcV6"),
+		RRClusterID:       r.FormValue("rrClusterId"),
+		KernelPrefSrcV4:   r.FormValue("kernelPrefsrcV4"),
+		KernelPrefSrcV6:   r.FormValue("kernelPrefsrcV6"),
+		KernelExportBGPV4: r.FormValue("kernelExportBgpV4") == "on",
+		KernelExportBGPV6: r.FormValue("kernelExportBgpV6") == "on",
 	}
 	if msg := probe.ValidateRRClusterID(); msg != "" {
 		errs["rrClusterId"] = msg
@@ -285,6 +291,8 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 		v.Settings.RRClusterID = probe.RRClusterID
 		v.Settings.KernelPrefSrcV4 = probe.KernelPrefSrcV4
 		v.Settings.KernelPrefSrcV6 = probe.KernelPrefSrcV6
+		v.Settings.KernelExportBGPV4 = probe.KernelExportBGPV4
+		v.Settings.KernelExportBGPV6 = probe.KernelExportBGPV6
 		s.renderSettings(w, v)
 		return
 	}
@@ -295,6 +303,8 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 	settings.RRClusterID = probe.RRClusterID
 	settings.KernelPrefSrcV4 = probe.KernelPrefSrcV4
 	settings.KernelPrefSrcV6 = probe.KernelPrefSrcV6
+	settings.KernelExportBGPV4 = probe.KernelExportBGPV4
+	settings.KernelExportBGPV6 = probe.KernelExportBGPV6
 	if err := s.store.SaveSettings(settings); err != nil {
 		s.serverError(w, "save settings", err)
 		return
@@ -440,7 +450,9 @@ func (s *Server) apiSnapshotRestore(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "snapshots not configured", http.StatusServiceUnavailable)
 		return
 	}
-	if err := r.ParseMultipartForm(64 << 20); err != nil {
+	const maxSnapshotUpload = 64 << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxSnapshotUpload+(1<<20))
+	if err := r.ParseMultipartForm(maxSnapshotUpload); err != nil {
 		http.Error(w, "invalid upload", http.StatusBadRequest)
 		return
 	}
@@ -450,9 +462,13 @@ func (s *Server) apiSnapshotRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, 64<<20))
+	data, err := io.ReadAll(io.LimitReader(file, maxSnapshotUpload+1))
 	if err != nil {
 		http.Error(w, "failed to read upload", http.StatusBadRequest)
+		return
+	}
+	if len(data) > maxSnapshotUpload {
+		http.Error(w, "snapshot exceeds 64 MiB limit", http.StatusRequestEntityTooLarge)
 		return
 	}
 	if err := s.snap.StageRestore(data); err != nil {

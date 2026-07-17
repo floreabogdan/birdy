@@ -47,6 +47,9 @@ func (m *Manager) CreateSnapshot(db DB) (string, error) {
 	if err := db.VacuumInto(path); err != nil {
 		return "", err
 	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return "", fmt.Errorf("snapshot: restrict permissions: %w", err)
+	}
 	m.prune()
 	return path, nil
 }
@@ -110,7 +113,7 @@ func (m *Manager) StageRestore(data []byte) error {
 	if len(data) < 16 || string(data[:15]) != "SQLite format 3" {
 		return fmt.Errorf("snapshot: not a valid SQLite database file")
 	}
-	if err := os.WriteFile(m.dbPath+pendingRestoreSuffix, data, 0o640); err != nil {
+	if err := os.WriteFile(m.dbPath+pendingRestoreSuffix, data, 0o600); err != nil {
 		return fmt.Errorf("snapshot: stage restore: %w", err)
 	}
 	return nil
@@ -146,7 +149,7 @@ func ApplyPendingRestore(dbPath string, log *slog.Logger) error {
 		log.Info("backed up current database before restore", "path", backup)
 	}
 
-	if err := os.WriteFile(dbPath, data, 0o640); err != nil {
+	if err := os.WriteFile(dbPath, data, 0o600); err != nil {
 		return fmt.Errorf("snapshot: write restored database: %w", err)
 	}
 	os.Remove(dbPath + "-wal")
@@ -163,5 +166,5 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, 0o640)
+	return os.WriteFile(dst, data, 0o600)
 }

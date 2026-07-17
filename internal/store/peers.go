@@ -83,6 +83,10 @@ type Peer struct {
 	Password          string
 	ImportLimit       int // 0 = no limit
 	ImportLimitAction string
+	// ImportCommunities are attached after an eBGP route passes import policy.
+	// They identify a specific ingress neighbor independently of the automatic
+	// relationship tag (FROM_UPSTREAM / FROM_IX / FROM_CUSTOMER).
+	ImportCommunities string
 	EnforceFirstAS    bool
 	// OriginPeerOnly accepts only prefixes the peer itself originated: transit
 	// for them, but not for anyone behind them. Per-peer because the check
@@ -169,6 +173,7 @@ func (p *Peer) Validate() map[string]string {
 		p.NextHopSelf = false
 		p.RRClient = false
 	} else {
+		p.ImportCommunities = ""
 		// These are eBGP export transforms; they mean nothing inside our own AS.
 		p.PrependCount = 0
 		p.ExportCommunities = ""
@@ -197,6 +202,9 @@ func (p *Peer) Validate() map[string]string {
 	}
 	if _, cerrs := ParseCommunityRefs(p.ExportCommunities); len(cerrs) > 0 {
 		errs["exportCommunities"] = strings.Join(cerrs, "\n")
+	}
+	if _, cerrs := ParseCommunityRefs(p.ImportCommunities); len(cerrs) > 0 {
+		errs["importCommunities"] = strings.Join(cerrs, "\n")
 	}
 
 	neighbor, err := netip.ParseAddr(strings.TrimSpace(p.NeighborIP))
@@ -263,7 +271,7 @@ func (p *Peer) Validate() map[string]string {
 const peerCols = `id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 	interface, multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
 	origin_peer_only, next_hop_self, rr_client,
-	prepend_count, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart`
+	prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart`
 
 func (s *Store) ListPeers() ([]Peer, error) {
 	rows, err := s.db.Query(`SELECT ` + peerCols + ` FROM peers ORDER BY name`)
@@ -311,7 +319,7 @@ func scanPeer(sc scanner) (Peer, error) {
 		&p.RemoteASN, &p.LocalIP, &p.Interface, &p.Multihop, &p.Passive, &p.Password,
 		&p.ImportLimit, &p.ImportLimitAction, &p.EnforceFirstAS, &p.OriginPeerOnly,
 		&p.NextHopSelf, &p.RRClient,
-		&p.PrependCount, &p.ExportCommunities, &p.Drained, &p.BFD, &p.BGPRole, &p.GTSM, &p.GracefulRestart)
+		&p.PrependCount, &p.ImportCommunities, &p.ExportCommunities, &p.Drained, &p.BFD, &p.BGPRole, &p.GTSM, &p.GracefulRestart)
 	return p, err
 }
 
@@ -321,12 +329,12 @@ func (s *Store) CreatePeer(p Peer) (int64, error) {
 		INSERT INTO peers (name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		                   interface, multihop, passive, password, import_limit, import_limit_action,
 		                   enforce_first_as, origin_peer_only, next_hop_self, rr_client,
-		                   prepend_count, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Interface, p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
-		p.PrependCount, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, ts, ts)
+		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create peer: %w", err)
 	}
@@ -339,13 +347,13 @@ func (s *Store) UpdatePeer(p Peer) error {
 		                 remote_asn = ?, local_ip = ?, interface = ?, multihop = ?, passive = ?,
 		                 password = ?, import_limit = ?, import_limit_action = ?, enforce_first_as = ?,
 		                 origin_peer_only = ?, next_hop_self = ?, rr_client = ?,
-		                 prepend_count = ?, export_communities = ?, drained = ?, bfd = ?, bgp_role = ?,
+		                 prepend_count = ?, import_communities = ?, export_communities = ?, drained = ?, bfd = ?, bgp_role = ?,
 			                 gtsm = ?, graceful_restart = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Interface, p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
-		p.PrependCount, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, now(), p.ID)
+		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, now(), p.ID)
 	if err != nil {
 		return fmt.Errorf("store: update peer: %w", err)
 	}

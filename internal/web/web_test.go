@@ -230,6 +230,34 @@ func TestLoginFlow(t *testing.T) {
 	}
 }
 
+func TestPasswordChangeRevokesOtherSessions(t *testing.T) {
+	env := newTestEnv(t, false)
+	if err := env.store.CreateSession("other-browser", 1, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	form := url.Values{
+		"currentPassword": {"correct horse battery staple"},
+		"newPassword":     {"a much better replacement password"},
+		"confirmPassword": {"a much better replacement password"},
+	}
+	rec := env.do(t, http.MethodPost, "/profile/password", form)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("password change: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Value == "" || cookies[0].Value == env.cookie.Value {
+		t.Fatalf("expected a rotated session cookie, got %+v", cookies)
+	}
+	for _, token := range []string{env.cookie.Value, "other-browser"} {
+		if _, ok, err := env.store.GetSession(token); err != nil || ok {
+			t.Fatalf("old session %q survived: ok=%v err=%v", token, ok, err)
+		}
+	}
+	if _, ok, err := env.store.GetSession(cookies[0].Value); err != nil || !ok {
+		t.Fatalf("replacement session missing: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestDashboardRequiresAuth(t *testing.T) {
 	env := newTestEnv(t, false)
 	req := httptest.NewRequest("GET", "/", nil)

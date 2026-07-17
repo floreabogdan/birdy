@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS settings (
 	bird_socket_path TEXT NOT NULL DEFAULT '/run/bird/bird.ctl',
 	listen_addr      TEXT NOT NULL DEFAULT '127.0.0.1:8080',
 	webhook_url      TEXT NOT NULL DEFAULT '',
+	kernel_export_bgp_v4 INTEGER NOT NULL DEFAULT 0,
+	kernel_export_bgp_v6 INTEGER NOT NULL DEFAULT 0,
 	created_at       TEXT NOT NULL,
 	updated_at       TEXT NOT NULL
 );
@@ -72,6 +74,7 @@ CREATE TABLE IF NOT EXISTS peers (
 	password             TEXT NOT NULL DEFAULT '',
 	import_limit         INTEGER NOT NULL DEFAULT 0,
 	import_limit_action  TEXT NOT NULL DEFAULT 'restart',
+	import_communities   TEXT NOT NULL DEFAULT '',
 	-- Off for IXP route servers: they do not prepend themselves, so the first
 	-- AS in the path is the peer behind them, not the session's own ASN.
 	enforce_first_as     INTEGER NOT NULL DEFAULT 1,

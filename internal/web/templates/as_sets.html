@@ -76,7 +76,7 @@
 								</form>
 								{{end}}
 								<a class="icon-action a-primary" href="/library/as-sets/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
-								<form method="post" action="/library/as-sets/{{.Name}}/delete" onsubmit="return confirm('Delete AS set {{.Name}}?')">
+								<form method="post" action="/library/as-sets/{{.Name}}/delete" data-confirm="Delete AS set {{.Name}}?">
 									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
 								</form>
 							</td>

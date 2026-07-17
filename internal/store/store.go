@@ -26,6 +26,11 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: open: %w", err)
 	}
+	// SQLite serializes writers. Keep the pool deliberately small so a burst of
+	// HTTP requests cannot create an unbounded set of connections and contend on
+	// the same database file.
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("store: apply schema: %w", err)

@@ -29,6 +29,12 @@ func TestSecurityHeaders(t *testing.T) {
 			t.Errorf("CSP missing %q; got %q", want, csp)
 		}
 	}
+	if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
+		t.Errorf("CSP still permits inline scripts: %q", csp)
+	}
+	if got := h.Get("Permissions-Policy"); !strings.Contains(got, "camera=()") {
+		t.Errorf("Permissions-Policy = %q", got)
+	}
 }
 
 // Authenticated pages carry them too.
@@ -40,5 +46,31 @@ func TestSecurityHeadersOnAuthedPage(t *testing.T) {
 	}
 	if rec.Header().Get("Content-Security-Policy") == "" {
 		t.Error("authenticated pages should also carry a CSP")
+	}
+}
+
+func TestCrossOriginPostRejected(t *testing.T) {
+	env := newTestEnv(t, false)
+	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	req.Header.Set("Origin", "https://attacker.example")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	req.AddCookie(env.cookie)
+	rec := httptest.NewRecorder()
+	env.srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin POST code=%d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestSameOriginWriteRequiresMatchingScheme(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "https://birdy.example/logout", nil)
+	req.Header.Set("Origin", "http://birdy.example")
+	if sameOriginWrite(req) {
+		t.Fatal("HTTP origin should not be accepted for an HTTPS request")
+	}
+
+	req.Header.Set("Origin", "https://birdy.example")
+	if !sameOriginWrite(req) {
+		t.Fatal("matching HTTPS origin should be accepted")
 	}
 }

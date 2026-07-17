@@ -133,7 +133,7 @@
 				? '<span class="badge badge-success">configured</span>'
 				: '<span class="badge badge-warning">unmanaged</span>';
 			return (
-				'<tr class="row-link" onclick="location.href=\'/peers/' + encodeURIComponent(p.name) + '\'">' +
+				'<tr class="row-link" data-href="/peers/' + encodeURIComponent(p.name) + '" tabindex="0">' +
 				'<td class="mono">' + esc(p.name) + "</td>" +
 				'<td class="mono">' + esc(p.table) + "</td>" +
 				'<td><span class="badge ' + badgeClass + '"><span class="dot"></span>' + esc(state) + "</span></td>" +
@@ -184,8 +184,12 @@
 				setText("stat-up-total", sessions);
 				setText("stat-down", data.sessionDown);
 				setText("stat-routes", comma(data.totalRoutes));
+				setText("stat-managed", data.sessionManaged);
+				setText("stat-model-total", sessions);
+				setText("model-note", data.sessionUnmanaged ? data.sessionUnmanaged + " unmanaged" : "all live sessions represented");
 				setWidth("bar-up", ratio(data.sessionUp, sessions));
 				setWidth("bar-down", ratio(data.sessionDown, sessions));
+				setWidth("bar-managed", ratio(data.sessionManaged, sessions));
 
 				var hero = document.getElementById("hero-status");
 				if (hero) {

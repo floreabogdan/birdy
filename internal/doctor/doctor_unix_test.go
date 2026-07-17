@@ -11,6 +11,10 @@ import (
 // When birdy runs as BIRD's own user (here, the test process owns the stand-in
 // socket), BIRD reads birdy's 0640 files as their owner, so the check passes.
 func TestConfigReadableSameUser(t *testing.T) {
+	old := serviceIdentityFn
+	serviceIdentityFn = func() (svcIdentity, bool) { return svcIdentity{}, false }
+	t.Cleanup(func() { serviceIdentityFn = old })
+
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "bird.ctl")
 	if err := os.WriteFile(sock, []byte("x"), 0o660); err != nil {

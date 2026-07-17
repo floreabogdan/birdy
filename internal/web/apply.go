@@ -443,6 +443,18 @@ func (s *Server) handleApply(w http.ResponseWriter, r *http.Request) {
 		s.redirectChanges(w, r, reason)
 		return
 	}
+	warnings := birdconf.Lint(in)
+	var dangers int
+	for _, warning := range warnings {
+		if warning.Severity == birdconf.SeverityDanger {
+			dangers++
+		}
+	}
+	wouldRemove := s.sessionsWouldRemove(in.Peers)
+	if (dangers > 0 || len(wouldRemove) > 0) && r.FormValue("ackRisks") != "on" {
+		s.redirectChanges(w, r, "Review the serious findings and live sessions at risk, then explicitly acknowledge them before applying.")
+		return
+	}
 	set, err := birdconf.Files(in, s.configDir())
 	if err != nil {
 		s.redirectChanges(w, r, "The config cannot be rendered: "+err.Error())

@@ -143,6 +143,12 @@
 									</div>
 								</template>
 							</div>
+							<div class="field" data-role-only="ebgp" {{if eq .Peer.Role "ibgp"}}hidden{{end}} style="margin-top:16px">
+								<label for="importCommunities">Tag accepted routes from this peer</label>
+								<textarea id="importCommunities" name="importCommunities" rows="3" class="mono" spellcheck="false" placeholder="FROM_LON_RS&#10;65000:120&#10;65000:20:1">{{.Peer.ImportCommunities}}</textarea>
+								<div class="hint">Added after a route passes the import chain. Use this to identify a specific route server, downstream, or ingress. One per line: a literal <span class="mono">ASN:value</span> / <span class="mono">ASN:x:y</span>, or a <a href="/library/communities">named community</a>. Birdy also adds its broader relationship tag automatically.</div>
+								{{with index .Errs "importCommunities"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
+							</div>
 
 							<hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
 

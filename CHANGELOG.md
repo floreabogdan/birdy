@@ -6,6 +6,58 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Guarded kernel installation for selected BGP routes.** Settings can now opt
+  IPv4 and IPv6 independently into installing BIRD's selected `RTS_BGP` routes in
+  the Linux FIB. The option defaults off, including after upgrade, and generated
+  kernel filters explicitly admit only selected BGP routes and opted-in static
+  routes. Birdy never uses a blanket kernel `export all`.
+- **Per-session import community tagging.** Peers can add named or literal
+  standard and large communities after import policy succeeds, making it easy to
+  identify a downstream, IX route server, location, or ingress separately from
+  Birdy's automatic relationship tags.
+- **Native HTTPS.** `birdy server` accepts paired `--tls-cert` and `--tls-key`
+  options, enforces TLS 1.2 or newer, and reports the effective transport
+  accurately in the access-control warning.
+- **Dashboard model coverage.** The BGP session table now shows configured and
+  unmanaged live sessions and reports how much of the running router is
+  represented in Birdy's model.
+
+### Changed
+- **Full-table polling is responsive.** Session state is published before the
+  expensive whole-RIB count, and aggregate route totals refresh once per minute
+  instead of blocking every poll.
+- **Theme and interaction scripts are shared static assets.** Early theme
+  initialization prevents flashes and incomplete light/dark rendering, while
+  delegated row navigation and confirmations work without inline JavaScript.
+- **Database and backup work is bounded.** SQLite uses a small connection pool,
+  snapshot uploads have a hard 64 MiB request limit, and backup downloads stream
+  the database into the archive instead of reading another full copy into memory.
+- **Risky applies require acknowledgement.** Apply requires an explicit check
+  when lint finds dangers or live sessions would disappear from the generated
+  model. Missing import limits are surfaced, and a peer without import policy is
+  now a danger rather than a low-priority warning.
+
+### Security
+- **Kernel synchronization now fails closed.** Generated kernel protocols import
+  nothing and export nothing by default. A configured preferred source permits
+  only Birdy-originated static routes; imported BGP routes require the separate,
+  explicit per-family setting above.
+- **Public HTTP handling is hardened.** The server now has connection timeouts, a
+  32 KiB header ceiling, same-origin validation for browser writes, fail-closed
+  malformed client handling, and tighter CSP, opener, resource and permissions
+  policies.
+- **Password changes revoke old sessions atomically.** A successful change
+  deletes every existing session for that account and creates one replacement
+  session in the same transaction.
+- **Sensitive backups are owner-only.** Snapshots, staged restores, restored
+  databases and copied database files are written with mode `0600`.
+- **Login throttling has bounded memory.** Expired records are pruned and the
+  in-memory per-address limiter has a fixed maximum size.
+- **Snapshot restore input is bounded before multipart parsing.** Oversized
+  requests are rejected before the parser can consume unbounded memory or
+  temporary storage.
+
 ## [0.3.7] - 2026-07-16
 
 ### Added

@@ -34,6 +34,11 @@ func TestCreateSnapshotAndPrune(t *testing.T) {
 		if _, err := os.Stat(p); err != nil {
 			t.Fatalf("snapshot file missing: %v", err)
 		}
+		if info, err := os.Stat(p); err != nil {
+			t.Fatal(err)
+		} else if got := info.Mode().Perm(); got != 0o600 {
+			t.Fatalf("snapshot mode = %o, want 600", got)
+		}
 		time.Sleep(1100 * time.Millisecond) // ensure distinct second-granularity filenames
 	}
 
