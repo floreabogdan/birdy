@@ -101,7 +101,17 @@ func (s *Server) handlePeerNew(w http.ResponseWriter, r *http.Request) {
 	// switches to iBGP: it is ignored for every other role, and off is the setting
 	// that blackholes.
 	p := store.Peer{Role: store.RoleUpstream, Enabled: true, EnforceFirstAS: true,
-		BGPRole: true, NextHopSelf: true, ImportLimitAction: "restart", GracefulRestart: store.GRAware}
+		BGPRole: true, NextHopSelf: true, ImportLimit: 1500000,
+		ImportLimitAction: "restart", GracefulRestart: store.GRAware}
+	// A first-time operator should get a useful, fail-closed upstream by filling
+	// in identity fields and saving. These are ordinary selections in the form,
+	// so changing the relationship remains explicit and reversible.
+	if pol, err := s.store.GetPolicyByName("IMPORT_SANITY"); err == nil {
+		p.ImportPolicies = []store.Policy{pol}
+	}
+	if pol, err := s.store.GetPolicyByName("EXPORT_OWN"); err == nil {
+		p.ExportPolicies = []store.Policy{pol}
+	}
 	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: true, Peer: p})
 }
 
@@ -134,6 +144,7 @@ func peerFromForm(r *http.Request) store.Peer {
 		Password:          r.FormValue("password"),
 		ImportLimit:       formInt(r, "importLimit"),
 		ImportLimitAction: r.FormValue("importLimitAction"),
+		ImportCommunities: strings.TrimSpace(r.FormValue("importCommunities")),
 		EnforceFirstAS:    r.FormValue("enforceFirstAs") == "on",
 		OriginPeerOnly:    r.FormValue("originPeerOnly") == "on",
 		BGPRole:           r.FormValue("bgpRole") == "on",
@@ -176,6 +187,9 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 	s.checkChains(p, importIDs, exportIDs, errs)
 	if msg := s.checkCommunityRefs(p.ExportCommunities); msg != "" {
 		errs["exportCommunities"] = msg
+	}
+	if msg := s.checkCommunityRefs(p.ImportCommunities); msg != "" {
+		errs["importCommunities"] = msg
 	}
 
 	if len(errs) == 0 {

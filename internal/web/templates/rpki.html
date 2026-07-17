@@ -76,7 +76,7 @@
 							</td>
 							<td class="row-actions">
 								<a class="icon-action a-primary" href="/rpki/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
-								<form method="post" action="/rpki/{{.Name}}/delete" onsubmit="return confirm('Delete RTR server {{.Name}}?')">
+								<form method="post" action="/rpki/{{.Name}}/delete" data-confirm="Delete RTR server {{.Name}}?">
 									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
 								</form>
 							</td>

@@ -45,6 +45,7 @@ func TestKernelPrefSrcSavedFromForm(t *testing.T) {
 	env.do(t, "POST", "/settings/identity", url.Values{
 		"routerLabel": {"rtr2"}, "routerId": {"192.0.2.1"}, "localAsn": {"64500"},
 		"kernelPrefsrcV4": {"203.0.113.1"}, "kernelPrefsrcV6": {"2001:db8::1"},
+		"kernelExportBgpV4": {"on"}, "kernelExportBgpV6": {"on"},
 	})
 
 	got, _, err := env.store.GetSettings()
@@ -53,6 +54,9 @@ func TestKernelPrefSrcSavedFromForm(t *testing.T) {
 	}
 	if got.KernelPrefSrcV4 != "203.0.113.1" || got.KernelPrefSrcV6 != "2001:db8::1" {
 		t.Errorf("kernel preferred source not saved: %+v", got)
+	}
+	if !got.KernelExportBGPV4 || !got.KernelExportBGPV6 {
+		t.Errorf("kernel BGP export flags not saved: %+v", got)
 	}
 }
 

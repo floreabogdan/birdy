@@ -122,6 +122,28 @@ func TestUsersAndSessions(t *testing.T) {
 	if err := s.PruneExpiredSessions(); err != nil {
 		t.Fatal(err)
 	}
+
+	if err := s.CreateSession("old-a", id, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateSession("old-b", id, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RotatePasswordSession(id, "hash3", "replacement", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{"old-a", "old-b"} {
+		if _, ok, err := s.GetSession(token); err != nil || ok {
+			t.Fatalf("old session %q survived rotation: ok=%v err=%v", token, ok, err)
+		}
+	}
+	if sess, ok, err := s.GetSession("replacement"); err != nil || !ok || sess.UserID != id {
+		t.Fatalf("replacement session: sess=%+v ok=%v err=%v", sess, ok, err)
+	}
+	u, _, _ = s.GetUserByUsername("admin")
+	if u.PasswordHash != "hash3" {
+		t.Fatalf("rotated password not stored: %+v", u)
+	}
 }
 
 func TestEventsListingAndPagination(t *testing.T) {

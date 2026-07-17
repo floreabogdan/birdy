@@ -108,7 +108,7 @@
 						&mdash; and this button appears.
 					</p>
 					{{else}}
-					<form method="post" action="/apply/adopt" onsubmit="return confirm('Back up the current bird.conf and let birdy manage it?')">
+					<form method="post" action="/apply/adopt" data-confirm="Back up the current bird.conf and let birdy manage it?">
 						<button type="submit" class="btn btn-primary">Adopt this router</button>
 					</form>
 					{{end}}
@@ -135,9 +135,15 @@
 						Applying writes this config, asks BIRD to load it with a <strong>{{.ApplyTimeout}}s safety timeout</strong>
 						(so a mistake reverts itself), and waits for you to confirm. The current file is backed up first.
 					</p>
-					<form method="post" action="/apply" onsubmit="return confirm('Apply this config to BIRD? It reverts automatically unless you confirm within the timeout.')">
+					<form method="post" action="/apply" data-confirm="Apply this config to BIRD? It reverts automatically unless you confirm within the timeout.">
 						<label class="check" style="margin-bottom:4px"><input type="checkbox" name="soft" checked> Soft reload &mdash; keep BGP sessions up. birdy re-runs the changed filters against existing routes with a route-refresh, so the change still takes effect without a session bounce.</label>
 						<div class="hint" style="margin-bottom:12px">Uncheck to restart affected protocols instead — a harder apply that bounces sessions but needs no route-refresh support. A peer that cannot route-refresh is noted after applying.</div>
+						{{if or .Dangers .WouldRemove}}
+						<label class="check" style="margin-bottom:12px">
+							<input type="checkbox" name="ackRisks" required>
+							I reviewed the {{if .Dangers}}serious policy finding{{if ne .Dangers 1}}s{{end}}{{if .WouldRemove}} and {{end}}{{end}}{{if .WouldRemove}}live session{{if ne (len .WouldRemove) 1}}s{{end}} that would be removed{{end}}, and intend to proceed.
+						</label>
+						{{end}}
 						<div class="form-actions" style="margin-top:0">
 							<button type="submit" class="btn btn-primary">{{template "icon-bolt"}}Apply to BIRD</button>
 						</div>

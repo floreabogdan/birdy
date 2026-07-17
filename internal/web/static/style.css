@@ -44,6 +44,7 @@
 
 /* ---------- tokens ---------- */
 :root {
+	color-scheme: light;
 	--bg: #f1f1f1;
 	--surface: #ffffff;
 	--surface-alt: #f6f7f8;
@@ -98,6 +99,7 @@
    read as mud, so dark mode swaps them for light ink of the same hue. Every
    consumer (badge text, stat label, link, gauge fill) wants that inversion. */
 :root[data-theme="dark"] {
+	color-scheme: dark;
 	--bg: #1b1e1d;
 	--surface: #242827;
 	--surface-alt: #2a2e2d;
@@ -123,6 +125,7 @@
 
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) {
+		color-scheme: dark;
 		--bg: #1b1e1d;
 		--surface: #242827;
 		--surface-alt: #2a2e2d;
@@ -479,8 +482,21 @@ a.pager-page:hover { background: var(--surface-alt); color: var(--text); text-de
 .pager-summary { font-size: 0.75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .btn.is-disabled { opacity: 0.45; pointer-events: none; }
 
-table { width: 100%; border-collapse: separate; border-spacing: 0; }
-th, td { text-align: left; padding: 12px 14px; font-size: 0.8125rem; }
+table {
+	width: 100%;
+	border-collapse: separate;
+	border-spacing: 0;
+	color: var(--text);
+	background: var(--surface);
+}
+th, td {
+	text-align: left;
+	padding: 12px 14px;
+	font-size: 0.8125rem;
+	color: var(--text);
+	opacity: 1;
+	visibility: visible;
+}
 thead th {
 	background: var(--thead-bg);
 	color: var(--thead-text);
@@ -492,9 +508,9 @@ thead th {
 }
 thead th:first-child { border-radius: var(--radius-badge) 0 0 var(--radius-badge); }
 thead th:last-child { border-radius: 0 var(--radius-badge) var(--radius-badge) 0; }
-tbody td { border-bottom: 1px solid var(--border); }
+tbody td { border-bottom: 1px solid var(--border); background: var(--surface); }
 tbody tr:last-child td { border-bottom: none; }
-tbody tr:hover { background: var(--surface-alt); }
+tbody tr:hover td { background: var(--surface-alt); }
 td.num, th.num { text-align: right; }
 
 /* ---------- hero: the router answers "am I healthy?" before you scroll ---------- */
@@ -852,6 +868,7 @@ textarea {
 
 .table-scroll { overflow-x: auto; }
 .row-link { cursor: pointer; }
+.row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .mono, td.num, .stat-value, .timeline-time { font-variant-numeric: tabular-nums; }
 .login-sub { text-align: center; color: var(--text-muted); font-size: 0.75rem; margin: -14px 0 18px; }
 

@@ -17,6 +17,9 @@ type Session struct {
 // CreateSession stores a new login session token.
 func (s *Store) CreateSession(token string, userID int64, expiresAt time.Time) error {
 	ts := now()
+	if _, err := s.db.Exec(`DELETE FROM sessions WHERE expires_at < ?`, ts); err != nil {
+		return fmt.Errorf("store: prune sessions before create: %w", err)
+	}
 	_, err := s.db.Exec(`INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
 		token, userID, ts, expiresAt.UTC().Format(time.RFC3339Nano))
 	if err != nil {
@@ -42,6 +45,9 @@ func (s *Store) GetSession(token string) (Session, bool, error) {
 		return Session{}, false, fmt.Errorf("store: parse session expiry: %w", err)
 	}
 	if time.Now().After(sess.ExpiresAt) {
+		if err := s.DeleteSession(token); err != nil {
+			return Session{}, false, err
+		}
 		return Session{}, false, nil
 	}
 	return sess, true, nil

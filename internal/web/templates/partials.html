@@ -1,13 +1,10 @@
 {{define "head"}}
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/static/style.css">
-<script>
-(function() {
-	var saved = localStorage.getItem("birdy-theme");
-	if (saved) document.documentElement.setAttribute("data-theme", saved);
-})();
-</script>
+<link rel="stylesheet" href="/static/style.css?v=hardened6">
+<script src="/static/theme-bootstrap.js?v=hardened6"></script>
+<script src="/static/theme.js?v=hardened6" defer></script>
+<script src="/static/ui.js?v=hardened6" defer></script>
 {{end}}
 
 {{define "icon-dashboard"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>{{end}}
@@ -116,7 +113,7 @@
 		</div>
 	</div>
 	<div class="topbar-right">
-		<button id="theme-toggle" class="icon-btn" title="Toggle theme" type="button">{{template "icon-sun"}}</button>
+		<button id="theme-toggle" class="icon-btn" title="Switch color theme" type="button" aria-label="Switch color theme" aria-pressed="false">{{template "icon-sun"}}</button>
 		<a href="/timeline" class="icon-btn" title="Recent alerts">
 			{{template "icon-bell"}}
 			<span id="notif-pill" class="notif-pill" style="display:none">0</span>

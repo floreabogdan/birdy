@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -53,6 +54,16 @@ func TestLoginResetsOnSuccess(t *testing.T) {
 	}
 	if env.srv.login.blocked("192.0.2.1") {
 		t.Error("the failure count should have reset after the successful login")
+	}
+}
+
+func TestLoginLimiterStateIsBounded(t *testing.T) {
+	l := newLoginLimiter()
+	for i := 0; i < maxLoginLimiterEntries+500; i++ {
+		l.fail(fmt.Sprintf("192.0.2.%d", i))
+	}
+	if got := len(l.byIP); got > maxLoginLimiterEntries {
+		t.Fatalf("limiter retained %d entries, limit is %d", got, maxLoginLimiterEntries)
 	}
 }
 

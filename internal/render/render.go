@@ -88,11 +88,13 @@ type Input struct {
 	// RRClusterID is emitted beside "rr client". Empty lets BIRD use the router ID.
 	RRClusterID string
 
-	// KernelPrefSrcV4 and KernelPrefSrcV6 pin krt_prefsrc on the kernel4 / kernel6
-	// export. Empty leaves that channel as `export all`, byte for byte what birdy
-	// rendered before this option existed.
-	KernelPrefSrcV4 string
-	KernelPrefSrcV6 string
+	// KernelPrefSrcV4 and KernelPrefSrcV6 pin krt_prefsrc on routes birdy
+	// installs into the kernel FIB — both Birdy-originated static routes and,
+	// when KernelExportBGP is also enabled, selected BGP routes.
+	KernelPrefSrcV4   string
+	KernelPrefSrcV6   string
+	KernelExportBGPV4 bool
+	KernelExportBGPV6 bool
 	// RawConfig is appended verbatim at the end of the file. birdy neither
 	// parses it nor knows what it does.
 	RawConfig string
@@ -511,12 +513,13 @@ protocol direct direct1 {
 	ipv6;
 }
 
-# Export BIRD's best routes into the kernel FIB; never learn from it.
+# Kernel route installation is opt-in. Never learn from the FIB, and never
+# install imported BGP routes into it by default.
 protocol kernel kernel4 {
 	ipv4 {
 		import none;
 `)
-	writeKernelExport(b, in.KernelPrefSrcV4)
+	writeKernelExport(b, in.KernelPrefSrcV4, in.KernelExportBGPV4, kernelProtectedAddrs(in, true))
 	b.WriteString(`	};
 }
 
@@ -524,24 +527,70 @@ protocol kernel kernel6 {
 	ipv6 {
 		import none;
 `)
-	writeKernelExport(b, in.KernelPrefSrcV6)
+	writeKernelExport(b, in.KernelPrefSrcV6, in.KernelExportBGPV6, kernelProtectedAddrs(in, false))
 	b.WriteString(`	};
 }
 
 `)
 }
 
-// writeKernelExport writes the export clause for one kernel channel. With no
-// preferred source it is the plain `export all` birdy has always written; with
-// one it becomes an export filter that stamps krt_prefsrc on every route, so the
-// kernel uses that address as the source for locally-originated traffic to the
-// destinations BIRD installs.
-func writeKernelExport(b *strings.Builder, prefSrc string) {
-	if prefSrc == "" {
-		b.WriteString("\t\texport all;\n")
+// writeKernelExport admits only explicitly selected route sources. A preferred
+// source opts in Birdy-originated static routes; exportBGP opts in the selected
+// BGP route for each prefix. No mode emits a blanket export.
+func writeKernelExport(b *strings.Builder, prefSrc string, exportBGP bool, protected []netip.Addr) {
+	if prefSrc == "" && !exportBGP {
+		b.WriteString("\t\texport none;\n")
 		return
 	}
-	fmt.Fprintf(b, "\t\texport filter {\n\t\t\tkrt_prefsrc = %s;\n\t\t\taccept;\n\t\t};\n", prefSrc)
+	b.WriteString("\t\texport filter {\n")
+	if exportBGP {
+		b.WriteString("\t\t\tif source = RTS_BGP then {\n")
+		if len(protected) > 0 {
+			b.WriteString("\t\t\t\tif net.len > 0 then {\n")
+			for _, addr := range protected {
+				fmt.Fprintf(b, "\t\t\t\t\tif %s ~ net then reject;\n", addr)
+			}
+			b.WriteString("\t\t\t\t}\n")
+		}
+		if prefSrc != "" {
+			fmt.Fprintf(b, "\t\t\t\tkrt_prefsrc = %s;\n", prefSrc)
+		}
+		b.WriteString("\t\t\t\taccept;\n\t\t\t}\n")
+	}
+	if prefSrc != "" {
+		fmt.Fprintf(b, "\t\t\tif source = RTS_STATIC then {\n\t\t\t\tkrt_prefsrc = %s;\n\t\t\t\taccept;\n\t\t\t}\n", prefSrc)
+	}
+	b.WriteString("\t\t\treject;\n\t\t};\n")
+}
+
+// kernelProtectedAddrs returns control-plane addresses that imported BGP routes
+// must never cover in the host FIB. A more-specific route to a directly attached
+// peer overrides the connected subnet; a covering unreachable route can also
+// blackhole the peer and its gateway through recursive next-hop resolution.
+func kernelProtectedAddrs(in Input, v4 bool) []netip.Addr {
+	seen := make(map[netip.Addr]bool)
+	add := func(raw string) {
+		addr, err := netip.ParseAddr(strings.TrimSpace(raw))
+		if err == nil && addr.Is4() == v4 {
+			seen[addr] = true
+		}
+	}
+	if v4 {
+		add(in.RouterID)
+		add(in.KernelPrefSrcV4)
+	} else {
+		add(in.KernelPrefSrcV6)
+	}
+	for _, peer := range in.Peers {
+		add(peer.NeighborIP)
+		add(peer.LocalIP)
+	}
+	out := make([]netip.Addr, 0, len(seen))
+	for addr := range seen {
+		out = append(out, addr)
+	}
+	slices.SortFunc(out, func(a, b netip.Addr) int { return a.Compare(b) })
+	return out
 }
 
 // writeBFDProtocol emits a single BFD protocol when any enabled peer uses it.
@@ -1072,6 +1121,15 @@ func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 
 	for _, pol := range p.ImportPolicies {
 		fmt.Fprintf(b, "\t%s;\n", policyFunc(pol, fam))
+	}
+	// Operator-defined ingress tags identify this specific neighbor (for
+	// example, an IX route server or downstream) in addition to the broader
+	// automatic relationship tag below.
+	refs, _ := store.ParseCommunityRefs(p.ImportCommunities)
+	comms := in.communityByName()
+	for _, ref := range refs {
+		attr, expr := communityRefExpr(ref, comms)
+		fmt.Fprintf(b, "\t%s.add(%s);\n", attr, expr)
 	}
 	// Only eBGP stamps an origin tag; an iBGP route already carries the one it was
 	// given at the edge, and roleTag has no entry for iBGP.

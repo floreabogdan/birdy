@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -25,6 +26,8 @@ func cmdServer(args []string) error {
 	dbPath := fs.String("db", defaultDBPath, "path to birdy's SQLite database")
 	socketPath := fs.String("socket", "", "override BIRD control socket path (defaults to the value set by \"birdy init\")")
 	listen := fs.String("listen", "", "override listen address (defaults to the value set by \"birdy init\")")
+	tlsCert := fs.String("tls-cert", "", "PEM certificate file for native HTTPS (requires --tls-key)")
+	tlsKey := fs.String("tls-key", "", "PEM private key file for native HTTPS (requires --tls-cert)")
 	readOnly := fs.Bool("read-only", false, "run as a pure viewer: never write bird.conf, never issue write commands to BIRD")
 	birdConf := fs.String("bird-conf", defaultConfigDir+"/bird.conf", "path to the running BIRD config birdy reads and (unless --read-only) writes")
 	birdBackupDir := fs.String("bird-backup-dir", defaultBirdBackupDir, "where a copy of bird.conf is kept before each apply overwrites it")
@@ -46,6 +49,9 @@ func cmdServer(args []string) error {
 	sampleRetain := fs.Duration("sample-retain", 7*24*time.Hour, "how long to keep route-count history samples")
 	irrRefreshInterval := fs.Duration("irr-refresh-interval", 24*time.Hour, "how often to re-expand auto-refresh prefix sets and AS sets from IRR via bgpq4 (0 disables; requires --bgpq4)")
 	fs.Parse(args)
+	if (*tlsCert == "") != (*tlsKey == "") {
+		return fmt.Errorf("--tls-cert and --tls-key must be provided together")
+	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
@@ -109,7 +115,7 @@ Fix it with:
 		Store: st, Client: client, Poller: p, Snapshot: snapMgr, Log: log, ReadOnly: *readOnly,
 		BirdConfPath: *birdConf, BirdBackupDir: *birdBackupDir, BirdBinary: *birdBinary,
 		ApplyTimeout: *applyTimeout, Notifier: dispatcher, Metrics: feat.Metrics, PeeringDB: feat.PeeringDB,
-		Bgpq4Bin: feat.Bgpq4Bin, NetDiag: feat.NetDiag, ListenAddr: effListen,
+		Bgpq4Bin: feat.Bgpq4Bin, NetDiag: feat.NetDiag, ListenAddr: effListen, TLS: *tlsCert != "",
 	})
 
 	// Alert if the config on disk changes out from under birdy (inert until birdy
@@ -123,15 +129,37 @@ Fix it with:
 	// default and has no TLS, so an allow-all access list means the login crosses
 	// the network in the clear to anyone who finds the port.
 	if srv.WideOpen() {
-		log.Warn("birdy is reachable from any IP and has no TLS — set the access list under Settings > Access control, or bind loopback with --listen 127.0.0.1:8080",
-			"addr", effListen)
+		if *tlsCert == "" {
+			log.Warn("birdy is reachable from any IP and has no TLS — set the access list under Settings > Access control, configure --tls-cert/--tls-key, or bind loopback",
+				"addr", effListen)
+		} else {
+			log.Warn("birdy is reachable from any IP — narrow the access list under Settings > Access control",
+				"addr", effListen)
+		}
 	}
 
-	httpServer := &http.Server{Addr: effListen, Handler: srv}
+	// Bound connection lifetimes prevent a small number of slow clients from
+	// exhausting the public server's file descriptors or goroutines.
+	httpServer := &http.Server{
+		Addr:              effListen,
+		Handler:           srv,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       2 * time.Minute,
+		WriteTimeout:      2 * time.Minute,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    32 << 10,
+		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12},
+	}
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("birdy listening", "addr", effListen, "readOnly", *readOnly)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Info("birdy listening", "addr", effListen, "readOnly", *readOnly, "tls", *tlsCert != "")
+		var err error
+		if *tlsCert != "" {
+			err = httpServer.ListenAndServeTLS(*tlsCert, *tlsKey)
+		} else {
+			err = httpServer.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 	}()

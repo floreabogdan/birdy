@@ -77,12 +77,14 @@ type DashboardView struct {
 	// SessionDown counts only sessions that are down and were meant to be up.
 	// SessionDisabled counts the ones switched off in the model — they are not a
 	// fault, and folding them into "down" would make the health verdict lie.
-	SessionDown     int           `json:"sessionDown"`
-	SessionDisabled int           `json:"sessionDisabled"`
-	TotalRoutes     int           `json:"totalRoutes"`
-	PollErr         string        `json:"pollErr,omitempty"`
-	UpdatedAt       time.Time     `json:"updatedAt"`
-	RecentEvents    []store.Event `json:"recentEvents"`
+	SessionDown      int           `json:"sessionDown"`
+	SessionDisabled  int           `json:"sessionDisabled"`
+	SessionManaged   int           `json:"sessionManaged"`
+	SessionUnmanaged int           `json:"sessionUnmanaged"`
+	TotalRoutes      int           `json:"totalRoutes"`
+	PollErr          string        `json:"pollErr,omitempty"`
+	UpdatedAt        time.Time     `json:"updatedAt"`
+	RecentEvents     []store.Event `json:"recentEvents"`
 
 	// One-line verdict shown in the dashboard hero. Computed here rather than
 	// in the template or dashboard.js so the first paint and every poll agree.
@@ -170,6 +172,11 @@ func (s *Server) buildDashboardView() DashboardView {
 			row.Configured = configured[row.Name]
 			row.Disabled = disabled[row.Name]
 			v.Sessions = append(v.Sessions, *row)
+			if row.Configured {
+				v.SessionManaged++
+			} else {
+				v.SessionUnmanaged++
+			}
 			switch {
 			// A disabled peer that BIRD still has up has not been applied yet; it is
 			// genuinely still carrying traffic, so it counts as up until it isn't.

@@ -22,6 +22,7 @@ func TestCommunityReferenceByName(t *testing.T) {
 
 	p := ebgpPeer()
 	p.ImportPolicies = []store.Policy{imp}
+	p.ImportCommunities = "BIG_TAG\n65000:200"
 	p.ExportCommunities = "NO_EXPORT_X\n65535:777" // one named, one literal
 	p.ExportPolicies = []store.Policy{{ID: 2, Name: "EXPORT_MINE", Direction: store.DirExport, AnnounceEverything: true}}
 	in.Peers = []store.Peer{p}
@@ -41,6 +42,13 @@ func TestCommunityReferenceByName(t *testing.T) {
 	}
 	if !strings.Contains(seg, "bgp_community.add((65535, 777));") {
 		t.Error("a literal community should still render inline")
+	}
+	inbound := block(t, out, "filter ebgp_in_"+p.Name)
+	if !strings.Contains(inbound, "bgp_large_community.add(BIG_TAG);") {
+		t.Errorf("import should add the named large community:\n%s", inbound)
+	}
+	if !strings.Contains(inbound, "bgp_community.add((65000, 200));") {
+		t.Errorf("import should add the literal standard community:\n%s", inbound)
 	}
 
 	// The policy import match references the large community by name and looks it

@@ -14,6 +14,12 @@ import (
 
 func (e *testEnv) do(t *testing.T, method, path string, form url.Values) *httptest.ResponseRecorder {
 	t.Helper()
+	// Most apply tests exercise the apply pipeline itself, not the review gate.
+	// Treat their nil form as an operator acknowledgment; a deliberately empty
+	// non-nil form tests the blocked path.
+	if method == http.MethodPost && path == "/apply" && form == nil {
+		form = url.Values{"ackRisks": {"on"}}
+	}
 	var req *http.Request
 	if form == nil {
 		req = httptest.NewRequest(method, path, nil)
@@ -39,14 +45,16 @@ func peerForm() url.Values {
 func TestPeerCreateEditDeleteRoundTrip(t *testing.T) {
 	env := newTestEnv(t, false)
 
-	if rec := env.do(t, "POST", "/peers/new", peerForm()); rec.Code != http.StatusSeeOther {
+	form := peerForm()
+	form.Set("importCommunities", "65000:120")
+	if rec := env.do(t, "POST", "/peers/new", form); rec.Code != http.StatusSeeOther {
 		t.Fatalf("create: code=%d body=%s", rec.Code, rec.Body)
 	}
 	p, err := env.store.GetPeerByName("transit_v4")
 	if err != nil {
 		t.Fatalf("peer not stored: %v", err)
 	}
-	if p.RemoteASN != 64497 || !p.Enabled || p.ImportLimit != 1000000 {
+	if p.RemoteASN != 64497 || !p.Enabled || p.ImportLimit != 1000000 || p.ImportCommunities != "65000:120" {
 		t.Errorf("stored peer wrong: %+v", p)
 	}
 
@@ -57,7 +65,7 @@ func TestPeerCreateEditDeleteRoundTrip(t *testing.T) {
 	}
 
 	// Edit: rename and disable.
-	form := peerForm()
+	form = peerForm()
 	form.Set("name", "transit_v4_renamed")
 	form.Del("enabled")
 	if rec := env.do(t, "POST", "/peers/transit_v4/edit", form); rec.Code != http.StatusSeeOther {
@@ -94,6 +102,11 @@ func TestPeerNewOutranksSessionWildcard(t *testing.T) {
 	// "Raw BIRD output" only exists on the live session detail page.
 	if strings.Contains(body, "Raw BIRD output") {
 		t.Error("/peers/new rendered the live session detail page instead")
+	}
+	for _, want := range []string{`<option value="1" selected>IMPORT_SANITY</option>`, "EXPORT_OWN", `value="1500000"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/peers/new should carry safe starter default %q", want)
+		}
 	}
 }
 

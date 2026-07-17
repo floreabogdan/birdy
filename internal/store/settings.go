@@ -26,14 +26,15 @@ type Settings struct {
 	// reflector for the same clients and need both to share one cluster ID.
 	RRClusterID string
 
-	// KernelPrefSrcV4 and KernelPrefSrcV6 pin the preferred source address
-	// (krt_prefsrc) on routes birdy exports to the kernel FIB — the address the
-	// kernel uses as the source for locally-originated traffic to those
-	// destinations, typically a loopback. One per family because kernel4 and
-	// kernel6 are separate protocols. Empty leaves it to the kernel: the export
-	// stays `export all`, byte for byte what it rendered before.
+	// KernelPrefSrcV4 and KernelPrefSrcV6 pin krt_prefsrc on routes Birdy
+	// installs into the kernel FIB. Setting one also opts Birdy-originated static
+	// routes for that family into the FIB.
 	KernelPrefSrcV4 string
 	KernelPrefSrcV6 string
+	// KernelExportBGPV4 and KernelExportBGPV6 install only BIRD's selected BGP
+	// route for each prefix into the host FIB. They default off.
+	KernelExportBGPV4 bool
+	KernelExportBGPV6 bool
 
 	// RawConfig is appended verbatim to the end of the generated bird.conf.
 	// The escape hatch for everything birdy does not model — BFD, extra tables,
@@ -68,9 +69,8 @@ func (st *Settings) ValidateRRClusterID() string {
 	return ""
 }
 
-// ValidateKernelPrefSrcV4 accepts an empty value (leave the export as
-// `export all`) or an IPv4 address, the only form that belongs on the kernel4
-// protocol. It normalizes the stored value in place.
+// ValidateKernelPrefSrcV4 accepts an empty value or an IPv4 address, the only
+// form that belongs on the kernel4 protocol. It normalizes the stored value.
 func (st *Settings) ValidateKernelPrefSrcV4() string {
 	st.KernelPrefSrcV4 = strings.TrimSpace(st.KernelPrefSrcV4)
 	if st.KernelPrefSrcV4 == "" {
@@ -104,11 +104,14 @@ func (s *Store) GetSettings() (Settings, bool, error) {
 	var st Settings
 	row := s.db.QueryRow(`
 		SELECT router_label, local_asn, router_id, bird_socket_path, listen_addr, webhook_url,
-		       rr_cluster_id, kernel_prefsrc_v4, kernel_prefsrc_v6, raw_config, applied_config_hash, access_whitelist
+		       rr_cluster_id, kernel_prefsrc_v4, kernel_prefsrc_v6,
+		       kernel_export_bgp_v4, kernel_export_bgp_v6,
+		       raw_config, applied_config_hash, access_whitelist
 		FROM settings WHERE id = 1`)
 	err := row.Scan(&st.RouterLabel, &st.LocalASN, &st.RouterID, &st.BirdSocketPath,
 		&st.ListenAddr, &st.WebhookURL, &st.RRClusterID, &st.KernelPrefSrcV4, &st.KernelPrefSrcV6,
-		&st.RawConfig, &st.AppliedConfigHash, &st.AccessWhitelist)
+		&st.KernelExportBGPV4, &st.KernelExportBGPV6, &st.RawConfig, &st.AppliedConfigHash,
+		&st.AccessWhitelist)
 	if err == sql.ErrNoRows {
 		return Settings{}, false, nil
 	}
@@ -123,8 +126,9 @@ func (s *Store) SaveSettings(st Settings) error {
 	ts := now()
 	_, err := s.db.Exec(`
 		INSERT INTO settings (id, router_label, local_asn, router_id, bird_socket_path, listen_addr,
-		                      webhook_url, rr_cluster_id, kernel_prefsrc_v4, kernel_prefsrc_v6, raw_config, created_at, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                      webhook_url, rr_cluster_id, kernel_prefsrc_v4, kernel_prefsrc_v6,
+		                      kernel_export_bgp_v4, kernel_export_bgp_v6, raw_config, created_at, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			router_label = excluded.router_label,
 			local_asn = excluded.local_asn,
@@ -135,10 +139,13 @@ func (s *Store) SaveSettings(st Settings) error {
 			rr_cluster_id = excluded.rr_cluster_id,
 			kernel_prefsrc_v4 = excluded.kernel_prefsrc_v4,
 			kernel_prefsrc_v6 = excluded.kernel_prefsrc_v6,
+			kernel_export_bgp_v4 = excluded.kernel_export_bgp_v4,
+			kernel_export_bgp_v6 = excluded.kernel_export_bgp_v6,
 			raw_config = excluded.raw_config,
 			updated_at = excluded.updated_at
 	`, st.RouterLabel, st.LocalASN, st.RouterID, st.BirdSocketPath, st.ListenAddr, st.WebhookURL,
-		st.RRClusterID, st.KernelPrefSrcV4, st.KernelPrefSrcV6, st.RawConfig, ts, ts)
+		st.RRClusterID, st.KernelPrefSrcV4, st.KernelPrefSrcV6, st.KernelExportBGPV4,
+		st.KernelExportBGPV6, st.RawConfig, ts, ts)
 	if err != nil {
 		return fmt.Errorf("store: save settings: %w", err)
 	}

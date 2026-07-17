@@ -68,7 +68,7 @@
 								<div class="field">
 									<label for="kernelPrefsrcV4">Kernel source (IPv4)</label>
 									<input type="text" id="kernelPrefsrcV4" name="kernelPrefsrcV4" class="mono" value="{{.Settings.KernelPrefSrcV4}}" placeholder="optional" autocomplete="off">
-									<div class="hint">Pins <code class="mono">krt_prefsrc</code> on the routes birdy installs into the kernel, so the router's own traffic to those destinations leaves with this source — typically a loopback. Blank leaves the export as <code class="mono">export all</code> and lets the kernel choose.</div>
+									<div class="hint">Pins <code class="mono">krt_prefsrc</code> on routes birdy installs into the kernel &mdash; both Birdy-originated static routes and, when BGP installation is also enabled below, selected BGP routes. Typically a loopback. Blank leaves static route export disabled for this family.</div>
 									{{with index .IdentityErrs "kernelPrefsrcV4"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
 								<div class="field">
@@ -77,6 +77,12 @@
 									<div class="hint">The IPv6 counterpart, applied to the <code class="mono">kernel6</code> protocol. Blank leaves it to the kernel.</div>
 									{{with index .IdentityErrs "kernelPrefsrcV6"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
+							</div>
+							<div class="field">
+								<label>Kernel forwarding table</label>
+								<label class="check-row"><input type="checkbox" name="kernelExportBgpV4" {{if .Settings.KernelExportBGPV4}}checked{{end}}> Install selected IPv4 BGP routes</label>
+								<label class="check-row"><input type="checkbox" name="kernelExportBgpV6" {{if .Settings.KernelExportBGPV6}}checked{{end}}> Install selected IPv6 BGP routes</label>
+								<div class="hint">Advanced router mode. Exports only BIRD's selected <code class="mono">RTS_BGP</code> route for each prefix, never a blanket <code class="mono">export all</code>. Routes covering configured peers or local control-plane addresses are excluded. This can install a full Internet table. Linux forwarding and firewall policy are configured separately.</div>
 							</div>
 							<button type="submit" class="btn btn-primary">Save identity</button>
 						</form>
@@ -114,20 +120,6 @@
 							<span id="restore-msg" class="text-muted" style="margin-left:10px"></span>
 						</form>
 						<p class="text-muted" style="margin-top:8px">Restoring is staged, not applied live: birdy backs up the current database and swaps in the uploaded one the next time it starts. Run <code class="mono">systemctl restart birdy</code> afterward.</p>
-						<script>
-						document.getElementById("restore-form").addEventListener("submit", function (e) {
-							e.preventDefault();
-							var msg = document.getElementById("restore-msg");
-							var data = new FormData(e.target);
-							msg.textContent = "Uploading...";
-							fetch("/api/snapshot/restore", { method: "POST", body: data, credentials: "same-origin" })
-								.then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
-								.then(function (res) {
-									msg.textContent = res.ok ? res.j.message : (res.j.error || "restore failed");
-								})
-								.catch(function () { msg.textContent = "restore failed"; });
-						});
-						</script>
 						{{end}}
 					</div>
 				</div>
@@ -171,7 +163,7 @@
 							<div class="form-actions" style="margin-bottom:0">
 								<button type="submit" class="btn btn-primary">Save bogon lists</button>
 								<button type="submit" name="restore" value="defaults" class="btn"
-									onclick="return confirm('Replace all three lists with the values birdy ships with?')">Restore defaults</button>
+									data-confirm="Replace all three lists with the values birdy ships with?">Restore defaults</button>
 							</div>
 						</form>
 					</div>
@@ -184,9 +176,11 @@
 					<div class="card-body">
 						{{if .WideOpen}}
 						<p class="text-muted" style="margin-top:0">
-							birdy is currently reachable from <strong>any</strong> address, and it has no TLS &mdash; on a public
-							address the login travels in the clear. Narrowing the list below is the fix, and it also switches on
-							<span class="mono">/metrics</span>.
+							birdy is currently reachable from <strong>any</strong> address.
+							{{if not .TLS}}It has no TLS, so on a public address the login travels in the clear. Configure
+							<span class="mono">--tls-cert</span> and <span class="mono">--tls-key</span>, or narrow the list below.{{else}}
+							HTTPS is enabled, but narrowing the list below still reduces the exposed surface.{{end}}
+							A restricted list also switches on <span class="mono">/metrics</span>.
 						</p>
 						{{end}}
 						<p style="margin-top:0">
@@ -237,7 +231,7 @@
 								<td class="row-actions">
 									<form method="post" action="/alerts/{{.ID}}/test"><button type="submit" class="btn btn-sm" title="Send a test alert">Test</button></form>
 									<a class="icon-action a-primary" href="/alerts/{{.ID}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
-									<form method="post" action="/alerts/{{.ID}}/delete" onsubmit="return confirm('Delete alert destination {{.Name}}?')">
+									<form method="post" action="/alerts/{{.ID}}/delete" data-confirm="Delete alert destination {{.Name}}?">
 										<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
 									</form>
 								</td>
@@ -282,5 +276,7 @@
 		</div>
 	</div>
 </div>
+<script src="/static/tabs.js"></script>
+<script src="/static/settings.js"></script>
 </body>
 </html>

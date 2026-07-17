@@ -31,10 +31,32 @@ func newLoginLimiter() *loginLimiter {
 	return &loginLimiter{byIP: map[string]*attemptRecord{}, max: 5, window: 15 * time.Minute, lockout: 5 * time.Minute}
 }
 
+const maxLoginLimiterEntries = 4096
+
+func (l *loginLimiter) prune(now time.Time) {
+	for ip, rec := range l.byIP {
+		if now.Sub(rec.first) > l.window && !now.Before(rec.until) {
+			delete(l.byIP, ip)
+		}
+	}
+	if len(l.byIP) < maxLoginLimiterEntries {
+		return
+	}
+	var oldestIP string
+	var oldest time.Time
+	for ip, rec := range l.byIP {
+		if oldestIP == "" || rec.first.Before(oldest) {
+			oldestIP, oldest = ip, rec.first
+		}
+	}
+	delete(l.byIP, oldestIP)
+}
+
 // blocked reports whether this IP is currently locked out.
 func (l *loginLimiter) blocked(ip string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.prune(time.Now())
 	rec := l.byIP[ip]
 	return rec != nil && time.Now().Before(rec.until)
 }
@@ -44,6 +66,7 @@ func (l *loginLimiter) fail(ip string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
+	l.prune(now)
 	rec := l.byIP[ip]
 	if rec == nil || now.Sub(rec.first) > l.window {
 		rec = &attemptRecord{first: now}

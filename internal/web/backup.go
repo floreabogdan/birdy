@@ -3,6 +3,7 @@ package web
 import (
 	"archive/zip"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -26,12 +27,13 @@ func (s *Server) handleBackupDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to create snapshot", http.StatusInternalServerError)
 		return
 	}
-	dbBytes, err := os.ReadFile(snapPath)
+	dbFile, err := os.Open(snapPath)
 	if err != nil {
 		s.log.Error("backup read snapshot failed", "error", err)
 		http.Error(w, "failed to read snapshot", http.StatusInternalServerError)
 		return
 	}
+	defer dbFile.Close()
 
 	// The rendered config is a convenience — it is regenerable from the DB — so a
 	// render failure just omits it rather than failing the whole backup.
@@ -57,6 +59,16 @@ func (s *Server) handleBackupDownload(w http.ResponseWriter, r *http.Request) {
 		}
 		_, _ = f.Write(data)
 	}
+	addFile := func(name string, src *os.File) {
+		f, werr := zw.Create(name)
+		if werr != nil {
+			s.log.Error("backup zip entry failed", "name", name, "error", werr)
+			return
+		}
+		if _, werr := io.Copy(f, src); werr != nil {
+			s.log.Error("backup zip copy failed", "name", name, "error", werr)
+		}
+	}
 
 	manifest := fmt.Sprintf("birdy backup\nversion: %s\ncreated: %s\n\n"+
 		"birdy.db      — the complete model; restore it under Settings, or point a\n"+
@@ -66,7 +78,7 @@ func (s *Server) handleBackupDownload(w http.ResponseWriter, r *http.Request) {
 		buildinfo.Version, stamp)
 
 	add("MANIFEST.txt", []byte(manifest))
-	add("birdy.db", dbBytes)
+	addFile("birdy.db", dbFile)
 	if confBytes != nil {
 		add("bird.conf", confBytes)
 	}

@@ -161,8 +161,14 @@ func TestLintNoImportPolicy(t *testing.T) {
 	p := ebgpPeer()
 	in := baseInput()
 	in.Peers = []store.Peer{p}
-	if ws := findings(t, in, p.Name); !hasMessage(ws, "No import policy") {
+	ws := findings(t, in, p.Name)
+	if !hasMessage(ws, "No import policy") {
 		t.Errorf("an unfiltered session should be flagged, got %+v", ws)
+	}
+	for _, w := range ws {
+		if strings.Contains(w.Message, "No import policy") && w.Severity != SeverityDanger {
+			t.Errorf("an unfiltered eBGP import must be serious, got %+v", w)
+		}
 	}
 }
 

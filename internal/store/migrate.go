@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 28
+const schemaVersion = 30
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -336,7 +336,7 @@ func migrate(db *sql.DB) error {
 		// Pin the preferred source address (krt_prefsrc) on routes birdy exports
 		// to the kernel FIB — the address the kernel stamps as the source of
 		// locally-originated traffic to those destinations, typically a loopback.
-		// One per family; empty (the default) leaves the export as `export all`.
+		// One per family; empty (the default) leaves kernel export disabled.
 		if err := ensureColumn(tx, "settings", "kernel_prefsrc_v4", `ALTER TABLE settings ADD COLUMN kernel_prefsrc_v4 TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
@@ -361,6 +361,41 @@ func migrate(db *sql.DB) error {
 		// addresses require defined interface".
 		if err := ensureColumn(tx, "peers", "interface", `ALTER TABLE peers ADD COLUMN interface TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
+		}
+	}
+
+	if version < 29 {
+		// Per-neighbor inbound tagging: operators can identify routes learned
+		// from a route server, downstream, or other specific session using
+		// standard or large communities from the named community library.
+		if err := ensureColumn(tx, "peers", "import_communities", `ALTER TABLE peers ADD COLUMN import_communities TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 30 {
+		// Installing selected BGP routes into the host FIB is deliberately
+		// opt-in per family. Existing routers stay fail-closed across upgrade.
+		if err := ensureColumn(tx, "settings", "kernel_export_bgp_v4", `ALTER TABLE settings ADD COLUMN kernel_export_bgp_v4 INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "settings", "kernel_export_bgp_v6", `ALTER TABLE settings ADD COLUMN kernel_export_bgp_v6 INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		// Existing routers that had `export all` (the old default) were
+		// installing every route into the kernel FIB. Switching to `export
+		// none` silently on upgrade would remove their kernel routes on the
+		// next apply. Preserve the old behaviour for databases that already
+		// have settings: enable both families so the first apply after
+		// upgrading is not a surprise.
+		var hasSettings int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM settings WHERE id = 1`).Scan(&hasSettings); err != nil {
+			return err
+		}
+		if hasSettings > 0 {
+			if _, err := tx.Exec(`UPDATE settings SET kernel_export_bgp_v4 = 1, kernel_export_bgp_v6 = 1 WHERE id = 1`); err != nil {
+				return err
+			}
 		}
 	}
 

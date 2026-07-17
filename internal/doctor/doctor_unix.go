@@ -44,7 +44,7 @@ func checkConfigReadable(cfg Config) Result {
 	// account the service will actually run as, and say whose behalf we answered on.
 	who := "birdy"
 	if euid == 0 {
-		if svc, ok := serviceIdentity(); ok {
+		if svc, ok := serviceIdentityFn(); ok {
 			return serviceReadable(name, svc, sockUID, sockGID, incDir, dir)
 		}
 		who = "root"
@@ -75,6 +75,10 @@ type svcIdentity struct {
 	uid    int
 	groups []int
 }
+
+// serviceIdentityFn is replaceable in tests so doctor checks are independent of
+// whether a real birdy account happens to exist on the machine running them.
+var serviceIdentityFn = serviceIdentity
 
 // serviceIdentity looks up the `birdy` account the packages create. Absent on a
 // source install run by hand, in which case the caller judges the current process.

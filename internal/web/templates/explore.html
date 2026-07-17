@@ -104,27 +104,6 @@
 					{{template "pager" .Pager}}
 				{{end}}
 				{{end}}
-				<script>
-				(function () {
-					var type = document.getElementById("type");
-					var label = document.getElementById("target-label");
-					var target = document.getElementById("target");
-					if (!type || !label || !target) return;
-					var hints = {
-						"for": ["Prefix or IP", "e.g. 192.0.2.0/24 or 8.8.8.8"],
-						"protocol": ["Peer name", "e.g. edge_v4"],
-						"export": ["Peer name", "e.g. edge_v4"],
-						"noexport": ["Peer name", "e.g. edge_v4"]
-					};
-					function apply() {
-						var h = hints[type.value] || hints["for"];
-						label.textContent = h[0];
-						target.placeholder = h[1];
-					}
-					type.addEventListener("change", apply);
-					apply();
-				})();
-				</script>
 			</section>
 
 			<section data-tab-panel="diag" {{if ne .Tab "diag"}}hidden{{end}} class="tab-panel">
@@ -180,5 +159,7 @@
 		</div>
 	</div>
 </div>
+<script src="/static/tabs.js"></script>
+<script src="/static/explore.js"></script>
 </body>
 </html>

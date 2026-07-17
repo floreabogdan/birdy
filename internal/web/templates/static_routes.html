@@ -58,7 +58,7 @@
 							<td>{{if .Enabled}}<span class="badge badge-success">enabled</span>{{else}}<span class="badge">disabled</span>{{end}}</td>
 							<td class="row-actions">
 								<a class="icon-action a-primary" href="/library/static-routes/{{.ID}}/edit" title="Edit {{.Prefix}}" aria-label="Edit {{.Prefix}}">{{template "icon-edit"}}</a>
-								<form method="post" action="/library/static-routes/{{.ID}}/delete" onsubmit="return confirm('Delete the static route for {{.Prefix}}?')">
+								<form method="post" action="/library/static-routes/{{.ID}}/delete" data-confirm="Delete the static route for {{.Prefix}}?">
 									<button type="submit" class="icon-action a-danger" title="Delete {{.Prefix}}" aria-label="Delete {{.Prefix}}">{{template "icon-trash"}}</button>
 								</form>
 							</td>

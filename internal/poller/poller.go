@@ -21,6 +21,11 @@ import (
 // window is logged as a flap rather than a plain session-up.
 const flapWindow = 3 * time.Minute
 
+// Counting every route in every table is materially slower than reading
+// protocol/session state on full-table routers. Keep session visibility fast
+// and refresh the aggregate on a slower cadence.
+const routeCountInterval = time.Minute
+
 // ProtoState is the poller's last-known view of one protocol.
 type ProtoState struct {
 	Summary    birdc.ProtocolSummary
@@ -83,6 +88,7 @@ type Poller struct {
 	sampleInterval time.Duration
 	sampleRetain   time.Duration
 	lastSample     time.Time
+	lastRouteCount time.Time
 
 	mu             sync.RWMutex
 	snap           Snapshot
@@ -282,22 +288,33 @@ func (p *Poller) poll() {
 		next[proto.Name] = state
 	}
 
-	totalRoutes := 0
-	if counts, err := p.client.RouteCount(); err != nil {
-		p.log.Warn("show route count failed", "error", err)
-	} else {
-		for _, c := range counts {
-			if isROATable(c.Table) {
-				continue // RPKI ROA tables hold ROAs, not routes — don't count them in the RIB
-			}
-			totalRoutes += c.Routes
-		}
-	}
-
+	// Publish session state before the expensive whole-RIB count. On a router
+	// carrying full tables this is the difference between seeing the BGP rows
+	// immediately and staring at an empty table until the count times out.
+	previousTotal := p.Snapshot().TotalRoutes
 	p.mu.Lock()
 	p.initialized = true
-	p.snap = Snapshot{Status: status, Protocols: protocols, States: next, TotalRoutes: totalRoutes, UpdatedAt: time.Now()}
+	p.snap = Snapshot{Status: status, Protocols: protocols, States: next, TotalRoutes: previousTotal, UpdatedAt: time.Now()}
 	p.mu.Unlock()
+
+	now := time.Now()
+	if p.lastRouteCount.IsZero() || now.Sub(p.lastRouteCount) >= routeCountInterval {
+		p.lastRouteCount = now
+		totalRoutes := 0
+		if counts, err := p.client.RouteCount(); err != nil {
+			p.log.Warn("show route count failed; keeping previous total", "error", err)
+		} else {
+			for _, c := range counts {
+				if isROATable(c.Table) {
+					continue // RPKI ROA tables hold ROAs, not routes
+				}
+				totalRoutes += c.Routes
+			}
+			p.mu.Lock()
+			p.snap.TotalRoutes = totalRoutes
+			p.mu.Unlock()
+		}
+	}
 
 	p.maybeSample(next, time.Now())
 }

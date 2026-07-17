@@ -39,7 +39,7 @@
 						Writes this exact config back to BIRD with the usual <strong>safety timeout</strong> &mdash; it reverts on its own
 						unless you confirm. The emergency-rollback path: put back a config you know worked.
 					</p>
-					<form method="post" action="/changes/history/{{.Version.ID}}/reapply" onsubmit="return confirm('Re-apply this config to BIRD? It reverts automatically unless you confirm within the timeout.')">
+					<form method="post" action="/changes/history/{{.Version.ID}}/reapply" data-confirm="Re-apply this config to BIRD? It reverts automatically unless you confirm within the timeout.">
 						<button type="submit" class="btn btn-primary">{{template "icon-bolt"}}Re-apply version #{{.Version.ID}}</button>
 					</form>
 					{{end}}

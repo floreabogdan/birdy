@@ -69,6 +69,19 @@
 					<div class="stat-rule"></div>
 					<span class="stat-note">excludes RPKI ROA tables</span>
 				</div>
+				<div class="stat {{if .SessionUnmanaged}}tint-warning{{else}}tint-success{{end}}">
+					<div class="stat-label">Model coverage</div>
+					<div class="stat-main">
+						<span class="stat-icon">{{if .SessionUnmanaged}}{{template "icon-alert"}}{{else}}{{template "icon-check"}}{{end}}</span>
+						<span class="stat-value"><span id="stat-managed">{{.SessionManaged}}</span><span class="stat-total"> / <span id="stat-model-total">{{len .Sessions}}</span></span></span>
+					</div>
+					<div class="stat-rule"><span class="stat-rule-fill" id="bar-managed" style="width:{{printf "%.0f" (ratio .SessionManaged (len .Sessions))}}%"></span></div>
+					{{if .SessionUnmanaged}}
+					<a class="stat-link" href="/peers/seed"><span class="arr" aria-hidden="true">&#8599;</span><span id="model-note">{{.SessionUnmanaged}} unmanaged</span></a>
+					{{else}}
+					<span class="stat-note" id="model-note">all live sessions represented</span>
+					{{end}}
+				</div>
 			</div>
 
 			<div class="card">
@@ -78,7 +91,7 @@
 					<thead><tr><th>Name</th><th>Table</th><th>State</th><th>Since</th><th class="num">Imported</th><th class="num">Rejected</th><th class="num">Exported</th><th style="min-width:130px">Import limit</th><th>Trend</th><th>In birdy</th></tr></thead>
 					<tbody id="proto-table-body" data-search-target>
 						{{range .Sessions}}
-						<tr class="row-link" onclick="location.href='/peers/{{.Name}}'">
+						<tr class="row-link" data-href="/peers/{{.Name}}" tabindex="0">
 							<td class="mono">{{.Name}}</td>
 							<td class="mono">{{.Table}}</td>
 							{{/* A peer switched off in birdy is not a session that failed. BIRD calls both
@@ -181,7 +194,7 @@
 		</div>
 	</div>
 </div>
-<script src="/static/dashboard.js"></script>
-<script src="/static/spark-hover.js"></script>
+<script src="/static/dashboard.js?v=hardened6"></script>
+<script src="/static/spark-hover.js?v=hardened6"></script>
 </body>
 </html>

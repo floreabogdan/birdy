@@ -54,3 +54,76 @@ func TestMigrateAddsColumnFromOlderVersion(t *testing.T) {
 		t.Errorf("user_version = %d after migrate, want %d", version, schemaVersion)
 	}
 }
+
+func TestMigrateKernelBGPExportDefaultsOffForFreshDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v29.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`
+		ALTER TABLE settings DROP COLUMN kernel_export_bgp_v4;
+		ALTER TABLE settings DROP COLUMN kernel_export_bgp_v6;
+		PRAGMA user_version = 29;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err = Open(path)
+	if err != nil {
+		t.Fatalf("open/migrate v29 database: %v", err)
+	}
+	defer st.Close()
+
+	got, ok, err := st.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Fatal("an uninitialized database should remain uninitialized")
+	}
+	if got.KernelExportBGPV4 || got.KernelExportBGPV6 {
+		t.Fatal("kernel BGP export must default off on a fresh database")
+	}
+}
+
+func TestMigrateKernelBGPExportEnabledForExistingRouter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v29.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveSettings(Settings{RouterID: "192.0.2.1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`
+		ALTER TABLE settings DROP COLUMN kernel_export_bgp_v4;
+		ALTER TABLE settings DROP COLUMN kernel_export_bgp_v6;
+		PRAGMA user_version = 29;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err = Open(path)
+	if err != nil {
+		t.Fatalf("open/migrate v29 database: %v", err)
+	}
+	defer st.Close()
+
+	got, ok, err := st.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("existing settings should survive migration")
+	}
+	if !got.KernelExportBGPV4 || !got.KernelExportBGPV6 {
+		t.Fatal("kernel BGP export must be enabled for existing routers after migration")
+	}
+}
