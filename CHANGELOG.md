@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.8] - 2026-07-17
+
 ### Added
 - **Guarded kernel installation for selected BGP routes.** Settings can now opt
   IPv4 and IPv6 independently into installing BIRD's selected `RTS_BGP` routes in
