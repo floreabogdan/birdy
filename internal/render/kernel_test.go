@@ -93,8 +93,11 @@ func TestKernelExportSelectedBGPPerFamily(t *testing.T) {
 	if !strings.Contains(k4, "if source = RTS_BGP then {") {
 		t.Errorf("kernel4 should export selected BGP routes:\n%s", k4)
 	}
-	if strings.Contains(k4, "RTS_STATIC") || strings.Contains(k4, "krt_prefsrc") {
-		t.Errorf("BGP-only kernel export should not admit or modify static routes:\n%s", k4)
+	if !strings.Contains(k4, "RTS_STATIC") {
+		t.Errorf("kernel4 should also admit static routes:\n%s", k4)
+	}
+	if strings.Contains(k4, "krt_prefsrc") {
+		t.Errorf("no preferred source set, so krt_prefsrc should not appear:\n%s", k4)
 	}
 	k6 := block(t, cfg, "protocol kernel kernel6 {")
 	if !strings.Contains(k6, "export none;") {

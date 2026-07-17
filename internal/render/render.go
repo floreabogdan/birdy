@@ -534,9 +534,10 @@ protocol kernel kernel6 {
 `)
 }
 
-// writeKernelExport admits only explicitly selected route sources. A preferred
-// source opts in Birdy-originated static routes; exportBGP opts in the selected
-// BGP route for each prefix. No mode emits a blanket export.
+// writeKernelExport admits only explicitly selected route sources. Birdy-
+// originated static routes (aggregates, library statics) are always installed
+// when any kernel export is active; BGP routes require the explicit opt-in.
+// A preferred source stamps krt_prefsrc on both. No mode emits a blanket export.
 func writeKernelExport(b *strings.Builder, prefSrc string, exportBGP bool, protected []netip.Addr) {
 	if prefSrc == "" && !exportBGP {
 		b.WriteString("\t\texport none;\n")
@@ -557,9 +558,11 @@ func writeKernelExport(b *strings.Builder, prefSrc string, exportBGP bool, prote
 		}
 		b.WriteString("\t\t\t\taccept;\n\t\t\t}\n")
 	}
+	b.WriteString("\t\t\tif source = RTS_STATIC then {\n")
 	if prefSrc != "" {
-		fmt.Fprintf(b, "\t\t\tif source = RTS_STATIC then {\n\t\t\t\tkrt_prefsrc = %s;\n\t\t\t\taccept;\n\t\t\t}\n", prefSrc)
+		fmt.Fprintf(b, "\t\t\t\tkrt_prefsrc = %s;\n", prefSrc)
 	}
+	b.WriteString("\t\t\t\taccept;\n\t\t\t}\n")
 	b.WriteString("\t\t\treject;\n\t\t};\n")
 }
 
