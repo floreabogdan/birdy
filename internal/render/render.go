@@ -88,9 +88,9 @@ type Input struct {
 	// RRClusterID is emitted beside "rr client". Empty lets BIRD use the router ID.
 	RRClusterID string
 
-	// KernelPrefSrcV4 and KernelPrefSrcV6 pin krt_prefsrc on Birdy-originated
-	// static routes exported to kernel4 / kernel6. Imported BGP routes are never
-	// installed into the host FIB by the generated kernel protocols.
+	// KernelPrefSrcV4 and KernelPrefSrcV6 pin krt_prefsrc on routes birdy
+	// installs into the kernel FIB — both Birdy-originated static routes and,
+	// when KernelExportBGP is also enabled, selected BGP routes.
 	KernelPrefSrcV4   string
 	KernelPrefSrcV6   string
 	KernelExportBGPV4 bool

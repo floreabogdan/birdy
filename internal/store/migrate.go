@@ -382,6 +382,21 @@ func migrate(db *sql.DB) error {
 		if err := ensureColumn(tx, "settings", "kernel_export_bgp_v6", `ALTER TABLE settings ADD COLUMN kernel_export_bgp_v6 INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return err
 		}
+		// Existing routers that had `export all` (the old default) were
+		// installing every route into the kernel FIB. Switching to `export
+		// none` silently on upgrade would remove their kernel routes on the
+		// next apply. Preserve the old behaviour for databases that already
+		// have settings: enable both families so the first apply after
+		// upgrading is not a surprise.
+		var hasSettings int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM settings WHERE id = 1`).Scan(&hasSettings); err != nil {
+			return err
+		}
+		if hasSettings > 0 {
+			if _, err := tx.Exec(`UPDATE settings SET kernel_export_bgp_v4 = 1, kernel_export_bgp_v6 = 1 WHERE id = 1`); err != nil {
+				return err
+			}
+		}
 	}
 
 	// PRAGMA does not accept bind parameters.

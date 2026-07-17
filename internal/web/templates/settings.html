@@ -68,7 +68,7 @@
 								<div class="field">
 									<label for="kernelPrefsrcV4">Kernel source (IPv4)</label>
 									<input type="text" id="kernelPrefsrcV4" name="kernelPrefsrcV4" class="mono" value="{{.Settings.KernelPrefSrcV4}}" placeholder="optional" autocomplete="off">
-									<div class="hint">Pins <code class="mono">krt_prefsrc</code> on Birdy-originated static routes installed into the kernel, so the router's own traffic to those destinations leaves with this source — typically a loopback. Blank leaves kernel export disabled. Imported BGP routes are never installed by this protocol.</div>
+									<div class="hint">Pins <code class="mono">krt_prefsrc</code> on routes birdy installs into the kernel &mdash; both Birdy-originated static routes and, when BGP installation is also enabled below, selected BGP routes. Typically a loopback. Blank leaves static route export disabled for this family.</div>
 									{{with index .IdentityErrs "kernelPrefsrcV4"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
 								<div class="field">
@@ -231,7 +231,7 @@
 								<td class="row-actions">
 									<form method="post" action="/alerts/{{.ID}}/test"><button type="submit" class="btn btn-sm" title="Send a test alert">Test</button></form>
 									<a class="icon-action a-primary" href="/alerts/{{.ID}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
-								<form method="post" action="/alerts/{{.ID}}/delete" data-confirm="Delete alert destination {{.Name}}?">
+									<form method="post" action="/alerts/{{.ID}}/delete" data-confirm="Delete alert destination {{.Name}}?">
 										<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
 									</form>
 								</td>

@@ -46,11 +46,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   covering recursive/unreachable route from blackholing an interface subnet,
   gateway, or BGP session.
 
+### Upgrade note
+- **Existing routers keep installing routes into the kernel.** The migration
+  auto-enables the new per-family BGP export switches for databases that already
+  have settings, so an upgrade + apply does not silently remove kernel routes.
+  Fresh installs default off. Review the new checkboxes under Settings → General
+  after upgrading and disable whichever family you do not need.
+
 ### Security
-- **Kernel synchronization now fails closed.** Generated kernel protocols import
-  nothing and export nothing by default. A configured preferred source permits
-  only Birdy-originated static routes; imported BGP routes require the separate,
-  explicit per-family setting above.
+- **Kernel synchronization now fails closed on fresh installs.** Generated kernel
+  protocols import nothing and export nothing by default. A configured preferred
+  source permits only Birdy-originated static routes; imported BGP routes require
+  the separate, explicit per-family setting above.
 - **Public HTTP handling is hardened.** The server now has connection timeouts, a
   32 KiB header ceiling, same-origin validation for browser writes, fail-closed
   malformed client handling, and tighter CSP, opener, resource and permissions
