@@ -44,7 +44,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   peer address, a local session address, or a preferred source. This prevents a
   learned host route from overriding a directly connected peer and prevents a
   covering recursive/unreachable route from blackholing an interface subnet,
-  gateway, or BGP session.
+  gateway, or BGP session. The default route (0.0.0.0/0, ::/0) is exempt from
+  these guards — it covers every address by definition and rejecting it would
+  break the common `IMPORT_DEFAULT_ONLY` pattern.
 
 ### Upgrade note
 - **Existing routers keep installing routes into the kernel.** The migration

@@ -643,13 +643,16 @@ button.
     to install the route.
   - **Install selected BGP routes (IPv4/IPv6)** — explicitly synchronizes BIRD's
     selected BGP route for each prefix into the corresponding Linux FIB. It never
-    renders a blanket `export all`, and remains off across upgrades. A full-table
-    peer can therefore install a full Internet table. This controls route
-    installation only: Linux forwarding, firewall policy, underlay host routes,
-    and capacity monitoring remain operator responsibilities. Birdy excludes any
-    imported prefix covering the router ID, configured peer addresses, local
-    session addresses, or preferred source so a full table cannot override the
-    routes that keep the BGP control plane reachable.
+    renders a blanket `export all`. Existing routers have both families
+    auto-enabled during upgrade so behaviour is preserved; fresh installs default
+    off. A full-table peer can therefore install a full Internet table. This
+    controls route installation only: Linux forwarding, firewall policy, underlay
+    host routes, and capacity monitoring remain operator responsibilities. Birdy
+    excludes any imported prefix covering the router ID, configured peer
+    addresses, local session addresses, or preferred source so a full table
+    cannot override the routes that keep the BGP control plane reachable. The
+    default route (0.0.0.0/0, ::/0) is exempt from these guards — it covers
+    every address by definition and is not a targeted control-plane hijack.
 - **Bogons** — the bogon prefix lists (v4/v6) and bogon ASN list. Generated filters
   name these directly, which is why they live here rather than in the Library and
   cannot be deleted or announced. "Restore defaults" resets them to what birdy
