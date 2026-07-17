@@ -119,6 +119,21 @@ func TestKernelExportSelectedBGPWithPreferredSource(t *testing.T) {
 	}
 }
 
+func TestKernelExportAllowsDefaultRoute(t *testing.T) {
+	in := baseInput()
+	in.KernelExportBGPV4 = true
+	in.KernelExportBGPV6 = true
+	v4 := ebgpPeer()
+	v4.LocalIP = "192.0.2.1"
+	in.Peers = append(in.Peers, v4)
+	cfg := mustRender(t, in)
+
+	k4 := block(t, cfg, "protocol kernel kernel4 {")
+	if !strings.Contains(k4, "if net.len > 0 then") {
+		t.Errorf("control-plane guards must skip the default route:\n%s", k4)
+	}
+}
+
 func TestKernelExportProtectsControlPlaneAddresses(t *testing.T) {
 	in := baseInput()
 	in.KernelExportBGPV4 = true

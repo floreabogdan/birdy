@@ -545,8 +545,12 @@ func writeKernelExport(b *strings.Builder, prefSrc string, exportBGP bool, prote
 	b.WriteString("\t\texport filter {\n")
 	if exportBGP {
 		b.WriteString("\t\t\tif source = RTS_BGP then {\n")
-		for _, addr := range protected {
-			fmt.Fprintf(b, "\t\t\t\tif %s ~ net then reject;\n", addr)
+		if len(protected) > 0 {
+			b.WriteString("\t\t\t\tif net.len > 0 then {\n")
+			for _, addr := range protected {
+				fmt.Fprintf(b, "\t\t\t\t\tif %s ~ net then reject;\n", addr)
+			}
+			b.WriteString("\t\t\t\t}\n")
 		}
 		if prefSrc != "" {
 			fmt.Fprintf(b, "\t\t\t\tkrt_prefsrc = %s;\n", prefSrc)
