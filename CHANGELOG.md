@@ -9,9 +9,10 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 - **Guarded kernel installation for selected BGP routes.** Settings can now opt
   IPv4 and IPv6 independently into installing BIRD's selected `RTS_BGP` routes in
-  the Linux FIB. The option defaults off, including after upgrade, and generated
-  kernel filters explicitly admit only selected BGP routes and opted-in static
-  routes. Birdy never uses a blanket kernel `export all`.
+  the Linux FIB. The option defaults off for fresh installs and is auto-enabled
+  for existing routers during upgrade. Birdy-originated static routes (aggregates,
+  library statics) are always installed whenever any kernel export is active.
+  Birdy never uses a blanket kernel `export all`.
 - **Per-session import community tagging.** Peers can add named or literal
   standard and large communities after import policy succeeds, making it easy to
   identify a downstream, IX route server, location, or ingress separately from
@@ -57,9 +58,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 - **Kernel synchronization now fails closed on fresh installs.** Generated kernel
-  protocols import nothing and export nothing by default. A configured preferred
-  source permits only Birdy-originated static routes; imported BGP routes require
-  the separate, explicit per-family setting above.
+  protocols import nothing and export nothing by default. Enabling any kernel
+  export admits Birdy-originated static routes automatically; imported BGP routes
+  require the separate, explicit per-family setting above.
 - **Public HTTP handling is hardened.** The server now has connection timeouts, a
   32 KiB header ceiling, same-origin validation for browser writes, fail-closed
   malformed client handling, and tighter CSP, opener, resource and permissions

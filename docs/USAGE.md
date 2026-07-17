@@ -638,21 +638,23 @@ button.
     announced address (typically a loopback) so control-plane traffic does not leave
     with whatever egress interface address the kernel would otherwise pick. Set per
     family, because `kernel4` and `kernel6` are separate protocols. Leave a field
-    blank and that channel exports nothing unless BGP installation is enabled.
-    The address must be one actually configured on the box, or the kernel refuses
-    to install the route.
+    blank and that channel exports only Birdy-originated static routes (if BGP
+    installation is enabled) without stamping a source. The address must be one
+    actually configured on the box, or the kernel refuses to install the route.
   - **Install selected BGP routes (IPv4/IPv6)** — explicitly synchronizes BIRD's
     selected BGP route for each prefix into the corresponding Linux FIB. It never
     renders a blanket `export all`. Existing routers have both families
     auto-enabled during upgrade so behaviour is preserved; fresh installs default
-    off. A full-table peer can therefore install a full Internet table. This
-    controls route installation only: Linux forwarding, firewall policy, underlay
-    host routes, and capacity monitoring remain operator responsibilities. Birdy
-    excludes any imported prefix covering the router ID, configured peer
-    addresses, local session addresses, or preferred source so a full table
-    cannot override the routes that keep the BGP control plane reachable. The
-    default route (0.0.0.0/0, ::/0) is exempt from these guards — it covers
-    every address by definition and is not a targeted control-plane hijack.
+    off. Birdy-originated static routes (aggregates, library statics) are always
+    installed whenever any kernel export is active. A full-table peer can
+    therefore install a full Internet table. This controls route installation
+    only: Linux forwarding, firewall policy, underlay host routes, and capacity
+    monitoring remain operator responsibilities. Birdy excludes any imported
+    prefix covering the router ID, configured peer addresses, local session
+    addresses, or preferred source so a full table cannot override the routes
+    that keep the BGP control plane reachable. The default route (0.0.0.0/0,
+    ::/0) is exempt from these guards — it covers every address by definition
+    and is not a targeted control-plane hijack.
 - **Bogons** — the bogon prefix lists (v4/v6) and bogon ASN list. Generated filters
   name these directly, which is why they live here rather than in the Library and
   cannot be deleted or announced. "Restore defaults" resets them to what birdy

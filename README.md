@@ -313,6 +313,8 @@ since moved past it, so read it as design intent, not current truth.
 
 Built and maintained by **Bogdan — [AS210622](https://bgp.tools/as/210622)**.
 
+- **Aaran — [AS204208](https://bgp.tools/as/204208) / [AS47272](https://bgp.tools/as/47272)** — kernel export hardening, import community tagging, native HTTPS, HTTP/session security, dashboard model coverage.
+
 Contributions are welcome — open an issue or a pull request.
 
 ## License
