@@ -519,7 +519,7 @@ protocol kernel kernel4 {
 	ipv4 {
 		import none;
 `)
-	writeKernelExport(b, in.KernelPrefSrcV4, in.KernelExportBGPV4)
+	writeKernelExport(b, in.KernelPrefSrcV4, in.KernelExportBGPV4, kernelProtectedAddrs(in, true))
 	b.WriteString(`	};
 }
 
@@ -527,7 +527,7 @@ protocol kernel kernel6 {
 	ipv6 {
 		import none;
 `)
-	writeKernelExport(b, in.KernelPrefSrcV6, in.KernelExportBGPV6)
+	writeKernelExport(b, in.KernelPrefSrcV6, in.KernelExportBGPV6, kernelProtectedAddrs(in, false))
 	b.WriteString(`	};
 }
 
@@ -537,7 +537,7 @@ protocol kernel kernel6 {
 // writeKernelExport admits only explicitly selected route sources. A preferred
 // source opts in Birdy-originated static routes; exportBGP opts in the selected
 // BGP route for each prefix. No mode emits a blanket export.
-func writeKernelExport(b *strings.Builder, prefSrc string, exportBGP bool) {
+func writeKernelExport(b *strings.Builder, prefSrc string, exportBGP bool, protected []netip.Addr) {
 	if prefSrc == "" && !exportBGP {
 		b.WriteString("\t\texport none;\n")
 		return
@@ -545,6 +545,9 @@ func writeKernelExport(b *strings.Builder, prefSrc string, exportBGP bool) {
 	b.WriteString("\t\texport filter {\n")
 	if exportBGP {
 		b.WriteString("\t\t\tif source = RTS_BGP then {\n")
+		for _, addr := range protected {
+			fmt.Fprintf(b, "\t\t\t\tif %s ~ net then reject;\n", addr)
+		}
 		if prefSrc != "" {
 			fmt.Fprintf(b, "\t\t\t\tkrt_prefsrc = %s;\n", prefSrc)
 		}
@@ -554,6 +557,36 @@ func writeKernelExport(b *strings.Builder, prefSrc string, exportBGP bool) {
 		fmt.Fprintf(b, "\t\t\tif source = RTS_STATIC then {\n\t\t\t\tkrt_prefsrc = %s;\n\t\t\t\taccept;\n\t\t\t}\n", prefSrc)
 	}
 	b.WriteString("\t\t\treject;\n\t\t};\n")
+}
+
+// kernelProtectedAddrs returns control-plane addresses that imported BGP routes
+// must never cover in the host FIB. A more-specific route to a directly attached
+// peer overrides the connected subnet; a covering unreachable route can also
+// blackhole the peer and its gateway through recursive next-hop resolution.
+func kernelProtectedAddrs(in Input, v4 bool) []netip.Addr {
+	seen := make(map[netip.Addr]bool)
+	add := func(raw string) {
+		addr, err := netip.ParseAddr(strings.TrimSpace(raw))
+		if err == nil && addr.Is4() == v4 {
+			seen[addr] = true
+		}
+	}
+	if v4 {
+		add(in.RouterID)
+		add(in.KernelPrefSrcV4)
+	} else {
+		add(in.KernelPrefSrcV6)
+	}
+	for _, peer := range in.Peers {
+		add(peer.NeighborIP)
+		add(peer.LocalIP)
+	}
+	out := make([]netip.Addr, 0, len(seen))
+	for addr := range seen {
+		out = append(out, addr)
+	}
+	slices.SortFunc(out, func(a, b netip.Addr) int { return a.Compare(b) })
+	return out
 }
 
 // writeBFDProtocol emits a single BFD protocol when any enabled peer uses it.

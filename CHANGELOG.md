@@ -38,6 +38,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   model. Missing import limits are surfaced, and a peer without import policy is
   now a danger rather than a low-priority warning.
 
+### Fixed
+- **Full-table kernel export cannot capture BGP control-plane routes.** Kernel
+  filters reject every imported prefix that covers the router ID, a configured
+  peer address, a local session address, or a preferred source. This prevents a
+  learned host route from overriding a directly connected peer and prevents a
+  covering recursive/unreachable route from blackholing an interface subnet,
+  gateway, or BGP session.
+
 ### Security
 - **Kernel synchronization now fails closed.** Generated kernel protocols import
   nothing and export nothing by default. A configured preferred source permits

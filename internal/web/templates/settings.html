@@ -82,7 +82,7 @@
 								<label>Kernel forwarding table</label>
 								<label class="check-row"><input type="checkbox" name="kernelExportBgpV4" {{if .Settings.KernelExportBGPV4}}checked{{end}}> Install selected IPv4 BGP routes</label>
 								<label class="check-row"><input type="checkbox" name="kernelExportBgpV6" {{if .Settings.KernelExportBGPV6}}checked{{end}}> Install selected IPv6 BGP routes</label>
-								<div class="hint">Advanced router mode. Exports only BIRD's selected <code class="mono">RTS_BGP</code> route for each prefix, never a blanket <code class="mono">export all</code>. This can install a full Internet table. Linux forwarding and firewall policy are configured separately.</div>
+								<div class="hint">Advanced router mode. Exports only BIRD's selected <code class="mono">RTS_BGP</code> route for each prefix, never a blanket <code class="mono">export all</code>. Routes covering configured peers or local control-plane addresses are excluded. This can install a full Internet table. Linux forwarding and firewall policy are configured separately.</div>
 							</div>
 							<button type="submit" class="btn btn-primary">Save identity</button>
 						</form>

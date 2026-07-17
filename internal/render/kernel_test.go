@@ -118,3 +118,31 @@ func TestKernelExportSelectedBGPWithPreferredSource(t *testing.T) {
 		}
 	}
 }
+
+func TestKernelExportProtectsControlPlaneAddresses(t *testing.T) {
+	in := baseInput()
+	in.KernelExportBGPV4 = true
+	in.KernelExportBGPV6 = true
+	in.KernelPrefSrcV6 = "2001:db8::100"
+	v4 := ebgpPeer()
+	v4.LocalIP = "192.0.2.1"
+	v6 := ebgpPeer()
+	v6.Name = "edge_v6"
+	v6.NeighborIP = "2001:db8::10"
+	v6.LocalIP = "2001:db8::1"
+	in.Peers = append(in.Peers, v4, v6)
+
+	cfg := mustRender(t, in)
+	k4 := block(t, cfg, "protocol kernel kernel4 {")
+	for _, addr := range []string{in.RouterID, v4.NeighborIP, v4.LocalIP} {
+		if !strings.Contains(k4, "if "+addr+" ~ net then reject;") {
+			t.Errorf("kernel4 does not protect %s:\n%s", addr, k4)
+		}
+	}
+	k6 := block(t, cfg, "protocol kernel kernel6 {")
+	for _, addr := range []string{"2001:db8::1", "2001:db8::10", "2001:db8::100"} {
+		if !strings.Contains(k6, "if "+addr+" ~ net then reject;") {
+			t.Errorf("kernel6 does not protect %s:\n%s", addr, k6)
+		}
+	}
+}
