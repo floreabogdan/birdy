@@ -143,7 +143,10 @@ go install github.com/floreabogdan/birdy/cmd/birdy@latest
 Or cross-compile from anywhere and copy one file to the router:
 
 ```sh
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o birdy ./cmd/birdy
+COMMIT=$(git rev-parse HEAD)
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+  -ldflags="-s -w -X github.com/floreabogdan/birdy/internal/buildinfo.Commit=$COMMIT" \
+  -o birdy ./cmd/birdy
 scp birdy root@router:/usr/local/bin/birdy
 ```
 </details>
@@ -223,6 +226,8 @@ things follow from that, and both are one setting away:
 - Live BIRD-code preview on every editor: the generated config updates as you type, before you save
 - Every table paginated with numbered pages — the route browsers, the timeline, the apply history, and
   each library list
+- Stable or development update tracking in the panel, with the installed build and available upstream
+  release or commit shown without allowing the privileged web process to self-update
 
 **Model**
 - Peers with roles (upstream, IX peer, customer, iBGP), which drive automatic origin tagging

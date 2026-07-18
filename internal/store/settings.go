@@ -35,6 +35,7 @@ type Settings struct {
 	// route for each prefix into the host FIB. They default off.
 	KernelExportBGPV4 bool
 	KernelExportBGPV6 bool
+	UpdateChannel     string
 
 	// RawConfig is appended verbatim to the end of the generated bird.conf.
 	// The escape hatch for everything birdy does not model — BFD, extra tables,
@@ -106,11 +107,12 @@ func (s *Store) GetSettings() (Settings, bool, error) {
 		SELECT router_label, local_asn, router_id, bird_socket_path, listen_addr, webhook_url,
 		       rr_cluster_id, kernel_prefsrc_v4, kernel_prefsrc_v6,
 		       kernel_export_bgp_v4, kernel_export_bgp_v6,
-		       raw_config, applied_config_hash, access_whitelist
+		       update_channel, raw_config, applied_config_hash, access_whitelist
 		FROM settings WHERE id = 1`)
 	err := row.Scan(&st.RouterLabel, &st.LocalASN, &st.RouterID, &st.BirdSocketPath,
 		&st.ListenAddr, &st.WebhookURL, &st.RRClusterID, &st.KernelPrefSrcV4, &st.KernelPrefSrcV6,
-		&st.KernelExportBGPV4, &st.KernelExportBGPV6, &st.RawConfig, &st.AppliedConfigHash,
+		&st.KernelExportBGPV4, &st.KernelExportBGPV6, &st.UpdateChannel,
+		&st.RawConfig, &st.AppliedConfigHash,
 		&st.AccessWhitelist)
 	if err == sql.ErrNoRows {
 		return Settings{}, false, nil
@@ -127,8 +129,9 @@ func (s *Store) SaveSettings(st Settings) error {
 	_, err := s.db.Exec(`
 		INSERT INTO settings (id, router_label, local_asn, router_id, bird_socket_path, listen_addr,
 		                      webhook_url, rr_cluster_id, kernel_prefsrc_v4, kernel_prefsrc_v6,
-		                      kernel_export_bgp_v4, kernel_export_bgp_v6, raw_config, created_at, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                      kernel_export_bgp_v4, kernel_export_bgp_v6, update_channel,
+		                      raw_config, created_at, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			router_label = excluded.router_label,
 			local_asn = excluded.local_asn,
@@ -141,13 +144,39 @@ func (s *Store) SaveSettings(st Settings) error {
 			kernel_prefsrc_v6 = excluded.kernel_prefsrc_v6,
 			kernel_export_bgp_v4 = excluded.kernel_export_bgp_v4,
 			kernel_export_bgp_v6 = excluded.kernel_export_bgp_v6,
+			update_channel = excluded.update_channel,
 			raw_config = excluded.raw_config,
 			updated_at = excluded.updated_at
 	`, st.RouterLabel, st.LocalASN, st.RouterID, st.BirdSocketPath, st.ListenAddr, st.WebhookURL,
 		st.RRClusterID, st.KernelPrefSrcV4, st.KernelPrefSrcV6, st.KernelExportBGPV4,
-		st.KernelExportBGPV6, st.RawConfig, ts, ts)
+		st.KernelExportBGPV6, normalizedUpdateChannel(st.UpdateChannel), st.RawConfig, ts, ts)
 	if err != nil {
 		return fmt.Errorf("store: save settings: %w", err)
+	}
+	return nil
+}
+
+func normalizedUpdateChannel(channel string) string {
+	if strings.TrimSpace(channel) == "development" {
+		return "development"
+	}
+	return "stable"
+}
+
+// SaveUpdateChannel changes only the selected update feed so the updates form
+// cannot overwrite router identity or configuration fields.
+func (s *Store) SaveUpdateChannel(channel string) error {
+	channel = normalizedUpdateChannel(channel)
+	ts := now()
+	_, err := s.db.Exec(`
+		INSERT INTO settings (id, update_channel, created_at, updated_at)
+		VALUES (1, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			update_channel = excluded.update_channel,
+			updated_at = excluded.updated_at
+	`, channel, ts, ts)
+	if err != nil {
+		return fmt.Errorf("store: save update channel: %w", err)
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS settings (
 	webhook_url      TEXT NOT NULL DEFAULT '',
 	kernel_export_bgp_v4 INTEGER NOT NULL DEFAULT 0,
 	kernel_export_bgp_v6 INTEGER NOT NULL DEFAULT 0,
+	update_channel   TEXT NOT NULL DEFAULT 'stable',
 	created_at       TEXT NOT NULL,
 	updated_at       TEXT NOT NULL
 );

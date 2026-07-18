@@ -46,6 +46,7 @@ func TestSettingsKernelPrefSrcRoundTrip(t *testing.T) {
 		KernelPrefSrcV6:   "2001:db8::1",
 		KernelExportBGPV4: true,
 		KernelExportBGPV6: true,
+		UpdateChannel:     "development",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -58,5 +59,40 @@ func TestSettingsKernelPrefSrcRoundTrip(t *testing.T) {
 	}
 	if !got.KernelExportBGPV4 || !got.KernelExportBGPV6 {
 		t.Errorf("kernel BGP export flags not persisted: %+v", got)
+	}
+	if got.UpdateChannel != "development" {
+		t.Errorf("update channel not persisted: %+v", got)
+	}
+}
+
+func TestSaveUpdateChannelIsScoped(t *testing.T) {
+	s := openTest(t)
+	want := Settings{RouterID: "192.0.2.1", UpdateChannel: "stable"}
+	if err := s.SaveSettings(want); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveUpdateChannel("development"); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := s.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UpdateChannel != "development" || got.RouterID != want.RouterID {
+		t.Fatalf("scoped update changed unrelated settings: %+v", got)
+	}
+}
+
+func TestSaveUpdateChannelCreatesSettingsRow(t *testing.T) {
+	s := openTest(t)
+	if err := s.SaveUpdateChannel("development"); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := s.GetSettings()
+	if err != nil || !ok {
+		t.Fatalf("get settings: ok=%v err=%v", ok, err)
+	}
+	if got.UpdateChannel != "development" {
+		t.Fatalf("update channel = %q", got.UpdateChannel)
 	}
 }

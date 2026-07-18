@@ -420,6 +420,34 @@ svg.sparkline[data-spark] { cursor: crosshair; }
 .tab-btn.active { background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); color: #fff; }
 .card-body { padding: 18px; }
 .card-intro { padding: 16px 18px 0; color: var(--text-muted); font-size: 0.8125rem; max-width: 110ch; }
+.choice-list { display: grid; gap: 8px; margin-bottom: 16px; }
+.choice-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 11px;
+	padding: 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	background: var(--surface);
+	cursor: pointer;
+}
+.choice-row:hover { background: var(--surface-alt); }
+.choice-row:has(input:checked) {
+	border-color: color-mix(in srgb, var(--primary) 65%, var(--border));
+	background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+}
+.choice-row input { flex: 0 0 auto; margin: 3px 0 0; accent-color: var(--primary); }
+.choice-row > span { display: grid; gap: 3px; }
+.choice-row small { color: var(--text-muted); line-height: 1.4; }
+.choice-row:has(input:disabled) { cursor: not-allowed; opacity: 0.72; }
+.panel-inline {
+	margin-top: 16px;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-control);
+	font-size: 0.8125rem;
+	overflow-wrap: anywhere;
+}
 
 /* ---------- panels: a card whose header is a tinted band ---------- */
 .panel-head {
