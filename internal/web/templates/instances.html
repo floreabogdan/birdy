@@ -1,0 +1,34 @@
+<!doctype html>
+<html>
+<head><title>birdy — instances</title>{{template "head" .}}<script src="/static/instances.js?v=dev-ui1" defer></script></head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top"><span class="page-eyebrow">System</span><div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">Instances</span></div></div>
+			<div class="page-header"><div><h1>Birdy instances</h1><div class="page-sub">Observe other routers from this panel without giving them control of this one.</div></div></div>
+			<div class="stat-grid instance-stats"><div class="stat"><span class="stat-label">Connected</span><strong class="stat-value">{{len .Items}}</strong></div><div class="stat tint-success"><span class="stat-label">Healthy</span><strong class="stat-value">{{.Healthy}}</strong></div><div class="stat tint-warning"><span class="stat-label">Degraded</span><strong class="stat-value">{{.Degraded}}</strong></div><div class="stat tint-danger"><span class="stat-label">Offline</span><strong class="stat-value">{{.Offline}}</strong></div></div>
+			{{if .Msg}}<div class="flash">{{.Msg}}</div>{{end}}
+			{{if .Err}}<div class="flash flash-error">{{.Err}}</div>{{end}}
+			<div class="card panel-info"><div class="card-body"><strong>Read-only by design.</strong> Remote targets appear in the dashboard selector and are queried through their dashboard API. Peers, policies, settings, applies and backups always remain on This Birdy.</div></div>
+			<div class="grid-2 instances-layout">
+				<div class="card"><div class="card-header"><span class="card-title">Connected targets</span><div class="card-header-actions"><button class="btn btn-sm" id="refresh-instances" type="button">Refresh health</button></div></div><div class="card-body"><div class="instance-filters"><input id="instance-filter" type="search" placeholder="Search name, group, or tag" aria-label="Search instances"><select id="instance-status-filter" aria-label="Filter instance status"><option value="all">All statuses</option><option value="healthy">Healthy</option><option value="degraded">Degraded</option><option value="offline">Offline</option><option value="unknown">Not checked</option></select></div><div class="instances-list">
+					<div class="instance-item"><span class="instance-state local"></span><form method="post" action="/instances/local/rename" class="instance-rename"><div class="instance-name-line"><input name="name" type="text" value="{{.LocalName}}" maxlength="64" aria-label="Friendly name for this Birdy"><button class="icon-action a-primary" type="submit" title="Save name" aria-label="Save local name">{{template "icon-check"}}</button></div><small>This panel and its local BIRD daemon</small></form><span class="badge badge-success">local</span></div>
+					{{range .Items}}<div class="instance-item"><span class="instance-state {{.Status}}"></span><form method="post" action="/instances/{{.ID}}/rename" class="instance-rename"><div class="instance-name-line"><a class="instance-link" href="/instances/{{.ID}}"><input name="name" type="text" value="{{.Name}}" maxlength="64" aria-label="Friendly name for {{.Name}}"></a><button class="icon-action a-primary" type="submit" title="Save name" aria-label="Save name">{{template "icon-check"}}</button></div><small class="mono">{{.BaseURL}}</small><small>{{if eq .Status "healthy"}}{{.LatencyMS}} ms · healthy{{else if eq .Status "degraded"}}{{.LatencyMS}} ms · slow{{else if eq .Status "offline"}}offline{{else}}not checked{{end}}</small></form><form method="post" action="/instances/{{.ID}}/metadata" class="instance-meta"><input name="group" type="text" value="{{.GroupName}}" maxlength="64" placeholder="Group" aria-label="Group"><input name="tags" type="text" value="{{.Tags}}" maxlength="256" placeholder="Tags: ix, core" aria-label="Tags"><button class="icon-action a-secondary" type="submit" title="Save group and tags" aria-label="Save group and tags">{{template "icon-check"}}</button></form><form method="post" action="/instances/{{.ID}}/delete" class="inline-form"><button class="icon-btn danger-btn" type="submit" title="Remove instance" aria-label="Remove {{.Name}}" data-confirm="Remove this remote instance?"><span aria-hidden="true">&#215;</span></button></form></div>{{else}}<div class="empty">No remote targets connected yet.</div>{{end}}
+				</div></div></div>
+				<div class="card"><div class="card-header"><span class="card-title">Add a remote target</span></div><div class="card-body"><form id="instance-add-form" method="post" action="/instances/add">
+					<div class="field"><label for="instance-name">Display name</label><input id="instance-name" name="name" type="text" maxlength="64" placeholder="London edge" required><div class="hint">A short name shown in the dashboard selector.</div></div>
+					<div class="field"><label for="instance-url">Birdy URL</label><input id="instance-url" name="baseURL" type="url" placeholder="https://router.example.net:8080" required><div class="hint">Use HTTPS for remote networks. Do not include credentials, a query string, or a path.</div></div>
+					<div class="field"><label for="instance-token">Read-only API token</label><input id="instance-token" name="token" type="password" autocomplete="off" minlength="32" required><div class="hint">Generate this once on the remote Birdy under Settings → General. It is stored here because this panel must present it to the remote API.</div></div>
+					<div class="field-row"><div class="field"><label for="instance-group">Group</label><input id="instance-group" name="group" type="text" maxlength="64" placeholder="Core, IX, Transit"></div><div class="field"><label for="instance-tags">Tags</label><input id="instance-tags" name="tags" type="text" maxlength="256" placeholder="london, ipv6, edge"><div class="hint">Comma-separated labels for filtering.</div></div></div>
+					<div class="form-actions"><button class="btn btn-secondary" id="instance-test-button" type="button">Test connection</button><button class="btn btn-primary" type="submit">Add instance</button></div><div id="instance-test-result" class="hint" role="status" aria-live="polite"></div>
+				</form></div></div>
+			</div>
+			<div class="card fleet-activity"><div class="card-header"><span class="card-title">Fleet activity</span><span class="hint">Recent events from connected targets</span></div><div class="card-body"><div id="fleet-activity-list" class="activity-list"><div class="empty">Loading activity...</div></div></div></div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

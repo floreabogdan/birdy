@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"net/http"
+	"strings"
 )
 
 const sessionCookieName = "birdy_session"
@@ -32,6 +33,29 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.Handler {
 		}
 		ctx := context.WithValue(r.Context(), ctxUserID, sess.UserID)
 		next(w, r.WithContext(ctx))
+	})
+}
+
+// requireDashboardAuth also accepts a configured instance bearer token. It is
+// intentionally separate from requireAuth so a remote token can never reach a
+// write endpoint or a sensitive page.
+func (s *Server) requireDashboardAuth(next http.HandlerFunc) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth := strings.TrimSpace(r.Header.Get("Authorization"))
+		if strings.HasPrefix(auth, "Bearer ") {
+			valid, err := s.store.VerifyInstanceAPIToken(strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")))
+			if err != nil {
+				s.serverError(w, "verify instance API token", err)
+				return
+			}
+			if valid {
+				next(w, r)
+				return
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		s.requireAuth(next).ServeHTTP(w, r)
 	})
 }
 

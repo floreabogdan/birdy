@@ -8,7 +8,7 @@ eBGP/iBGP sessions, import/export policy, RPKI, RTBH, BFD — modelled in a data
 rendered to `bird.conf`, and applied with an armed auto-revert. Plus live visibility
 into what every session is actually doing.
 
-_No agents. No controller. No fleet. One router, done well._
+_One router is managed locally. Multiple Birdy routers can be observed safely._
 
 [![CI](https://github.com/floreabogdan/birdy/actions/workflows/ci.yml/badge.svg)](https://github.com/floreabogdan/birdy/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/floreabogdan/birdy?sort=semver)](https://github.com/floreabogdan/birdy/releases)
@@ -228,9 +228,16 @@ things follow from that, and both are one setting away:
   each library list
 - Stable or development update tracking in the panel, with the installed build and available upstream
   release or commit shown without allowing the privileged web process to self-update
+- Read-only multi-instance dashboard targets, selected from the top bar and authenticated with a
+  dedicated dashboard token; configuration actions stay on the local router
+- A collapsible, contextual navigation shell; keyboard command palette; saved dashboard filters and
+  columns; and an explicit local/remote router indicator
+- Selectable Modern and Original panel styles, each with complete light and dark modes
 
 **Model**
 - Peers with roles (upstream, IX peer, customer, iBGP), which drive automatic origin tagging
+- Guided peer profiles for transit, IX route-server, bilateral/PNI, customer, and iBGP sessions.
+  Profiles fill conservative transport and limit defaults but never choose export policy, save, or apply.
 - Disable a session from the peers list: it renders BIRD's `disabled`, so BIRD stops connecting
   entirely — and birdy reads that back as *disabled*, not as a session that failed
 - iBGP with next-hop-self and route reflection; AS-path prepending, export communities, one-click
@@ -253,6 +260,7 @@ things follow from that, and both are one setting away:
 **Preview and apply**
 - The whole candidate `bird.conf`, rendered from the model, with a syntax check via `bird -p`
 - A unified diff against the running config
+- A four-stage readiness summary for rendering, syntax, policy review, and apply state
 - A linter for what `bird -p` cannot catch: route leaks, sessions that would accept nothing,
   unreachable filter branches, an RTR server nobody validates against
 - **Apply** (when not read-only): back up the current file, write the new one, `configure check` on
@@ -318,7 +326,7 @@ since moved past it, so read it as design intent, not current truth.
 
 Built and maintained by **Bogdan — [AS210622](https://bgp.tools/as/210622)**.
 
-- **Aaran — [AS204208](https://bgp.tools/as/204208) / [AS47272](https://bgp.tools/as/47272)** — kernel export hardening, import community tagging, native HTTPS, HTTP/session security, dashboard model coverage.
+- **Aaran — [AS204208](https://bgp.tools/as/204208) / [AS47272](https://bgp.tools/as/47272)** — kernel export hardening, import community tagging, native HTTPS, HTTP/session security, dashboard model coverage, multi-instance observation, runtime optimization, and the modern guided operator interface.
 
 Contributions are welcome — open an issue or a pull request.
 

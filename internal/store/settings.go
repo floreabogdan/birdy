@@ -1,10 +1,14 @@
 package store
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"net/netip"
 	"strings"
+	"time"
 )
 
 // Settings is the single-row router identity and global configuration: local
@@ -33,9 +37,12 @@ type Settings struct {
 	KernelPrefSrcV6 string
 	// KernelExportBGPV4 and KernelExportBGPV6 install only BIRD's selected BGP
 	// route for each prefix into the host FIB. They default off.
-	KernelExportBGPV4 bool
-	KernelExportBGPV6 bool
-	UpdateChannel     string
+	KernelExportBGPV4         bool
+	KernelExportBGPV6         bool
+	UpdateChannel             string
+	InstanceAPITokenHash      string
+	InstanceAPITokenExpiresAt string
+	InstanceAPITokenRevoked   bool
 
 	// RawConfig is appended verbatim to the end of the generated bird.conf.
 	// The escape hatch for everything birdy does not model — BFD, extra tables,
@@ -107,11 +114,13 @@ func (s *Store) GetSettings() (Settings, bool, error) {
 		SELECT router_label, local_asn, router_id, bird_socket_path, listen_addr, webhook_url,
 		       rr_cluster_id, kernel_prefsrc_v4, kernel_prefsrc_v6,
 		       kernel_export_bgp_v4, kernel_export_bgp_v6,
-		       update_channel, raw_config, applied_config_hash, access_whitelist
+		       update_channel, instance_api_token_hash, instance_api_token_expires_at,
+		       instance_api_token_revoked, raw_config, applied_config_hash, access_whitelist
 		FROM settings WHERE id = 1`)
 	err := row.Scan(&st.RouterLabel, &st.LocalASN, &st.RouterID, &st.BirdSocketPath,
 		&st.ListenAddr, &st.WebhookURL, &st.RRClusterID, &st.KernelPrefSrcV4, &st.KernelPrefSrcV6,
-		&st.KernelExportBGPV4, &st.KernelExportBGPV6, &st.UpdateChannel,
+		&st.KernelExportBGPV4, &st.KernelExportBGPV6, &st.UpdateChannel, &st.InstanceAPITokenHash,
+		&st.InstanceAPITokenExpiresAt, &st.InstanceAPITokenRevoked,
 		&st.RawConfig, &st.AppliedConfigHash,
 		&st.AccessWhitelist)
 	if err == sql.ErrNoRows {
@@ -130,8 +139,9 @@ func (s *Store) SaveSettings(st Settings) error {
 		INSERT INTO settings (id, router_label, local_asn, router_id, bird_socket_path, listen_addr,
 		                      webhook_url, rr_cluster_id, kernel_prefsrc_v4, kernel_prefsrc_v6,
 		                      kernel_export_bgp_v4, kernel_export_bgp_v6, update_channel,
-		                      raw_config, created_at, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                      instance_api_token_hash, instance_api_token_expires_at,
+		                      instance_api_token_revoked, raw_config, created_at, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			router_label = excluded.router_label,
 			local_asn = excluded.local_asn,
@@ -145,15 +155,72 @@ func (s *Store) SaveSettings(st Settings) error {
 			kernel_export_bgp_v4 = excluded.kernel_export_bgp_v4,
 			kernel_export_bgp_v6 = excluded.kernel_export_bgp_v6,
 			update_channel = excluded.update_channel,
+			instance_api_token_hash = excluded.instance_api_token_hash,
+			instance_api_token_expires_at = excluded.instance_api_token_expires_at,
+			instance_api_token_revoked = excluded.instance_api_token_revoked,
 			raw_config = excluded.raw_config,
 			updated_at = excluded.updated_at
 	`, st.RouterLabel, st.LocalASN, st.RouterID, st.BirdSocketPath, st.ListenAddr, st.WebhookURL,
 		st.RRClusterID, st.KernelPrefSrcV4, st.KernelPrefSrcV6, st.KernelExportBGPV4,
-		st.KernelExportBGPV6, normalizedUpdateChannel(st.UpdateChannel), st.RawConfig, ts, ts)
+		st.KernelExportBGPV6, normalizedUpdateChannel(st.UpdateChannel), st.InstanceAPITokenHash,
+		st.InstanceAPITokenExpiresAt, st.InstanceAPITokenRevoked, st.RawConfig, ts, ts)
 	if err != nil {
 		return fmt.Errorf("store: save settings: %w", err)
 	}
 	return nil
+}
+
+// HashInstanceAPIToken stores only a SHA-256 digest. Tokens are generated with
+// cryptographic randomness and are high entropy, so a fast digest avoids doing
+// bcrypt work on every remote dashboard poll while keeping the raw secret out
+// of the router database.
+func HashInstanceAPIToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *Store) SaveInstanceAPITokenHash(hash string) error {
+	return s.SaveInstanceAPIToken(hash, "")
+}
+
+func (s *Store) SaveInstanceAPIToken(hash, expiresAt string) error {
+	res, err := s.db.Exec(`UPDATE settings SET instance_api_token_hash = ?, instance_api_token_expires_at = ?, instance_api_token_revoked = 0, updated_at = ? WHERE id = 1`, hash, expiresAt, now())
+	if err != nil {
+		return fmt.Errorf("store: save instance API token: %w", err)
+	}
+	return affectedOne(res)
+}
+
+func (s *Store) RevokeInstanceAPIToken() error {
+	res, err := s.db.Exec(`UPDATE settings SET instance_api_token_revoked = 1, updated_at = ? WHERE id = 1`, now())
+	if err != nil {
+		return fmt.Errorf("store: revoke instance API token: %w", err)
+	}
+	return affectedOne(res)
+}
+
+func (s *Store) VerifyInstanceAPIToken(token string) (bool, error) {
+	if valid, err := s.VerifyScopedInstanceToken(token); err != nil || valid {
+		return valid, err
+	}
+	var stored, expiresAt string
+	var revoked bool
+	if err := s.db.QueryRow(`SELECT instance_api_token_hash, instance_api_token_expires_at, instance_api_token_revoked FROM settings WHERE id = 1`).Scan(&stored, &expiresAt, &revoked); err == sql.ErrNoRows {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("store: get instance API token: %w", err)
+	}
+	if revoked || stored == "" {
+		return false, nil
+	}
+	if expiresAt != "" {
+		expires, err := time.Parse(time.RFC3339Nano, expiresAt)
+		if err != nil || !time.Now().Before(expires) {
+			return false, nil
+		}
+	}
+	got := HashInstanceAPIToken(token)
+	return len(stored) == len(got) && subtle.ConstantTimeCompare([]byte(stored), []byte(got)) == 1, nil
 }
 
 func normalizedUpdateChannel(channel string) string {

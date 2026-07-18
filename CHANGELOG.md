@@ -7,10 +7,63 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Operator-focused navigation and guided workflows.** The modern panel now
+  includes collapsible contextual navigation, explicit local/remote router
+  context, direct creation actions in the keyboard command palette, guarded
+  unsaved editors, peer-type setup profiles, live peer and configuration
+  readiness summaries, persistent dashboard columns, and actionable empty
+  states. Presets only assist the form; they never choose export policy, save,
+  or apply configuration.
+- **Neutral modern theme overhaul.** The selectable modern style now uses a
+  quieter graphite and soft-white palette, flatter operational surfaces,
+  denser navigation and actions, clearer form and table boundaries, and matched
+  light, explicit-dark, and system-dark behavior. The original style remains
+  unchanged and available.
+- **Selectable panel style.** Settings -> Theme now lets operators choose the
+  current modern Birdy style or the original owner-facing palette and geometry.
+  The choice is browser-local, works with both light and dark modes, and is
+  applied before paint to avoid a theme flash.
+- **Runtime efficiency improvements.** BIRD identity and disabled-peer lookups
+  are cached briefly instead of repeating on every poll, route-history queries
+  have a timestamp index, and federation checks share a bounded keep-alive HTTP
+  transport.
+- **Fleet operations and diagnostics.** Remote instance health is collected in
+  the background, state transitions can alert through existing destinations,
+  and each instance has a detail page with session state, route totals, model
+  coverage, and health status.
+- **Exports.** Sessions and activity can be downloaded as bounded CSV or JSON
+  from the dashboard and Changes pages.
+- **Scoped instance credentials.** Multiple named read-only observation tokens
+  can coexist with independent expiry, last-use tracking, and revocation.
+- **Fleet labels and responsive controls.** Instance tags are normalized and
+  deduplicated, fleet health counters are visible at a glance, and focus,
+  keyboard, mobile table, and narrow-screen states are improved.
+- **Fleet operations workspace.** Instances can be assigned groups and tags,
+  checked before saving, monitored with bounded concurrent health probes, and
+  selected from grouped top-bar options with latency and failure state. The
+  Instances page also aggregates recent read-only activity from connected
+  targets.
+- **Safer instance access lifecycle.** Observation tokens support 30-day,
+  90-day, one-year, or non-expiring lifetimes and can be revoked immediately.
+  Expiry and revocation are enforced server-side, while remote access remains
+  limited to dashboard and timeline reads.
+- **Dashboard operator tools.** Session rows can be filtered by state, address
+  family, and model coverage; compact mode reduces scan density; and a
+  keyboard-accessible command palette provides navigation across the panel.
+- **Local instance identity.** The local Birdy panel can be given a friendly
+  name that is used consistently in selectors, dashboard headings, and fleet
+  activity.
 - **Stable and development update tracking.** A new System → Updates page shows
   the installed version and commit, checks either the latest published release
   or upstream `main`, and reports when a newer build is available. Checks are
   bounded and cached; installation remains an explicit operator action.
+- **Read-only multi-instance dashboard.** Add other Birdy routers under System →
+  Instances, select the dashboard target from the top bar, and observe their
+  live sessions and route totals through a token-protected dashboard API. Remote
+  targets cannot apply configuration or access local management endpoints.
+- **Remote dashboard tokens.** Settings → General can generate and rotate a
+  high-entropy token for dashboard observation. Only its SHA-256 digest is kept
+  on the observed router.
 
 ## [0.3.8] - 2026-07-17
 
@@ -395,7 +448,10 @@ router and gives you:
 - Multi-arch release binaries (Linux amd64/arm64/arm, FreeBSD, macOS) and a
   multi-arch container image on GHCR.
 
-[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.3.5...HEAD
+[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.3.8...HEAD
+[0.3.8]: https://github.com/floreabogdan/birdy/compare/v0.3.7...v0.3.8
+[0.3.7]: https://github.com/floreabogdan/birdy/compare/v0.3.6...v0.3.7
+[0.3.6]: https://github.com/floreabogdan/birdy/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/floreabogdan/birdy/compare/v0.3.4...v0.3.5
 [0.3.4]: https://github.com/floreabogdan/birdy/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/floreabogdan/birdy/compare/v0.3.2...v0.3.3

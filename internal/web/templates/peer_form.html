@@ -37,7 +37,37 @@
 				{{end}}
 			</div>
 
-			<form method="post" action="{{if .IsNew}}/peers/new{{else}}/peers/{{.Peer.Name}}/edit{{end}}" data-preview-url="/peers/preview">
+			<div class="setup-assistant" id="peer-setup-assistant">
+				<div>
+					<span class="setup-kicker">Setup assistant</span>
+					<strong>Start from a safe session profile</strong>
+					<small>Presets fill transport safeguards and route limits. They never choose export policy or save the peer.</small>
+				</div>
+				<div class="preset-control">
+					<label class="sr-only" for="peer-preset">Peer profile</label>
+					<select id="peer-preset">
+						<option value="">Choose a profile...</option>
+						<option value="transit">Transit provider</option>
+						<option value="route-server">IX route server</option>
+						<option value="pni">Private or bilateral peer</option>
+						<option value="customer">Customer / downstream</option>
+						<option value="ibgp">Internal iBGP</option>
+					</select>
+					<button type="button" class="btn btn-primary" id="apply-peer-preset">Apply profile</button>
+				</div>
+			</div>
+
+			<div class="readiness-strip" id="peer-readiness" aria-live="polite">
+				<div><span class="readiness-dot"></span><strong id="peer-readiness-title">Incomplete</strong><small id="peer-readiness-copy">Complete the session identity and routing safeguards.</small></div>
+				<ul>
+					<li data-ready-check="identity">Session identity</li>
+					<li data-ready-check="policy">Route policy</li>
+					<li data-ready-check="limit">Import limit</li>
+					<li data-ready-check="transport">Transport</li>
+				</ul>
+			</div>
+
+			<form method="post" action="{{if .IsNew}}/peers/new{{else}}/peers/{{.Peer.Name}}/edit{{end}}" data-preview-url="/peers/preview" data-editor>
 			<div class="split">
 				<div>
 					<div class="card">
@@ -338,7 +368,7 @@
 	</div>
 </div>
 <script src="/static/policy-chain.js"></script>
-<script src="/static/peer-form.js"></script>
+<script src="/static/peer-form.js?v=dev-ui12"></script>
 <script src="/static/live-preview.js"></script>
 <script src="/static/peeringdb.js"></script>
 </body>

@@ -18,7 +18,7 @@
 				<div><h1>{{if .IsNew}}Add destination{{else}}Edit {{.Dest.Name}}{{end}}</h1></div>
 			</div>
 
-			<form method="post" action="{{if .IsNew}}/alerts/new{{else}}/alerts/{{.Dest.ID}}/edit{{end}}">
+			<form method="post" action="{{if .IsNew}}/alerts/new{{else}}/alerts/{{.Dest.ID}}/edit{{end}}" data-editor>
 				<div class="card">
 					<div class="card-body">
 						<div class="field-row">

@@ -18,7 +18,7 @@
 				<div><h1>{{if .IsNew}}Add static route{{else}}Edit {{.Route.Prefix}}{{end}}</h1></div>
 			</div>
 
-			<form method="post" action="{{if .IsNew}}/library/static-routes/new{{else}}/library/static-routes/{{.Route.ID}}/edit{{end}}" data-preview-url="/library/static-routes/preview">
+			<form method="post" action="{{if .IsNew}}/library/static-routes/new{{else}}/library/static-routes/{{.Route.ID}}/edit{{end}}" data-preview-url="/library/static-routes/preview" data-editor>
 			<div class="split">
 				<div>
 					<div class="card">

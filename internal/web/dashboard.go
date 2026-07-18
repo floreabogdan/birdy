@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
+	"github.com/floreabogdan/birdy/internal/federation"
 	"github.com/floreabogdan/birdy/internal/poller"
 	"github.com/floreabogdan/birdy/internal/store"
 )
@@ -96,7 +98,9 @@ type DashboardView struct {
 	// chart can name what is under the cursor. Sent in the JSON so the sparkline
 	// survives the live table rebuild, and drawn identically server-side on first
 	// paint.
-	History map[string]Series `json:"history"`
+	History        map[string]Series `json:"history"`
+	InstanceName   string            `json:"instanceName"`
+	InstanceRemote bool              `json:"instanceRemote"`
 }
 
 // buildProtoRows turns a poll snapshot into the table rows shared by the
@@ -233,11 +237,51 @@ func plural(n int, word string) string {
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
-	render(w, s.log, "dashboard.html", s.buildDashboardView())
+	render(w, s.log, "dashboard.html", s.selectedDashboardView(r))
 }
 
 func (s *Server) apiDashboard(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, s.buildDashboardView())
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, s.selectedDashboardView(r))
+}
+
+func (s *Server) selectedDashboardView(r *http.Request) DashboardView {
+	id := selectedInstanceID(r)
+	if id == 0 {
+		v := s.buildDashboardView()
+		v.InstanceName = s.localInstanceName()
+		return v
+	}
+	instance, ok, err := s.store.GetInstance(id)
+	if err != nil || !ok {
+		v := DashboardView{Active: "dashboard", InstanceName: "Unknown instance", InstanceRemote: true, PollErr: "The selected Birdy instance no longer exists."}
+		v.StatusText, v.StatusOK = sessionVerdict(v.PollErr, 0, 0, 0)
+		return v
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
+	defer cancel()
+	body, err := (federation.Client{BaseURL: instance.BaseURL, Token: instance.Token}).FetchDashboard(ctx)
+	if err != nil {
+		v := DashboardView{Active: "dashboard", InstanceName: instance.Name, InstanceRemote: true, PollErr: err.Error()}
+		v.StatusText, v.StatusOK = sessionVerdict(v.PollErr, 0, 0, 0)
+		return v
+	}
+	var v DashboardView
+	if err := json.Unmarshal(body, &v); err != nil {
+		v.PollErr = "The remote Birdy returned invalid dashboard data."
+	}
+	v.Active, v.InstanceName, v.InstanceRemote = "dashboard", instance.Name, true
+	if v.PollErr != "" {
+		v.StatusText, v.StatusOK = sessionVerdict(v.PollErr, 0, 0, 0)
+	}
+	for _, row := range v.Protocols {
+		if row.IsBGP() {
+			v.Sessions = append(v.Sessions, row)
+		} else {
+			v.Infra = append(v.Infra, row)
+		}
+	}
+	return v
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

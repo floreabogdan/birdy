@@ -15,7 +15,7 @@
 				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/library/communities">Library</a><span class="sep">/</span><span class="current mono">{{if .IsNew}}new{{else}}{{.Def.Name}}{{end}}</span></div>
 			</div>
 
-			<form method="post" action="{{if .IsNew}}/library/communities/new{{else}}/library/communities/{{.Def.Name}}/edit{{end}}">
+			<form method="post" action="{{if .IsNew}}/library/communities/new{{else}}/library/communities/{{.Def.Name}}/edit{{end}}" data-editor>
 			<div class="card">
 				<div class="card-body">
 					{{if .Def.Builtin}}<p class="card-intro">This community ships with birdy. Your edits are kept.</p>{{end}}

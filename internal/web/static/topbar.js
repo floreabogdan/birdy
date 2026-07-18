@@ -1,4 +1,60 @@
 (function () {
+	var selector = document.getElementById("instance-selector");
+	var contextName = document.getElementById("router-context-name");
+	var contextState = document.getElementById("router-context-state");
+	var context = document.getElementById("router-context");
+	var targetBanner = document.getElementById("target-banner");
+	var targetBannerText = document.getElementById("target-banner-text");
+	if (selector) {
+		function loadInstances() {
+		fetch("/api/instances", { credentials: "same-origin" })
+			.then(function (r) { return r.ok ? r.json() : null; })
+			.then(function (data) {
+				if (!data) return;
+				selector.innerHTML = "";
+				var local = document.createElement("option");
+				local.value = "0"; local.textContent = data.local.name || "This Birdy";
+				selector.appendChild(local);
+				var groups = {};
+				(data.remote || []).forEach(function (item) {
+					var group = item.group || "Other instances";
+					if (!groups[group]) { groups[group] = document.createElement("optgroup"); groups[group].label = group; selector.appendChild(groups[group]); }
+					var option = document.createElement("option");
+					option.value = String(item.id);
+					option.textContent = item.name + (item.status === "healthy" && item.latencyMS >= 0 ? " · " + item.latencyMS + " ms" : item.status === "offline" ? " · offline" : "");
+					option.title = item.lastError || item.status || "not checked";
+					groups[group].appendChild(option);
+				});
+				selector.value = String(data.selected || 0);
+				var selected = null;
+				if (String(data.selected || 0) === "0") {
+					selected = { name: data.local.name || "This Birdy", status: "local" };
+				} else {
+					(data.remote || []).some(function (item) {
+						if (String(item.id) !== String(data.selected)) return false;
+						selected = item;
+						return true;
+					});
+				}
+				if (selected) {
+					if (contextName) contextName.textContent = selected.name;
+					if (contextState) contextState.textContent = selected.status === "local" ? "local router" : (selected.status || "not checked");
+					if (context) context.className = "router-context status-" + (selected.status || "unknown");
+					if (targetBanner) {
+						targetBanner.hidden = selected.status === "local";
+						if (targetBannerText && selected.status !== "local") targetBannerText.textContent = "Viewing remote instance " + selected.name + ". Management changes remain on the local Birdy.";
+					}
+				}
+			})
+			.catch(function () { selector.disabled = true; });
+		}
+		selector.addEventListener("change", function () {
+			window.location.href = "/instances/select?id=" + encodeURIComponent(selector.value);
+		});
+		loadInstances();
+		setInterval(loadInstances, 60000);
+	}
+
 	// ---- relative time ----
 	// Elements carrying data-ts (RFC3339) get their text swapped to a
 	// relative form ("2m ago") and kept fresh; the absolute time stays
@@ -26,7 +82,7 @@
 	window.birdyRelTime = relTime;
 	window.birdyRefreshTimes = refreshTimes;
 	refreshTimes();
-	setInterval(refreshTimes, 30000);
+		setInterval(refreshTimes, 60000);
 
 	// ---- page filter ----
 	// Filters any element marked data-search-target by its direct children's
@@ -89,6 +145,10 @@
 		if (connLabel) connLabel.textContent = text;
 	}
 	function poll() {
+		if (selector && selector.value !== "0") {
+			setConn("ok", "remote dashboard");
+			return;
+		}
 		fetch("/api/alerts/summary", { credentials: "same-origin" })
 			.then(function (r) { return r.ok ? r.json() : null; })
 			.then(function (data) {
@@ -111,6 +171,6 @@
 	}
 	if (pill || connDot) {
 		poll();
-		setInterval(poll, 10000);
+		setInterval(poll, 20000);
 	}
 })();

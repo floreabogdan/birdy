@@ -115,6 +115,9 @@ func TestPreview(t *testing.T) {
 			if r.URL.Query().Has("dark") {
 				html = strings.Replace(html, "<html>", `<html data-theme="dark">`, 1)
 			}
+			if r.URL.Query().Has("original") {
+				html = strings.Replace(html, "<html>", `<html data-theme-style="original">`, 1)
+			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = io.WriteString(w, html)
 		}
@@ -264,6 +267,8 @@ func TestPreview(t *testing.T) {
 	// A second view fixed to the Alerts tab, for that screenshot.
 	settingsAlertsV := settingsV
 	settingsAlertsV.Tab = "alerts"
+	settingsThemeV := settingsV
+	settingsThemeV.Tab = "theme"
 	// A timeline deep into a long history: the pager should show first/last, a
 	// window around the current page, and ellipses for the gaps.
 	pagerReq := httptest.NewRequest("GET", "/timeline?offset=200&limit=50", nil)
@@ -329,6 +334,7 @@ func TestPreview(t *testing.T) {
 	mux.HandleFunc("/lg", page("explore.html", exploreRoutesV))
 	mux.HandleFunc("/explore-diag", page("explore.html", exploreDiagV))
 	mux.HandleFunc("/settings-alerts", page("settings.html", settingsAlertsV))
+	mux.HandleFunc("/settings-theme", page("settings.html", settingsThemeV))
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
@@ -337,6 +343,7 @@ func TestPreview(t *testing.T) {
 		{"dashboard-narrow", "/", "820,1500"},
 		{"peer", "/peer", "1600,1400"},
 		{"dashboard-dark", "/?dark", "1600,1500"},
+		{"dashboard-original", "/?original", "1600,1500"},
 		{"peers", "/peers", "1600,900"},
 		{"peer-form", "/peer-form", "1600,1500"},
 		{"prefix-sets", "/prefix-sets", "1600,900"},
@@ -349,6 +356,7 @@ func TestPreview(t *testing.T) {
 		{"export-policy-form", "/export-policy-form", "1600,1200"},
 		{"peer-form-lint", "/peer-form-lint", "1600,1500"},
 		{"settings", "/settings", "1600,1100"},
+		{"settings-theme", "/settings-theme", "1600,800"},
 		{"settings-alerts", "/settings-alerts", "1600,700"},
 		{"timeline", "/timeline", "1600,700"},
 		{"lg", "/lg", "1600,700"},

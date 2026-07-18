@@ -21,10 +21,19 @@
 				</div>
 				<div class="page-header-actions">
 					<a class="btn" href="/changes/history">{{template "icon-clock"}}Apply history</a>
+					<a class="btn" href="/export/events">{{template "icon-download"}}Export activity</a>
+					<a class="btn" href="/export/config">{{template "icon-file"}}Download candidate</a>
 				</div>
 			</div>
 
 			{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+
+			<div class="config-readiness" aria-label="Configuration readiness">
+				<div class="{{if .RenderErr}}is-blocked{{else}}is-ready{{end}}"><span>1</span><strong>Render</strong><small>{{if .RenderErr}}Blocked{{else}}Complete{{end}}</small></div>
+				<div class="{{if .Check.OK}}is-ready{{else if .Check.Skipped}}is-warning{{else}}is-blocked{{end}}"><span>2</span><strong>Syntax</strong><small>{{if .Check.OK}}Passed{{else if .Check.Skipped}}Not checked{{else}}Failed{{end}}</small></div>
+				<div class="{{if .Dangers}}is-blocked{{else if .Warnings}}is-warning{{else}}is-ready{{end}}"><span>3</span><strong>Policy</strong><small>{{if .Dangers}}{{.Dangers}} serious{{else if .Warnings}}Review{{else}}Clear{{end}}</small></div>
+				<div class="{{if .Pending}}is-warning{{else if .InSync}}is-ready{{else if or .RenderErr (not .Check.OK)}}is-blocked{{else if .Dangers}}is-warning{{else}}is-ready{{end}}"><span>4</span><strong>Apply</strong><small>{{if .Pending}}Confirm{{else if .InSync}}In sync{{else if or .RenderErr (not .Check.OK)}}Blocked{{else if .Dangers}}Review{{else}}Ready{{end}}</small></div>
+			</div>
 
 			{{if .WouldRemove}}
 			<div class="card panel-danger">

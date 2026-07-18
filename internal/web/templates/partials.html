@@ -1,10 +1,11 @@
 {{define "head"}}
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/static/style.css?v=hardened6">
-<script src="/static/theme-bootstrap.js?v=hardened6"></script>
-<script src="/static/theme.js?v=hardened6" defer></script>
-<script src="/static/ui.js?v=hardened6" defer></script>
+<link rel="stylesheet" href="/static/style.css?v=dev-ui12">
+<script src="/static/theme-bootstrap.js?v=dev-ui12"></script>
+<script src="/static/theme.js?v=dev-ui10" defer></script>
+<script src="/static/ui.js?v=dev-ui12" defer></script>
+<script src="/static/command-palette.js?v=dev-ui12" defer></script>
 {{end}}
 
 {{define "icon-dashboard"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>{{end}}
@@ -30,6 +31,8 @@
 {{define "icon-bolt"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>{{end}}
 {{define "icon-power"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg>{{end}}
 {{define "icon-refresh"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>{{end}}
+{{define "icon-server"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="7" rx="1"/><rect x="3" y="14" width="18" height="7" rx="1"/><line x1="7" y1="7" x2="7.01" y2="7"/><line x1="7" y1="18" x2="7.01" y2="18"/></svg>{{end}}
+{{define "icon-list"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>{{end}}
 {{define "icon-copy"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>{{end}}
 {{define "icon-file"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="15" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>{{end}}
 {{define "icon-terminal"}}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>{{end}}
@@ -74,26 +77,34 @@
 
 {{define "sidebar"}}
 <aside class="sidebar" id="sidebar">
-	<div class="sidebar-brand">birdy<span class="brand-stage">BIRD 2.x manager</span></div>
+	<div class="sidebar-brand-row">
+		<a class="sidebar-brand" href="/" aria-label="Birdy dashboard"><span class="brand-mark" aria-hidden="true">b</span><span class="brand-copy">birdy<span class="brand-stage">BIRD 2.x manager</span></span></a>
+		<button id="sidebar-collapse" class="sidebar-collapse" type="button" title="Collapse navigation" aria-label="Collapse navigation" aria-pressed="false">{{template "icon-menu"}}</button>
+	</div>
 	<nav class="sidebar-nav">
 		<div class="nav-label">Observe</div>
-		<a href="/" class="{{if eq .Active "dashboard"}}active{{end}}">{{template "icon-dashboard"}}Dashboard</a>
-		<a href="/lg" class="{{if eq .Active "lg"}}active{{end}}">{{template "icon-search"}}Looking Glass</a>
-		<a href="/timeline" class="{{if eq .Active "timeline"}}active{{end}}">{{template "icon-clock"}}Timeline</a>
+		<a href="/" title="Dashboard" class="{{if eq .Active "dashboard"}}active{{end}}">{{template "icon-dashboard"}}<span class="nav-copy">Dashboard</span></a>
+		<a href="/lg" title="Looking Glass" class="{{if eq .Active "lg"}}active{{end}}">{{template "icon-search"}}<span class="nav-copy">Looking Glass</span></a>
+		<a href="/timeline" title="Timeline" class="{{if eq .Active "timeline"}}active{{end}}">{{template "icon-clock"}}<span class="nav-copy">Timeline</span></a>
 
 		<div class="nav-label">Manage</div>
-		<a href="/peers" class="{{if eq .Active "peers"}}active{{end}}">{{template "icon-peers"}}Peers</a>
-		<a href="/policies" class="{{if eq .Active "policies"}}active{{end}}">{{template "icon-filter"}}Policies</a>
-		<a href="/library/prefix-sets" class="{{if eq .Active "library"}}active{{end}}">{{template "icon-library"}}Library</a>
-		<a href="/changes" class="{{if eq .Active "changes"}}active{{end}}">{{template "icon-changes"}}Changes</a>
+		<a href="/peers" title="Peers" class="{{if eq .Active "peers"}}active{{end}}">{{template "icon-peers"}}<span class="nav-copy">Peers</span></a>
+		{{if eq .Active "peers"}}<div class="sidebar-subnav"><a href="/peers">All peers</a><a href="/peers/new">Add peer</a><a href="/changes">Validate changes</a></div>{{end}}
+		<a href="/policies" title="Policies" class="{{if eq .Active "policies"}}active{{end}}">{{template "icon-filter"}}<span class="nav-copy">Policies</span></a>
+		{{if eq .Active "policies"}}<div class="sidebar-subnav"><a href="/policies">All policies</a><a href="/policies/new">Add policy</a></div>{{end}}
+		<a href="/library/prefix-sets" title="Library" class="{{if eq .Active "library"}}active{{end}}">{{template "icon-library"}}<span class="nav-copy">Library</span></a>
+		{{if eq .Active "library"}}<div class="sidebar-subnav"><a href="/library/prefix-sets">Prefix sets</a><a href="/library/as-sets">AS sets</a><a href="/library/communities">Communities</a><a href="/library/static-routes">Static routes</a></div>{{end}}
+		<a href="/changes" title="Changes" class="{{if eq .Active "changes"}}active{{end}}">{{template "icon-changes"}}<span class="nav-copy">Changes</span></a>
+		{{if eq .Active "changes"}}<div class="sidebar-subnav"><a href="/changes">Candidate</a><a href="/changes/history">Apply history</a></div>{{end}}
 
 		<div class="nav-label">Protect</div>
-		<a href="/rpki" class="{{if eq .Active "rpki"}}active{{end}}">{{template "icon-shield"}}RPKI</a>
-		<a href="/bmp" class="{{if eq .Active "bmp"}}active{{end}}">{{template "icon-activity"}}BMP</a>
+		<a href="/rpki" title="RPKI" class="{{if eq .Active "rpki"}}active{{end}}">{{template "icon-shield"}}<span class="nav-copy">RPKI</span></a>
+		<a href="/bmp" title="BMP" class="{{if eq .Active "bmp"}}active{{end}}">{{template "icon-activity"}}<span class="nav-copy">BMP</span></a>
 
 		<div class="nav-label">System</div>
-		<a href="/settings" class="{{if eq .Active "settings"}}active{{end}}">{{template "icon-settings"}}Settings</a>
-		<a href="/updates" class="{{if eq .Active "updates"}}active{{end}}">{{template "icon-refresh"}}Updates</a>
+		<a href="/settings" title="Settings" class="{{if eq .Active "settings"}}active{{end}}">{{template "icon-settings"}}<span class="nav-copy">Settings</span></a>
+		<a href="/updates" title="Updates" class="{{if eq .Active "updates"}}active{{end}}">{{template "icon-refresh"}}<span class="nav-copy">Updates</span></a>
+		<a href="/instances" title="Instances" class="{{if eq .Active "instances"}}active{{end}}">{{template "icon-server"}}<span class="nav-copy">Instances</span></a>
 	</nav>
 	<div class="sidebar-foot">
 		<div class="conn-line"><span id="bird-conn" class="conn-dot"></span><span id="bird-conn-label">checking BIRD&hellip;</span></div>
@@ -112,8 +123,12 @@
 			<input type="text" id="topbar-search-input" placeholder="Filter this page&hellip;" autocomplete="off">
 			<span class="kbd-hint">/</span>
 		</div>
+		<button id="command-palette-toggle" class="icon-btn command-toggle" type="button" title="Open command palette" aria-label="Open command palette">{{template "icon-bolt"}}</button>
 	</div>
 	<div class="topbar-right">
+		<div class="router-context" id="router-context"><span class="router-context-dot"></span><span><strong id="router-context-name">This Birdy</strong><small id="router-context-state">local router</small></span></div>
+		<label class="instance-picker" title="Router target"><span class="sr-only">Router target</span><select id="instance-selector" aria-label="Router target"><option value="0">This Birdy</option></select></label>
+		<button id="compact-toggle" class="icon-btn" type="button" title="Use compact layout" aria-label="Use compact layout" aria-pressed="false">{{template "icon-list"}}</button>
 		<button id="theme-toggle" class="icon-btn" title="Switch color theme" type="button" aria-label="Switch color theme" aria-pressed="false">{{template "icon-sun"}}</button>
 		<a href="/timeline" class="icon-btn" title="Recent alerts">
 			{{template "icon-bell"}}
@@ -130,5 +145,28 @@
 		</details>
 	</div>
 </div>
-<script src="/static/topbar.js"></script>
+<div id="target-banner" class="target-banner" hidden><span id="target-banner-text"></span><a href="/instances/select?id=0">Return to this Birdy</a></div>
+<div id="command-palette" class="command-palette" hidden>
+	<div class="command-panel" role="dialog" aria-modal="true" aria-label="Command palette">
+		<div class="command-search"><input type="search" placeholder="Find a page or action..." aria-label="Search commands" autocomplete="off"><span class="kbd-hint">Esc</span></div>
+		<nav class="command-list">
+			<div class="command-group">Navigate</div>
+			<a href="/" data-command>Dashboard <span>G</span></a>
+			<a href="/peers" data-command>Peers and BGP sessions <span>P</span></a>
+			<a href="/policies" data-command>Import and export policies <span>O</span></a>
+			<a href="/library/prefix-sets" data-command>Routing library <span>R</span></a>
+			<a href="/lg" data-command>Looking Glass and diagnostics <span>L</span></a>
+			<a href="/changes" data-command>Validate and apply changes <span>C</span></a>
+			<a href="/timeline" data-command>Activity timeline <span>T</span></a>
+			<a href="/instances" data-command>Birdy instances <span>I</span></a>
+			<a href="/settings" data-command>Settings <span>S</span></a>
+			<div class="command-group">Create</div>
+			<a href="/peers/new" data-command>Add a BGP peer <span>New</span></a>
+			<a href="/policies/new" data-command>Add a routing policy <span>New</span></a>
+			<a href="/library/prefix-sets/new" data-command>Add a prefix set <span>New</span></a>
+			<a href="/library/communities/new" data-command>Add a community <span>New</span></a>
+		</nav>
+	</div>
+</div>
+<script src="/static/topbar.js?v=dev-ui12"></script>
 {{end}}

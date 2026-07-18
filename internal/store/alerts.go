@@ -70,6 +70,8 @@ func AlertEventKinds() []AlertEventKind {
 		{EventBirdUnreach, "BIRD unreachable"},
 		{EventConfigApply, "Config applied"},
 		{EventConfigRevert, "Config reverted"},
+		{EventInstanceDown, "Remote instance down"},
+		{EventInstanceUp, "Remote instance recovery"},
 	}
 }
 

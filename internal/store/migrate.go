@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 31
+const schemaVersion = 34
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -404,6 +404,41 @@ func migrate(db *sql.DB) error {
 		// development branch. Stable is the conservative upgrade default.
 		if err := ensureColumn(tx, "settings", "update_channel", `ALTER TABLE settings ADD COLUMN update_channel TEXT NOT NULL DEFAULT 'stable'`); err != nil {
 			return err
+		}
+	}
+
+	if version < 32 {
+		if err := ensureColumn(tx, "settings", "instance_api_token_hash", `ALTER TABLE settings ADD COLUMN instance_api_token_hash TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 33 {
+		for _, column := range []struct{ name, ddl string }{
+			{"instance_api_token_expires_at", `ALTER TABLE settings ADD COLUMN instance_api_token_expires_at TEXT NOT NULL DEFAULT ''`},
+			{"instance_api_token_revoked", `ALTER TABLE settings ADD COLUMN instance_api_token_revoked INTEGER NOT NULL DEFAULT 0`},
+			{"group_name", `ALTER TABLE instances ADD COLUMN group_name TEXT NOT NULL DEFAULT ''`},
+			{"tags", `ALTER TABLE instances ADD COLUMN tags TEXT NOT NULL DEFAULT ''`},
+			{"last_check_at", `ALTER TABLE instances ADD COLUMN last_check_at TEXT NOT NULL DEFAULT ''`},
+			{"last_success_at", `ALTER TABLE instances ADD COLUMN last_success_at TEXT NOT NULL DEFAULT ''`},
+			{"last_latency_ms", `ALTER TABLE instances ADD COLUMN last_latency_ms INTEGER NOT NULL DEFAULT -1`},
+			{"last_error", `ALTER TABLE instances ADD COLUMN last_error TEXT NOT NULL DEFAULT ''`},
+		} {
+			table := "settings"
+			if column.name == "group_name" || column.name == "tags" || column.name == "last_check_at" || column.name == "last_success_at" || column.name == "last_latency_ms" || column.name == "last_error" {
+				table = "instances"
+			}
+			if err := ensureColumn(tx, table, column.name, column.ddl); err != nil {
+				return err
+			}
+		}
+	}
+	if version < 34 {
+		if _, err := tx.Exec(`CREATE TABLE IF NOT EXISTS instance_tokens (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+			scope TEXT NOT NULL DEFAULT 'dashboard timeline', expires_at TEXT NOT NULL DEFAULT '',
+			revoked INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, last_used TEXT NOT NULL DEFAULT '')`); err != nil {
+			return fmt.Errorf("create instance tokens: %w", err)
 		}
 	}
 

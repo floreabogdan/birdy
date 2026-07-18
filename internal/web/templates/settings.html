@@ -26,6 +26,7 @@
 
 			<nav class="page-tabs" data-tabs role="tablist">
 				<a href="?tab=general" data-tab="general" role="tab" aria-selected="{{if eq .Tab "general"}}true{{else}}false{{end}}">{{template "icon-settings"}}General</a>
+				<a href="?tab=theme" data-tab="theme" role="tab" aria-selected="{{if eq .Tab "theme"}}true{{else}}false{{end}}">{{template "icon-sun"}}Theme</a>
 				<a href="?tab=bogons" data-tab="bogons" role="tab" aria-selected="{{if eq .Tab "bogons"}}true{{else}}false{{end}}">{{template "icon-shield"}}Bogons</a>
 				<a href="?tab=access" data-tab="access" role="tab" aria-selected="{{if eq .Tab "access"}}true{{else}}false{{end}}">{{template "icon-key"}}Access</a>
 				<a href="?tab=alerts" data-tab="alerts" role="tab" aria-selected="{{if eq .Tab "alerts"}}true{{else}}false{{end}}">{{template "icon-bell"}}Alerts</a>
@@ -122,6 +123,34 @@
 						<p class="text-muted" style="margin-top:8px">Restoring is staged, not applied live: birdy backs up the current database and swaps in the uploaded one the next time it starts. Run <code class="mono">systemctl restart birdy</code> afterward.</p>
 						{{end}}
 					</div>
+				</div>
+
+				<div class="card">
+					<div class="card-header"><span class="card-title">Remote dashboard access</span></div>
+					<div class="card-body">
+						<p class="text-muted" style="margin-top:0">Generate a token so another Birdy panel can observe this instance's dashboard. The token grants dashboard data only; it cannot change peers, policies, settings or BIRD.</p>
+						{{if .APIToken}}<div class="token-reveal"><label for="new-instance-token">New token</label><input id="new-instance-token" class="mono" value="{{.APIToken}}" readonly onclick="this.select()"><div class="hint">Copy it now. This is the only time the complete token is shown.</div></div>{{end}}
+						{{if not .ReadOnly}}<form method="post" action="/settings/instance-token" class="token-actions"><label for="instance-token-expiry">Token lifetime</label><select id="instance-token-expiry" name="expiry"><option value="90">90 days</option><option value="30">30 days</option><option value="365">1 year</option><option value="never">No expiry</option></select><button class="btn" type="submit">Generate token</button></form>{{range .InstanceTokens}}<div class="token-row"><span><strong>{{.Name}}</strong> <span class="hint">{{.Scope}} · {{if .Revoked}}revoked{{else if .ExpiresAt}}expires {{.ExpiresAt}}{{else}}no expiry{{end}}{{if .LastUsed}} · last used {{.LastUsed}}{{end}}</span></span>{{if not .Revoked}}<form method="post" action="/settings/instance-token/{{.ID}}/revoke"><button class="btn btn-danger btn-sm" type="submit" data-confirm="Revoke this token?">Revoke</button></form>{{end}}</div>{{end}}{{if .Settings.InstanceAPITokenHash}}<form method="post" action="/settings/instance-token/revoke" class="token-revoke"><button class="btn btn-danger" type="submit" data-confirm="Revoke legacy remote dashboard access now?">Revoke legacy token</button></form>{{end}}{{else}}<span class="badge badge-warning">read-only mode</span>{{end}}
+					</div>
+				</div>
+			</section>
+
+			<section data-tab-panel="theme" {{if ne .Tab "theme"}}hidden{{end}} class="tab-panel">
+				<div class="card">
+					<div class="card-header"><span class="card-title">{{template "icon-sun"}}Panel theme</span></div>
+					<div class="card-body">
+						<p class="text-muted" style="margin-top:0">Choose the visual style used by this browser. The original style remains available for compatibility with the project’s original interface; the modern style is the current Birdy refresh.</p>
+						<div class="theme-choice-grid">
+							<label class="theme-choice"><input id="theme-style-modern" type="radio" name="themeStylePreview" value="modern" data-theme-choice="modern"><span><strong>Modern Birdy</strong><small>Current restrained layout, updated spacing, and refreshed colors.</small></span></label>
+							<label class="theme-choice"><input id="theme-style-original" type="radio" name="themeStylePreview" value="original" data-theme-choice="original"><span><strong>Original Birdy</strong><small>Preserves the original owner’s visual language and palette.</small></span></label>
+						</div>
+						<select id="theme-style-select" class="theme-style-select" aria-label="Panel visual style" hidden><option value="modern">Modern Birdy</option><option value="original">Original Birdy</option></select>
+						<div class="hint">This preference is stored in this browser only. Light and dark mode remain independently selectable from the top bar.</div>
+					</div>
+				</div>
+				<div class="card">
+					<div class="card-header">Color mode</div>
+					<div class="card-body"><p class="text-muted" style="margin-top:0">Use the sun button in the top bar to switch between light and dark mode. The selected style works with both modes.</p><button type="button" class="btn" id="theme-tab-toggle">Switch light/dark mode</button></div>
 				</div>
 			</section>
 

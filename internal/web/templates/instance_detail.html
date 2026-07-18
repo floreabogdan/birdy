@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+<head><title>birdy - {{.Instance.Name}}</title>{{template "head" .}}</head>
+<body>
+<div class="app-shell">{{template "sidebar" .}}<div class="main">{{template "topbar" .}}<div class="page">
+	<div class="page-top"><span class="page-eyebrow">Instance</span><div class="breadcrumb"><a href="/instances">Instances</a><span class="sep">/</span><span class="current">{{.Instance.Name}}</span></div></div>
+	<div class="page-header"><div><h1>{{.Instance.Name}}</h1><div class="page-sub mono">{{.Instance.BaseURL}}</div></div><div class="page-header-actions"><span class="badge badge-{{if eq .Health "healthy"}}success{{else if eq .Health "offline"}}danger{{else}}warning{{end}}">{{.Health}}</span><a class="btn" href="/instances">Back to instances</a></div></div>
+	{{if .Err}}<div class="card panel-danger"><div class="card-body">{{.Err}}</div></div>{{else}}
+	<div class="stat-grid instance-stats"><div class="stat tint-success"><span class="stat-label">Sessions up</span><strong class="stat-value">{{.View.SessionUp}}</strong></div><div class="stat tint-danger"><span class="stat-label">Sessions down</span><strong class="stat-value">{{.View.SessionDown}}</strong></div><div class="stat tint-secondary"><span class="stat-label">Routes</span><strong class="stat-value">{{comma .View.TotalRoutes}}</strong></div><div class="stat"><span class="stat-label">Updated</span><strong class="stat-value">{{.View.UpdatedAt.Format "15:04:05"}}</strong></div></div>
+	<div class="card"><div class="card-header"><span class="card-title">BGP sessions</span><span class="hint">{{.View.StatusText}}</span></div><div class="table-scroll"><table><thead><tr><th>Session</th><th>State</th><th>Model</th><th class="num">Imported</th><th class="num">Exported</th><th>Info</th></tr></thead><tbody>{{range .View.Sessions}}<tr><td class="mono">{{.Name}}</td><td>{{sessionBadge .Up .BGPState}}</td><td>{{if .Configured}}managed{{else}}unmanaged{{end}}</td><td class="num">{{if .HasCounts}}{{comma .Imported}}{{else}}-{{end}}</td><td class="num">{{if .HasCounts}}{{comma .Exported}}{{else}}-{{end}}</td><td>{{.Info}}</td></tr>{{else}}<tr><td colspan="6" class="empty">No BGP sessions reported.</td></tr>{{end}}</tbody></table></div></div>
+	{{end}}
+</div></div></div>
+</body></html>

@@ -12,8 +12,39 @@ CREATE TABLE IF NOT EXISTS settings (
 	kernel_export_bgp_v4 INTEGER NOT NULL DEFAULT 0,
 	kernel_export_bgp_v6 INTEGER NOT NULL DEFAULT 0,
 	update_channel   TEXT NOT NULL DEFAULT 'stable',
+	instance_api_token_hash TEXT NOT NULL DEFAULT '',
+	instance_api_token_expires_at TEXT NOT NULL DEFAULT '',
+	instance_api_token_revoked INTEGER NOT NULL DEFAULT 0,
 	created_at       TEXT NOT NULL,
 	updated_at       TEXT NOT NULL
+);
+
+-- Remote Birdy targets are intentionally dashboard-only. The token is sent by
+-- the local panel as a bearer credential and is never accepted for write APIs.
+CREATE TABLE IF NOT EXISTS instances (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	name       TEXT NOT NULL UNIQUE,
+	base_url   TEXT NOT NULL,
+	token      TEXT NOT NULL,
+	group_name TEXT NOT NULL DEFAULT '',
+	tags       TEXT NOT NULL DEFAULT '',
+	last_check_at TEXT NOT NULL DEFAULT '',
+	last_success_at TEXT NOT NULL DEFAULT '',
+	last_latency_ms INTEGER NOT NULL DEFAULT -1,
+	last_error TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS instance_tokens (
+	id         INTEGER PRIMARY KEY AUTOINCREMENT,
+	name       TEXT NOT NULL,
+	token_hash TEXT NOT NULL UNIQUE,
+	scope      TEXT NOT NULL DEFAULT 'dashboard timeline',
+	expires_at TEXT NOT NULL DEFAULT '',
+	revoked    INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL,
+	last_used  TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -52,6 +83,7 @@ CREATE TABLE IF NOT EXISTS route_samples (
 	exported INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_samples_proto_ts ON route_samples(protocol, ts);
+CREATE INDEX IF NOT EXISTS idx_samples_ts ON route_samples(ts);
 
 -- One peers row renders one "protocol bgp" block. The address family of a
 -- session is derived from neighbor_ip rather than stored: a BGP session to an

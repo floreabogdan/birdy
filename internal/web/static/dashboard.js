@@ -1,5 +1,7 @@
 (function () {
-	var POLL_MS = 4000;
+	var POLL_MS = 5000;
+	var sessionFilters = { state: "all", family: "all", model: "all", search: "", sort: "name" };
+	var lastProtocols = [], lastHistory = {};
 	var KIND_BADGE = {
 		session_up: ["badge-success", "up"],
 		session_down: ["badge-danger", "down"],
@@ -55,7 +57,7 @@
 
 	function countCells(p) {
 		if (!p.hasCounts) {
-			return '<td class="num text-muted">—</td><td class="num text-muted">—</td>' +
+			return '<td class="num text-muted">—</td><td class="num text-muted" data-col="rejected">—</td>' +
 				'<td class="num text-muted">—</td><td class="text-muted">—</td>';
 		}
 		var limit;
@@ -72,7 +74,7 @@
 			: '<span class="text-muted">0</span>';
 		return (
 			'<td class="num mono">' + esc(comma(p.imported)) + "</td>" +
-			'<td class="num mono">' + filtered + "</td>" +
+			'<td class="num mono" data-col="rejected">' + filtered + "</td>" +
 			'<td class="num mono">' + esc(comma(p.exported)) + "</td>" +
 			"<td>" + limit + "</td>"
 		);
@@ -109,15 +111,42 @@
 		return String(p.proto).toUpperCase() === "BGP";
 	}
 
+	function familyOf(p) {
+		var name = String(p.name || "").toLowerCase();
+		if (name.indexOf("_v4") !== -1 || name.indexOf("ipv4") !== -1) return "v4";
+		if (name.indexOf("_v6") !== -1 || name.indexOf("ipv6") !== -1) return "v6";
+		return "all";
+	}
+
+	function applySessionFilters() {
+		var body = document.getElementById("proto-table-body");
+		if (!body) return;
+		Array.prototype.forEach.call(body.querySelectorAll("tr[data-state]"), function (row) {
+			var stateOK = sessionFilters.state === "all" || row.dataset.state === sessionFilters.state;
+			var familyOK = sessionFilters.family === "all" || row.dataset.family === sessionFilters.family;
+			var modelOK = sessionFilters.model === "all" || row.dataset.model === sessionFilters.model;
+			var searchOK = !sessionFilters.search || row.dataset.name.indexOf(sessionFilters.search) >= 0;
+			row.hidden = !(stateOK && familyOK && modelOK && searchOK);
+		});
+	}
+
 	function renderRows(protocols, history) {
 		var body = document.getElementById("proto-table-body");
 		if (!body) return;
 		var sessions = (protocols || []).filter(isBGP);
+		lastProtocols = protocols || [];
+		lastHistory = history || {};
+		sessions.sort(function (a, b) {
+			if (sessionFilters.sort === "imported" || sessionFilters.sort === "exported") return (Number(b[sessionFilters.sort]) || 0) - (Number(a[sessionFilters.sort]) || 0);
+			if (sessionFilters.sort === "state") return String(b.info || b.state).localeCompare(String(a.info || a.state));
+			return String(a.name).localeCompare(String(b.name));
+		});
 		if (sessions.length === 0) {
-			body.innerHTML = '<tr><td colspan="10" class="empty">BIRD is running no BGP sessions.</td></tr>';
+			body.innerHTML = '<tr><td colspan="10"><div class="empty-state"><strong>No BGP sessions are running</strong><p>Add a peer directly, or import sessions already present in BIRD.</p><div><a class="btn btn-primary" href="/peers/new">Add peer</a><a class="btn" href="/peers/seed">Import from BIRD</a></div></div></td></tr>';
 			return;
 		}
 		var hist = history || {};
+		var remote = document.body.getAttribute("data-remote") === "true";
 		body.innerHTML = sessions.map(function (p) {
 			var badgeClass = p.up ? "badge-success" : "badge-danger";
 			// BIRD's own vocabulary: Established, Active, Connect, Idle.
@@ -132,19 +161,45 @@
 			var managed = p.configured
 				? '<span class="badge badge-success">configured</span>'
 				: '<span class="badge badge-warning">unmanaged</span>';
+			var state = p.up ? "up" : "down";
+			var model = p.configured ? "managed" : "unmanaged";
+			var rowStart = remote ? '<tr data-name="' + esc(String(p.name).toLowerCase()) + '" data-state="' + state + '" data-family="' + familyOf(p) + '" data-model="' + model + '">' : '<tr data-name="' + esc(String(p.name).toLowerCase()) + '" data-state="' + state + '" data-family="' + familyOf(p) + '" data-model="' + model + '" class="row-link" data-href="/peers/' + encodeURIComponent(p.name) + '" tabindex="0">';
 			return (
-				'<tr class="row-link" data-href="/peers/' + encodeURIComponent(p.name) + '" tabindex="0">' +
+				rowStart +
 				'<td class="mono">' + esc(p.name) + "</td>" +
-				'<td class="mono">' + esc(p.table) + "</td>" +
+				'<td class="mono" data-col="table">' + esc(p.table) + "</td>" +
 				'<td><span class="badge ' + badgeClass + '"><span class="dot"></span>' + esc(state) + "</span></td>" +
-				'<td class="mono">' + esc(p.since) + "</td>" +
+				'<td class="mono" data-col="since">' + esc(p.since) + "</td>" +
 				countCells(p) +
-				'<td class="spark-cell">' + sparkline(hist[p.name], 108, 26) + "</td>" +
-				"<td>" + managed + "</td>" +
+				'<td class="spark-cell" data-col="trend">' + sparkline(hist[p.name], 108, 26) + "</td>" +
+				'<td data-col="model">' + managed + "</td>" +
 				"</tr>"
 			);
 		}).join("");
+		applyColumnVisibility();
+		applySessionFilters();
 	}
+
+	var hiddenColumns = {};
+	try { hiddenColumns = JSON.parse(localStorage.getItem("birdy-session-columns") || "{}"); } catch (_) { hiddenColumns = {}; }
+	function applyColumnVisibility() {
+		Object.keys(hiddenColumns).forEach(function (name) {
+			document.querySelectorAll('#session-table [data-col="' + name + '"]').forEach(function (cell) {
+				cell.hidden = !!hiddenColumns[name];
+			});
+		});
+		document.querySelectorAll("[data-session-column]").forEach(function (box) {
+			box.checked = !hiddenColumns[box.getAttribute("data-session-column")];
+		});
+	}
+	document.querySelectorAll("[data-session-column]").forEach(function (box) {
+		box.addEventListener("change", function () {
+			hiddenColumns[box.getAttribute("data-session-column")] = !box.checked;
+			try { localStorage.setItem("birdy-session-columns", JSON.stringify(hiddenColumns)); } catch (_) {}
+			applyColumnVisibility();
+		});
+	});
+	applyColumnVisibility();
 
 	function renderEvents(events) {
 		var el = document.getElementById("recent-events");
@@ -173,6 +228,7 @@
 			})
 			.then(function (data) {
 				if (!data) return;
+				document.body.setAttribute("data-remote", data.instanceRemote ? "true" : "false");
 				renderRows(data.protocols, data.history);
 				renderEvents(data.recentEvents);
 
@@ -208,6 +264,21 @@
 			})
 			.catch(function () { /* transient network hiccup, next poll will retry */ });
 	}
+	var search = document.getElementById("session-search");
+	if (search) search.addEventListener("input", function () { sessionFilters.search = search.value.trim().toLowerCase(); applySessionFilters(); });
+	var sort = document.getElementById("session-sort");
+	if (sort) sort.addEventListener("change", function () { sessionFilters.sort = sort.value; renderRows(lastProtocols, lastHistory); });
+
+	["session-state-filter", "session-family-filter", "session-model-filter"].forEach(function (id) {
+		var select = document.getElementById(id);
+		if (!select) return;
+		select.addEventListener("change", function () {
+			if (id === "session-state-filter") sessionFilters.state = select.value;
+			if (id === "session-family-filter") sessionFilters.family = select.value;
+			if (id === "session-model-filter") sessionFilters.model = select.value;
+			applySessionFilters();
+		});
+	});
 
 	setInterval(poll, POLL_MS);
 	if (window.birdyRefreshTimes) window.birdyRefreshTimes();

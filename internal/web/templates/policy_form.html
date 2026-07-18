@@ -24,7 +24,7 @@
 				</div>
 			</div>
 
-			<form method="post" action="{{if .IsNew}}/policies/new{{else}}/policies/{{.Policy.Name}}/edit{{end}}" data-preview-url="/policies/preview">
+			<form method="post" action="{{if .IsNew}}/policies/new{{else}}/policies/{{.Policy.Name}}/edit{{end}}" data-preview-url="/policies/preview" data-editor>
 			<input type="hidden" name="direction" value="{{.Policy.Direction}}">
 			<div class="split">
 				<div>
