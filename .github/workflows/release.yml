@@ -22,9 +22,10 @@ jobs:
       - name: Cross-compile
         env:
           VERSION: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
         run: |
           mkdir -p dist
-          LDFLAGS="-s -w -X github.com/floreabogdan/birdy/internal/buildinfo.Version=${VERSION}"
+          LDFLAGS="-s -w -X github.com/floreabogdan/birdy/internal/buildinfo.Version=${VERSION} -X github.com/floreabogdan/birdy/internal/buildinfo.Commit=${COMMIT}"
           targets="linux/amd64 linux/arm64 linux/arm freebsd/amd64 darwin/amd64 darwin/arm64"
           for t in $targets; do
             export GOOS=${t%/*} GOARCH=${t#*/} CGO_ENABLED=0
