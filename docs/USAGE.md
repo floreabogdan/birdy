@@ -143,7 +143,10 @@ sudo install "$(go env GOPATH)/bin/birdy" /usr/local/bin/birdy
 Or cross-compile from your workstation and copy one file to the router:
 
 ```sh
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o birdy ./cmd/birdy
+COMMIT=$(git rev-parse HEAD)
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+  -ldflags="-s -w -X github.com/floreabogdan/birdy/internal/buildinfo.Commit=$COMMIT" \
+  -o birdy ./cmd/birdy
 scp birdy user@router:/tmp/birdy
 ssh user@router 'sudo install /tmp/birdy /usr/local/bin/birdy'
 ```
@@ -676,6 +679,13 @@ button.
   snapshot is taken nightly and can be downloaded on demand; the **backup bundle**
   also includes the rendered config. A snapshot can be staged for restore (applied
   on the next restart).
+- **Updates** — under System → Updates, choose **Stable releases** to compare the
+  installed version with GitHub's latest release, or **Development branch** to
+  compare the embedded build commit with upstream `main`. Results are cached for
+  15 minutes. The setting controls notifications only: birdy does not replace its
+  own executable or run code fetched by the web process. Development builds must
+  embed their source revision with the documented build `-ldflags` for an exact
+  comparison.
 
 ---
 

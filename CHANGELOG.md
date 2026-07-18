@@ -6,6 +6,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Stable and development update tracking.** A new System → Updates page shows
+  the installed version and commit, checks either the latest published release
+  or upstream `main`, and reports when a newer build is available. Checks are
+  bounded and cached; installation remains an explicit operator action.
+
 ## [0.3.8] - 2026-07-17
 
 ### Added

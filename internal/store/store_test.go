@@ -36,6 +36,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 		// access_whitelist is managed by SaveAccessWhitelist, not SaveSettings, so
 		// a fresh row carries its column default.
 		AccessWhitelist: "0.0.0.0/0",
+		UpdateChannel:   "stable",
 	}
 	if err := s.SaveSettings(want); err != nil {
 		t.Fatal(err)

@@ -17,6 +17,7 @@ import (
 	"github.com/floreabogdan/birdy/internal/poller"
 	"github.com/floreabogdan/birdy/internal/snapshot"
 	"github.com/floreabogdan/birdy/internal/store"
+	"github.com/floreabogdan/birdy/internal/updatecheck"
 )
 
 // birdClient is the subset of *birdc.Client the web layer calls directly
@@ -75,6 +76,7 @@ type Server struct {
 	peeringDB bool
 	bgpq4Bin  string // non-empty enables IRR expansion via bgpq4
 	netdiag   bool   // enables ping/traceroute reachability diagnostics
+	updates   updateChecker
 	// listenAddr is where birdy is bound, for the wide-open warning (see access.go).
 	listenAddr string
 	tls        bool
@@ -121,6 +123,7 @@ type Config struct {
 	PeeringDB     bool
 	Bgpq4Bin      string
 	NetDiag       bool
+	UpdateChecker updateChecker
 	// ListenAddr is the address birdy is actually bound to. The UI needs it to
 	// tell "reachable from anywhere with an allow-all access list" (the fresh
 	// install default, worth warning about) from "loopback only" (nothing off-box
@@ -153,6 +156,10 @@ func New(cfg Config) *Server {
 	if applyTimeout <= 0 {
 		applyTimeout = 60
 	}
+	updates := cfg.UpdateChecker
+	if updates == nil {
+		updates = updatecheck.New()
+	}
 	s := &Server{
 		store:         cfg.Store,
 		client:        cfg.Client,
@@ -169,6 +176,7 @@ func New(cfg Config) *Server {
 		peeringDB:     cfg.PeeringDB,
 		bgpq4Bin:      cfg.Bgpq4Bin,
 		netdiag:       cfg.NetDiag,
+		updates:       updates,
 		listenAddr:    cfg.ListenAddr,
 		tls:           cfg.TLS,
 		login:         newLoginLimiter(),
@@ -395,6 +403,8 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /settings/bogons", s.requireAuth(s.handleSettingsBogons))
 	s.mux.Handle("POST /settings/raw", s.requireAuth(s.handleSettingsRaw))
 	s.mux.Handle("POST /settings/access", s.requireAuth(s.handleSettingsAccess))
+	s.mux.Handle("GET /updates", s.requireAuth(s.handleUpdatesPage))
+	s.mux.Handle("POST /updates/channel", s.requireAuth(s.handleUpdateChannel))
 
 	// Alerts (destinations for session notifications).
 	s.mux.Handle("GET /alerts", s.requireAuth(s.handleAlertsList))

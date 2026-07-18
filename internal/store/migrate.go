@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 30
+const schemaVersion = 31
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -396,6 +396,14 @@ func migrate(db *sql.DB) error {
 			if _, err := tx.Exec(`UPDATE settings SET kernel_export_bgp_v4 = 1, kernel_export_bgp_v6 = 1 WHERE id = 1`); err != nil {
 				return err
 			}
+		}
+	}
+
+	if version < 31 {
+		// Update checks track either signed stable releases or the main
+		// development branch. Stable is the conservative upgrade default.
+		if err := ensureColumn(tx, "settings", "update_channel", `ALTER TABLE settings ADD COLUMN update_channel TEXT NOT NULL DEFAULT 'stable'`); err != nil {
+			return err
 		}
 	}
 

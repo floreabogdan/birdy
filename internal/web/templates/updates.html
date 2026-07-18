@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — updates</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">System</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><span class="current">Updates</span></div>
+			</div>
+			<div class="page-header">
+				<div>
+					<h1>Updates</h1>
+					<div class="page-sub">Application release channel and build status</div>
+				</div>
+			</div>
+
+			{{if .Flash}}<div class="flash flash-success">{{.Flash}}</div>{{end}}
+
+			<div class="grid-2">
+				<div class="card">
+					<div class="card-header"><span class="card-title">Tracking channel</span></div>
+					<div class="card-body">
+						<form method="post" action="/updates/channel">
+							<div class="choice-list">
+								<label class="choice-row">
+									<input type="radio" name="channel" value="stable" {{if eq .Channel "stable"}}checked{{end}} {{if .ReadOnly}}disabled{{end}}>
+									<span><strong>Stable releases</strong><small>Published, versioned builds intended for normal operation.</small></span>
+								</label>
+								<label class="choice-row">
+									<input type="radio" name="channel" value="development" {{if eq .Channel "development"}}checked{{end}} {{if .ReadOnly}}disabled{{end}}>
+									<span><strong>Development branch</strong><small>The latest commit on upstream <code class="mono">main</code>.</small></span>
+								</label>
+							</div>
+							{{if not .ReadOnly}}<button type="submit" class="btn btn-primary">Save channel</button>{{end}}
+						</form>
+					</div>
+				</div>
+
+				<div class="card">
+					<div class="card-header">
+						<span class="card-title">Installed build</span>
+						{{if .CheckErr}}<span class="badge badge-warning">check failed</span>
+						{{else if .Result.Available}}<span class="badge badge-warning">update available</span>
+						{{else}}<span class="badge badge-success">up to date</span>{{end}}
+					</div>
+					<div class="card-body">
+						<dl class="kv">
+							<dt>Version</dt><dd class="mono">{{.BuildVersion}}</dd>
+							<dt>Commit</dt><dd class="mono">{{if and .BuildCommit (ne .BuildCommit "unknown")}}{{shortsha .BuildCommit}}{{else}}not embedded{{end}}</dd>
+							<dt>Channel</dt><dd>{{if eq .Channel "development"}}Development{{else}}Stable{{end}}</dd>
+							{{if .Result.LatestVersion}}<dt>Latest release</dt><dd class="mono">{{.Result.LatestVersion}}</dd>{{end}}
+							{{if .Result.LatestCommit}}<dt>Latest commit</dt><dd class="mono">{{shortsha .Result.LatestCommit}}</dd>{{end}}
+							{{if not .CheckErr}}<dt>Checked</dt><dd>{{fmttime .Result.CheckedAt}}</dd>{{end}}
+						</dl>
+						{{if .CheckErr}}
+							<div class="panel-inline panel-warning">{{.CheckErr}}</div>
+						{{else if .Result.Available}}
+							<a class="btn btn-primary" href="{{.Result.URL}}" target="_blank" rel="noopener">View available {{if eq .Channel "development"}}commit{{else}}release{{end}}</a>
+						{{else}}
+							<a class="btn" href="{{.Result.URL}}" target="_blank" rel="noopener">View current upstream</a>
+						{{end}}
+					</div>
+				</div>
+			</div>
+
+			<div class="card panel-info">
+				<div class="card-body">Channel selection controls update notifications only. Installation remains an explicit package or deployment action, so the web process never replaces its own privileged executable or runs unreviewed branch code.</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>
