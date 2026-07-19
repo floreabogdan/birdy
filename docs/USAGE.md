@@ -686,6 +686,34 @@ button.
   own executable or run code fetched by the web process. Development builds must
   embed their source revision with the documented build `-ldflags` for an exact
   comparison.
+- **Remote dashboard access** — Settings → General can generate a token that
+  grants dashboard data only. On a central Birdy panel, open System → Instances
+  and add the remote URL and token. The top-bar selector changes the dashboard
+  target; remote targets are view-only and all peer, policy, settings, apply and
+  backup actions remain tied to This Birdy. Use HTTPS and include the central
+  panel's address in the remote instance's access whitelist. Rotating a remote
+  token invalidates existing connections immediately.
+
+### Navigating and editing safely
+
+- The sidebar can be collapsed on wide screens and shows contextual links for
+  the section you are working in. Its state, compact table density, selected
+  theme, and dashboard columns are stored in the browser.
+- Press **Ctrl/Cmd+K** to open the command palette. It searches pages and common
+  creation actions; arrow keys select a result and Enter opens it.
+- The top bar always identifies the selected router. A banner appears while a
+  remote dashboard is selected, and management actions continue to target the
+  local Birdy only.
+- Peer, policy, library, RPKI, BMP, and alert editors warn before discarding
+  unsaved changes. Peer profiles fill conservative role-specific limits and
+  transport safeguards, but deliberately leave route policy selection, saving,
+  validation, and apply under operator control.
+- The peer editor summarizes identity, policy, import-limit, and transport
+  readiness. The Changes page separately summarizes render, syntax, policy, and
+  apply readiness; these indicators explain state but never bypass the existing
+  lint acknowledgement or BIRD auto-revert.
+- Settings → Theme selects the refreshed Modern style or the original Birdy
+  visual style. Light and dark mode are independent of that selection.
 
 ---
 

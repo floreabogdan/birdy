@@ -26,6 +26,11 @@ const flapWindow = 3 * time.Minute
 // and refresh the aggregate on a slower cadence.
 const routeCountInterval = time.Minute
 
+// Status contains mostly static identity/version data. Do not ask the control
+// socket for it on every session poll; a short cache preserves quick recovery
+// while removing one command from the hot path.
+const statusInterval = 30 * time.Second
+
 // ProtoState is the poller's last-known view of one protocol.
 type ProtoState struct {
 	Summary    birdc.ProtocolSummary
@@ -95,6 +100,8 @@ type Poller struct {
 	initialized    bool // false until the first poll completes, so we don't log spurious transitions at startup
 	birdReachable  bool // last-known reachability of the control socket, for edge-triggered alerts
 	reachableKnown bool // whether birdReachable has been set at least once
+	lastStatus     birdc.Status
+	lastStatusAt   time.Time
 }
 
 // SetNotifier attaches an alert sink. Call before Run.
@@ -211,9 +218,19 @@ func (p *Poller) Run(ctx context.Context) {
 // This keeps the lock held only for the in-memory copy, never across socket
 // round trips, and avoids any unsynchronized access to the shared map.
 func (p *Poller) poll() {
-	status, statusErr := p.client.Status()
-	if statusErr != nil {
-		p.log.Warn("show status failed", "error", statusErr)
+	now := time.Now()
+	status := p.lastStatus
+	if p.lastStatusAt.IsZero() || now.Sub(p.lastStatusAt) >= statusInterval {
+		fresh, statusErr := p.client.Status()
+		if statusErr != nil {
+			// Keep serving the last-known identity and retry on the next poll
+			// rather than blanking version/router-id and waiting a full interval.
+			p.log.Warn("show status failed", "error", statusErr)
+		} else {
+			status = fresh
+			p.lastStatus = fresh
+			p.lastStatusAt = now
+		}
 	}
 
 	protocols, err := p.client.Protocols()
@@ -246,6 +263,9 @@ func (p *Poller) poll() {
 	// its protocol (rendered with "disabled"), so without this the act of applying
 	// a disable would fire a session-down alert and wake somebody up over a change
 	// they made on purpose.
+	// Read this every poll: it is a cheap local query and it must reflect a
+	// just-applied disable immediately, or the disable itself fires a
+	// session-down alert. Caching it re-opens exactly that spurious page.
 	disabled, err := p.store.DisabledPeerNames()
 	if err != nil {
 		p.log.Warn("could not read disabled peers; treating all as enabled", "error", err)
@@ -297,7 +317,7 @@ func (p *Poller) poll() {
 	p.snap = Snapshot{Status: status, Protocols: protocols, States: next, TotalRoutes: previousTotal, UpdatedAt: time.Now()}
 	p.mu.Unlock()
 
-	now := time.Now()
+	now = time.Now()
 	if p.lastRouteCount.IsZero() || now.Sub(p.lastRouteCount) >= routeCountInterval {
 		p.lastRouteCount = now
 		totalRoutes := 0

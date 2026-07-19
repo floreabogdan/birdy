@@ -4,7 +4,7 @@
 	<title>birdy — dashboard</title>
 	{{template "head" .}}
 </head>
-<body>
+<body data-remote="{{.InstanceRemote}}">
 <div class="app-shell">
 	{{template "sidebar" .}}
 	<div class="main">
@@ -17,14 +17,16 @@
 
 			<section class="hero">
 				<div class="hero-main">
-					<h1 class="hero-title mono">{{if .Status.Hostname}}{{.Status.Hostname}}{{else}}birdy{{end}}</h1>
+					<h1 class="hero-title mono">{{if .Status.Hostname}}{{.Status.Hostname}}{{else}}{{.InstanceName}}{{end}}</h1>
 					<p class="hero-sub">{{if .Status.Version}}BIRD {{.Status.Version}}{{end}}{{if .LocalASN}} &middot; AS{{.LocalASN}}{{end}}{{if .Status.RouterID}} &middot; router id {{.Status.RouterID}}{{end}}</p>
+					{{if .InstanceRemote}}<span class="remote-note">Remote dashboard · view only</span>{{else}}<span class="remote-note">Local control plane</span>{{end}}
 				</div>
 				<div class="hero-side">
 					<div id="hero-status" class="hero-status {{if .StatusOK}}ok{{else}}bad{{end}}">
 						<span class="dot"></span><span id="hero-status-text">{{.StatusText}}</span>
 					</div>
 					<div class="hero-updated">updated <span id="updated-at" data-ts="{{isotime .UpdatedAt}}" title="{{fmttime .UpdatedAt}}">{{fmttime .UpdatedAt}}</span></div>
+					<div class="hero-actions"><a class="icon-btn" href="/export/sessions" title="Export sessions" aria-label="Export sessions">{{template "icon-download"}}</a><a class="icon-btn" href="/export/events" title="Export events" aria-label="Export events">{{template "icon-clock"}}</a></div>
 				</div>
 			</section>
 
@@ -85,22 +87,22 @@
 			</div>
 
 			<div class="card">
-				<div class="card-header"><span class="card-title">{{template "icon-activity"}}BGP sessions</span></div>
+				<div class="card-header dashboard-table-head"><span class="card-title">{{template "icon-activity"}}BGP sessions</span><div class="dashboard-filters"><input id="session-search" type="search" placeholder="Find session" aria-label="Search BGP sessions"><select id="session-sort" aria-label="Sort BGP sessions"><option value="name">Name</option><option value="imported">Imported routes</option><option value="exported">Exported routes</option><option value="state">State</option></select><select id="session-state-filter" aria-label="Filter session state"><option value="all">All states</option><option value="up">Established</option><option value="down">Down</option></select><select id="session-family-filter" aria-label="Filter address family"><option value="all">All families</option><option value="v4">IPv4</option><option value="v6">IPv6</option></select><select id="session-model-filter" aria-label="Filter model status"><option value="all">All model states</option><option value="managed">In Birdy</option><option value="unmanaged">Unmanaged</option></select><details class="column-menu"><summary class="btn btn-sm">Columns</summary><div><label class="check"><input type="checkbox" data-session-column="table" checked>Table</label><label class="check"><input type="checkbox" data-session-column="since" checked>Since</label><label class="check"><input type="checkbox" data-session-column="rejected" checked>Rejected</label><label class="check"><input type="checkbox" data-session-column="trend" checked>Trend</label><label class="check"><input type="checkbox" data-session-column="model" checked>Model</label></div></details></div></div>
 				<div class="table-scroll">
-				<table>
-					<thead><tr><th>Name</th><th>Table</th><th>State</th><th>Since</th><th class="num">Imported</th><th class="num">Rejected</th><th class="num">Exported</th><th style="min-width:130px">Import limit</th><th>Trend</th><th>In birdy</th></tr></thead>
+				<table id="session-table">
+					<thead><tr><th>Name</th><th data-col="table">Table</th><th>State</th><th data-col="since">Since</th><th class="num">Imported</th><th class="num" data-col="rejected">Rejected</th><th class="num">Exported</th><th style="min-width:130px">Import limit</th><th data-col="trend">Trend</th><th data-col="model">In birdy</th></tr></thead>
 					<tbody id="proto-table-body" data-search-target>
 						{{range .Sessions}}
-						<tr class="row-link" data-href="/peers/{{.Name}}" tabindex="0">
+						<tr class="{{if not $.InstanceRemote}}row-link{{end}}" {{if not $.InstanceRemote}}data-href="/peers/{{.Name}}" tabindex="0"{{end}}>
 							<td class="mono">{{.Name}}</td>
-							<td class="mono">{{.Table}}</td>
+							<td class="mono" data-col="table">{{.Table}}</td>
 							{{/* A peer switched off in birdy is not a session that failed. BIRD calls both
 							     "down"; painting them the same red is how you learn to ignore red. */}}
 							<td>{{if and .Disabled (not .Up)}}<span class="badge" title="Switched off in birdy — BIRD is not trying to connect.">disabled</span>{{else}}{{sessionBadge .Up .BGPState}}{{end}}</td>
-							<td class="mono">{{.Since}}</td>
+							<td class="mono" data-col="since">{{.Since}}</td>
 							{{if .HasCounts}}
 							<td class="num mono">{{comma .Imported}}</td>
-							<td class="num mono">{{if .Filtered}}{{comma .Filtered}}{{else}}<span class="text-muted">0</span>{{end}}</td>
+							<td class="num mono" data-col="rejected">{{if .Filtered}}{{comma .Filtered}}{{else}}<span class="text-muted">0</span>{{end}}</td>
 							<td class="num mono">{{comma .Exported}}</td>
 							<td>
 								{{if ge .LimitPct 0.0}}
@@ -112,15 +114,15 @@
 							</td>
 							{{else}}
 							<td class="num text-muted">&mdash;</td>
-							<td class="num text-muted">&mdash;</td>
+							<td class="num text-muted" data-col="rejected">&mdash;</td>
 							<td class="num text-muted">&mdash;</td>
 							<td class="text-muted">&mdash;</td>
 							{{end}}
-							<td class="spark-cell">{{sparkline (index $.History .Name) 108 26}}</td>
-							<td>{{if .Configured}}<span class="badge badge-success">configured</span>{{else}}<span class="badge badge-warning">unmanaged</span>{{end}}</td>
+							<td class="spark-cell" data-col="trend">{{sparkline (index $.History .Name) 108 26}}</td>
+							<td data-col="model">{{if .Configured}}<span class="badge badge-success">configured</span>{{else}}<span class="badge badge-warning">unmanaged</span>{{end}}</td>
 						</tr>
 						{{else}}
-						<tr><td colspan="10" class="empty">BIRD is running no BGP sessions.</td></tr>
+						<tr><td colspan="10"><div class="empty-state"><span class="empty-state-icon">{{template "icon-peers"}}</span><strong>No BGP sessions are running</strong><p>Add a peer directly, or import sessions already present in BIRD.</p><div><a class="btn btn-primary" href="/peers/new">{{template "icon-plus"}}Add peer</a><a class="btn" href="/peers/seed">Import from BIRD</a></div></div></td></tr>
 						{{end}}
 					</tbody>
 				</table>
@@ -157,7 +159,7 @@
 			</details>
 			{{end}}
 
-			<div class="section-head">
+			{{if not .InstanceRemote}}<div class="section-head">
 				<h2 class="section-title">{{template "icon-bolt"}}Quick actions</h2>
 			</div>
 			<div class="quick-actions">
@@ -173,11 +175,11 @@
 					<span class="quick-action-icon">{{template "icon-download"}}</span>
 					Download snapshot
 				</a>
-			</div>
+			</div>{{end}}
 
 			<div class="section-head">
 				<h2 class="section-title">{{template "icon-clock"}}Recent activity</h2>
-				<a href="/timeline" class="section-link"><span class="arr" aria-hidden="true">&#8599;</span>View all</a>
+				{{if not .InstanceRemote}}<a href="/timeline" class="section-link"><span class="arr" aria-hidden="true">&#8599;</span>View all</a>{{end}}
 			</div>
 			<div class="card">
 				<div id="recent-events" data-search-target>
@@ -194,7 +196,7 @@
 		</div>
 	</div>
 </div>
-<script src="/static/dashboard.js?v=hardened6"></script>
-<script src="/static/spark-hover.js?v=hardened6"></script>
+<script src="/static/dashboard.js?v=dev-ui12"></script>
+<script src="/static/spark-hover.js?v=dev-ui7"></script>
 </body>
 </html>

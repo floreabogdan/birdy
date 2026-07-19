@@ -33,7 +33,7 @@ func cmdServer(args []string) error {
 	birdBackupDir := fs.String("bird-backup-dir", defaultBirdBackupDir, "where a copy of bird.conf is kept before each apply overwrites it")
 	birdBinary := fs.String("bird-binary", defaultBirdBinary, `bird executable used for "bird -p" config checks`)
 	applyTimeout := fs.Int("apply-timeout", 60, "seconds an applied config has to be confirmed before BIRD auto-reverts it")
-	pollInterval := fs.Duration("poll-interval", 4*time.Second, "how often to poll BIRD for session state")
+	pollInterval := fs.Duration("poll-interval", 5*time.Second, "how often to poll BIRD for session state")
 	snapshotDir := fs.String("snapshot-dir", defaultSnapshotDir, "directory for nightly database snapshots")
 	snapshotInterval := fs.Duration("snapshot-interval", 24*time.Hour, "how often to take a nightly database snapshot")
 	snapshotRetain := fs.Int("snapshot-retain", defaultSnapshotKeep, "number of nightly snapshots to keep")
@@ -117,6 +117,7 @@ Fix it with:
 		ApplyTimeout: *applyTimeout, Notifier: dispatcher, Metrics: feat.Metrics, PeeringDB: feat.PeeringDB,
 		Bgpq4Bin: feat.Bgpq4Bin, NetDiag: feat.NetDiag, ListenAddr: effListen, TLS: *tlsCert != "",
 	})
+	srv.StartBackground(ctx)
 
 	// Alert if the config on disk changes out from under birdy (inert until birdy
 	// owns a config, so a read-only viewer never false-alarms).

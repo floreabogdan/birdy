@@ -21,7 +21,7 @@
 				</div>
 			</div>
 
-			<form method="post" action="{{if .IsNew}}/rpki/new{{else}}/rpki/{{.Server.Name}}/edit{{end}}">
+			<form method="post" action="{{if .IsNew}}/rpki/new{{else}}/rpki/{{.Server.Name}}/edit{{end}}" data-editor>
 			<div class="card">
 				<div class="card-header"><span class="card-title">{{template "icon-shield"}}RTR endpoint</span></div>
 				<div class="card-body">

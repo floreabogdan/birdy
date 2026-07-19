@@ -40,9 +40,11 @@ type SettingsView struct {
 
 	// RawConfig is the escape hatch, echoed back on a failed save so the
 	// operator does not lose what they typed.
-	RawConfig string
-	RawErr    string
-	RawOutput string // what bird -p said, when it rejected the config
+	RawConfig      string
+	RawErr         string
+	RawOutput      string // what bird -p said, when it rejected the config
+	APIToken       string // newly generated remote-read token, shown once only
+	InstanceTokens []store.InstanceToken
 
 	// AccessWhitelist is the IP allow-list; ConnectingIP is the operator's own
 	// address, shown so they can add it before restricting and not lock out.
@@ -57,7 +59,7 @@ type SettingsView struct {
 }
 
 // settingsTabs are the tab keys in display order; the first is the default.
-var settingsTabs = []string{"general", "bogons", "access", "alerts", "advanced"}
+var settingsTabs = []string{"general", "theme", "bogons", "access", "alerts", "advanced"}
 
 func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
 	s.renderSettings(w, SettingsView{
@@ -80,6 +82,9 @@ func (s *Server) renderSettings(w http.ResponseWriter, v SettingsView) {
 	}
 	if dests, err := s.store.ListAlertDestinations(); err == nil {
 		v.Destinations = dests
+	}
+	if tokens, err := s.store.ListInstanceTokens(); err == nil {
+		v.InstanceTokens = tokens
 	}
 	if settings, ok, err := s.store.GetSettings(); err == nil && ok {
 		// A rejected form keeps what the user typed; otherwise show what's stored.

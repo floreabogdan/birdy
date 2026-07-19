@@ -1,4 +1,16 @@
 (function () {
+	var styleSelect = document.getElementById("theme-style-select");
+	var currentStyle = document.documentElement.getAttribute("data-theme-style") || "modern";
+	function setStyle(value) {
+		var next = value === "original" ? "original" : "modern";
+		document.documentElement.setAttribute("data-theme-style", next);
+		if (styleSelect) styleSelect.value = next;
+		document.querySelectorAll("[data-theme-choice]").forEach(function (choice) { choice.checked = choice.value === next; });
+		try { localStorage.setItem("birdy-theme-style", next); } catch (_) {}
+	}
+	setStyle(currentStyle);
+	if (styleSelect) styleSelect.addEventListener("change", function () { setStyle(styleSelect.value); });
+	document.querySelectorAll("[data-theme-choice]").forEach(function (choice) { choice.addEventListener("change", function () { setStyle(choice.value); }); });
 	var btn = document.getElementById("theme-toggle");
 	if (!btn) return;
 
@@ -27,5 +39,7 @@
 		}
 		updateButton();
 	});
+	var tabToggle = document.getElementById("theme-tab-toggle");
+	if (tabToggle) tabToggle.addEventListener("click", function () { btn.click(); });
 	updateButton();
 })();

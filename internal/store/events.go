@@ -20,6 +20,8 @@ const (
 	EventConfigDrift   = "config_drift"     // bird.conf on disk changed outside birdy
 	EventIRRRefresh    = "irr_refresh"      // a prefix set was re-expanded from IRR
 	EventModelChange   = "model_change"     // an operator created/edited/deleted a model object
+	EventInstanceDown  = "instance_down"
+	EventInstanceUp    = "instance_up"
 )
 
 // Event is one entry on the timeline: a session transition, flap, import-limit

@@ -5,6 +5,7 @@
 package web
 
 import (
+	"context"
 	"log/slog"
 	"net"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
 	"github.com/floreabogdan/birdy/internal/poller"
@@ -96,6 +98,25 @@ type Server struct {
 	accessList []netip.Prefix
 
 	mux *http.ServeMux
+}
+
+// StartBackground starts work that is independent of browser request latency.
+// The command owns the context, so the worker stops cleanly with the service.
+func (s *Server) StartBackground(ctx context.Context) {
+	go func() {
+		interval := 30 * time.Second
+		s.refreshInstanceHealth(ctx)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.refreshInstanceHealth(ctx)
+			}
+		}
+	}()
 }
 
 // alertNotifier is the slice of the dispatcher the web layer needs: fire an
@@ -396,13 +417,27 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /changes/history/{id}/reapply", s.requireAuth(s.handleReapply))
 
 	s.mux.Handle("GET /timeline", s.requireAuth(s.handleTimeline))
+	s.mux.Handle("GET /export/sessions", s.requireAuth(s.handleSessionExport))
+	s.mux.Handle("GET /export/events", s.requireAuth(s.handleEventExport))
+	s.mux.Handle("GET /export/config", s.requireAuth(s.handleConfigExport))
 	s.mux.Handle("GET /lg", s.requireAuth(s.handleLookingGlass))
 	s.mux.Handle("GET /diagnostics", s.requireAuth(s.handleDiagnostics))
 	s.mux.Handle("GET /settings", s.requireAuth(s.handleSettingsPage))
+	s.mux.Handle("GET /instances", s.requireAuth(s.handleInstancesPage))
+	s.mux.Handle("GET /instances/{id}", s.requireAuth(s.handleInstanceDetail))
+	s.mux.Handle("POST /instances/add", s.requireAuth(s.handleInstanceAdd))
+	s.mux.Handle("POST /instances/{id}/metadata", s.requireAuth(s.handleInstanceMetadata))
+	s.mux.Handle("POST /instances/{id}/rename", s.requireAuth(s.handleInstanceRename))
+	s.mux.Handle("POST /instances/local/rename", s.requireAuth(s.handleLocalInstanceRename))
+	s.mux.Handle("POST /instances/{id}/delete", s.requireAuth(s.handleInstanceDelete))
+	s.mux.Handle("GET /instances/select", s.requireAuth(s.handleInstanceSelect))
 	s.mux.Handle("POST /settings/identity", s.requireAuth(s.handleSettingsIdentity))
 	s.mux.Handle("POST /settings/bogons", s.requireAuth(s.handleSettingsBogons))
 	s.mux.Handle("POST /settings/raw", s.requireAuth(s.handleSettingsRaw))
 	s.mux.Handle("POST /settings/access", s.requireAuth(s.handleSettingsAccess))
+	s.mux.Handle("POST /settings/instance-token", s.requireAuth(s.handleSettingsInstanceToken))
+	s.mux.Handle("POST /settings/instance-token/revoke", s.requireAuth(s.handleSettingsInstanceTokenRevoke))
+	s.mux.Handle("POST /settings/instance-token/{id}/revoke", s.requireAuth(s.handleSettingsInstanceTokenRevokeOne))
 	s.mux.Handle("GET /updates", s.requireAuth(s.handleUpdatesPage))
 	s.mux.Handle("POST /updates/channel", s.requireAuth(s.handleUpdateChannel))
 
@@ -429,10 +464,14 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /library/static-routes/preview", s.requireAuth(s.handleStaticRoutePreview))
 
 	// Authenticated JSON API
-	s.mux.Handle("GET /api/dashboard", s.requireAuth(s.apiDashboard))
+	s.mux.Handle("GET /api/dashboard", s.requireDashboardAuth(s.apiDashboard))
+	s.mux.Handle("GET /api/instances", s.requireAuth(s.apiInstances))
+	s.mux.Handle("POST /api/instances/refresh", s.requireAuth(s.apiInstancesRefresh))
+	s.mux.Handle("POST /api/instances/test", s.requireAuth(s.apiInstanceTest))
+	s.mux.Handle("GET /api/instances/activity", s.requireAuth(s.apiInstanceActivity))
 	s.mux.Handle("GET /api/peers/{name}", s.requireAuth(s.apiPeerDetail))
 	s.mux.Handle("GET /api/peers/{name}/routes", s.requireAuth(s.apiPeerRoutes))
-	s.mux.Handle("GET /api/events", s.requireAuth(s.apiEvents))
+	s.mux.Handle("GET /api/events", s.requireDashboardAuth(s.apiEvents))
 	s.mux.Handle("GET /api/lg", s.requireAuth(s.apiLookingGlass))
 	s.mux.Handle("GET /api/snapshot/download", s.requireAuth(s.apiSnapshotDownload))
 	s.mux.Handle("GET /api/backup/download", s.requireAuth(s.handleBackupDownload))

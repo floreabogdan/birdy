@@ -21,7 +21,7 @@
 				</div>
 			</div>
 
-			<form method="post" action="{{if .IsNew}}/bmp/new{{else}}/bmp/{{.Station.Name}}/edit{{end}}">
+			<form method="post" action="{{if .IsNew}}/bmp/new{{else}}/bmp/{{.Station.Name}}/edit{{end}}" data-editor>
 			<div class="card">
 				<div class="card-header"><span class="card-title">{{template "icon-activity"}}Station</span></div>
 				<div class="card-body">

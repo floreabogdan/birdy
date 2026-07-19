@@ -21,7 +21,7 @@
 				</div>
 			</div>
 
-			<form method="post" action="{{if .IsNew}}/library/prefix-sets/new{{else}}/library/prefix-sets/{{.Set.Name}}/edit{{end}}" data-preview-url="/library/prefix-sets/preview">
+			<form method="post" action="{{if .IsNew}}/library/prefix-sets/new{{else}}/library/prefix-sets/{{.Set.Name}}/edit{{end}}" data-preview-url="/library/prefix-sets/preview" data-editor>
 			<div class="split">
 				<div>
 					{{if .Set.System}}
