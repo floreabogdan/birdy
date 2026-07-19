@@ -121,23 +121,27 @@ func (c *Client) commandLocked(ctx context.Context, cmd string) (Reply, error) {
 	if err := ctx.Err(); err != nil {
 		return Reply{}, err
 	}
-	if err := c.conn.SetDeadline(deadlineFor(ctx, c.timeout)); err != nil {
+	// Capture the connection in a local: the AfterFunc callback runs on another
+	// goroutine, so it must not touch the c.conn field this method may nil out on
+	// error. Closing the captured conn is safe and idempotent, and unblocks any
+	// in-flight read/write when ctx is cancelled.
+	conn := c.conn
+	if err := conn.SetDeadline(deadlineFor(ctx, c.timeout)); err != nil {
 		return Reply{}, err
 	}
-	// Cancelling ctx closes the socket, unblocking any in-flight read/write.
-	stop := context.AfterFunc(ctx, func() { c.conn.Close() })
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
 	if strings.ContainsAny(cmd, "\r\n") {
 		return Reply{}, fmt.Errorf("birdc: command must not contain newlines")
 	}
-	if _, err := fmt.Fprintf(c.conn, "%s\n", cmd); err != nil {
-		c.conn.Close()
+	if _, err := fmt.Fprintf(conn, "%s\n", cmd); err != nil {
+		conn.Close()
 		c.conn = nil
 		return Reply{}, ctxErr(ctx, fmt.Errorf("birdc: write: %w", err))
 	}
 	reply, err := readFrame(c.r)
 	if err != nil {
-		c.conn.Close()
+		conn.Close()
 		c.conn = nil
 		return Reply{}, ctxErr(ctx, err)
 	}
