@@ -38,7 +38,7 @@
 									<span><strong>Development branch</strong><small>The latest commit on upstream <code class="mono">main</code>.</small></span>
 								</label>
 							</div>
-							{{if not .ReadOnly}}<button type="submit" class="btn btn-primary">Save channel</button>{{end}}
+							{{if .ReadOnly}}<div class="hint">birdy is in read-only mode, so the update channel can't be changed here.</div>{{else}}<button type="submit" class="btn btn-primary">Save channel</button>{{end}}
 						</form>
 					</div>
 				</div>

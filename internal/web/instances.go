@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"sort"
 	"strconv"
@@ -23,13 +24,16 @@ const instanceCookieName = "birdy_instance"
 const maxConcurrentInstancePolls = 8
 
 type instanceView struct {
-	ID            int64  `json:"id"`
-	Name          string `json:"name"`
-	BaseURL       string `json:"baseURL,omitempty"`
-	GroupName     string `json:"group,omitempty"`
-	Tags          string `json:"tags,omitempty"`
-	Status        string `json:"status,omitempty"`
-	LatencyMS     int    `json:"latencyMS,omitempty"`
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	BaseURL   string `json:"baseURL,omitempty"`
+	GroupName string `json:"group,omitempty"`
+	Tags      string `json:"tags,omitempty"`
+	Status    string `json:"status,omitempty"`
+	// No omitempty: a genuine 0 ms reading (a loopback target) must serialize,
+	// or the client's `latencyMS >= 0` check drops the latency for a healthy
+	// instance. Unchecked instances carry -1 and are correctly skipped.
+	LatencyMS     int    `json:"latencyMS"`
 	LastCheckAt   string `json:"lastCheckAt,omitempty"`
 	LastSuccessAt string `json:"lastSuccessAt,omitempty"`
 	LastError     string `json:"lastError,omitempty"`
@@ -106,10 +110,10 @@ func (s *Server) refreshInstanceHealth(ctx context.Context) {
 	sem := make(chan struct{}, maxConcurrentInstancePolls)
 	for _, instance := range instances {
 		instance := instance
+		sem <- struct{}{} // acquire before spawning so goroutine count is bounded too
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
 			defer func() { <-sem }()
 			checkCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 			defer cancel()
@@ -124,7 +128,9 @@ func (s *Server) refreshInstanceHealth(ctx context.Context) {
 				success = checked
 			}
 			oldStatus := healthStatus(instance)
-			_ = s.store.UpdateInstanceHealth(instance.ID, checked, success, latencyMS, lastError)
+			if err := s.store.UpdateInstanceHealth(instance.ID, checked, success, latencyMS, lastError); err != nil {
+				s.log.Warn("could not persist instance health", "instance", instance.Name, "error", err)
+			}
 			newStatus := "offline"
 			if checkErr == nil {
 				newStatus = healthStatus(store.Instance{LastCheckAt: checked, LastLatencyMS: latencyMS})
@@ -191,6 +197,15 @@ func validateInstanceURL(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return "", fmt.Errorf("use an http(s) URL without credentials, query parameters, or a fragment")
+	}
+	// Reject IP-literal targets that could only be an SSRF pivot, not a real
+	// remote Birdy: loopback, the link-local metadata range (169.254/16, fe80::),
+	// the unspecified address, and multicast. Private/ULA ranges are allowed on
+	// purpose — routers commonly observe each other over management networks.
+	if addr, perr := netip.ParseAddr(u.Hostname()); perr == nil {
+		if addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsUnspecified() || addr.IsMulticast() {
+			return "", fmt.Errorf("that address cannot be a remote Birdy target")
+		}
 	}
 	return strings.TrimRight(u.String(), "/"), nil
 }
@@ -309,7 +324,7 @@ func (s *Server) handleInstanceDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if selectedInstanceID(r) == id {
-		setSelectedInstance(w, 0, r.TLS != nil)
+		setSelectedInstance(w, 0, s.cookieSecure(r))
 	}
 	s.audit(r, "Removed remote Birdy instance "+instance.Name)
 	http.Redirect(w, r, "/instances?flash="+flash("Instance removed"), http.StatusSeeOther)
@@ -392,7 +407,7 @@ func (s *Server) handleInstanceSelect(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	setSelectedInstance(w, id, r.TLS != nil)
+	setSelectedInstance(w, id, s.cookieSecure(r))
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -488,10 +503,10 @@ func (s *Server) apiInstanceActivity(w http.ResponseWriter, r *http.Request) {
 	sem := make(chan struct{}, maxConcurrentInstancePolls)
 	for _, instance := range instances {
 		instance := instance
+		sem <- struct{}{} // acquire before spawning so goroutine count is bounded too
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
 			defer func() { <-sem }()
 			ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 			defer cancel()

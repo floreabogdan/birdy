@@ -50,8 +50,10 @@ func (c *Client) Available() bool {
 }
 
 // sourceRe bounds an IRR object name: AS-SETs look like AS-FOO, AS64500:AS-BAR,
-// or a bare ASN. Everything else is refused before it becomes a bgpq4 argument.
-var sourceRe = regexp.MustCompile(`^[A-Za-z0-9:_.\-]{1,128}$`)
+// or a bare ASN. The first character must be alphanumeric so a name like "-X"
+// cannot reach bgpq4 as a flag instead of an operand. Everything else is refused
+// before it becomes a bgpq4 argument.
+var sourceRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9:_.\-]{0,127}$`)
 
 // bgpq4 JSON: {"data":[{"prefix":"1.2.3.0/24","exact":true}, {"prefix":"1.2.0.0/16","greater-equal":17,"less-equal":24}]}
 type bgpq4JSON struct {

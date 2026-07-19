@@ -136,6 +136,9 @@ func (s *Server) listenLoopback() bool {
 // birdy is serving; the body reports whether the last BIRD poll succeeded, so a
 // readiness check can look deeper if it wants.
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	// Intentionally public and detailed: readiness monitoring cannot present a
+	// session, and the port is already access-list gated. The disclosure (is the
+	// last BIRD poll healthy, and when) is low sensitivity and by design.
 	snap := s.poller.Snapshot()
 	writeJSON(w, map[string]any{
 		"status":        "ok",

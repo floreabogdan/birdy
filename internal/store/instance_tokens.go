@@ -2,7 +2,6 @@ package store
 
 import (
 	"crypto/subtle"
-	"database/sql"
 	"fmt"
 	"time"
 )
@@ -83,12 +82,4 @@ func (s *Store) VerifyScopedInstanceToken(raw string) (bool, error) {
 		}
 	}
 	return false, rows.Err()
-}
-
-func (s *Store) CountInstanceTokens() int {
-	var count int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM instance_tokens WHERE revoked = 0`).Scan(&count); err != nil && err != sql.ErrNoRows {
-		return 0
-	}
-	return count
 }

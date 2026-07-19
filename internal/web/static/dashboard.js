@@ -166,10 +166,13 @@
 			// "disabled" for a peer switched off on purpose).
 			var filterState = p.up ? "up" : "down";
 			var model = p.configured ? "managed" : "unmanaged";
-			var rowStart = remote ? '<tr data-name="' + esc(String(p.name).toLowerCase()) + '" data-state="' + filterState + '" data-family="' + familyOf(p) + '" data-model="' + model + '">' : '<tr data-name="' + esc(String(p.name).toLowerCase()) + '" data-state="' + filterState + '" data-family="' + familyOf(p) + '" data-model="' + model + '" class="row-link" data-href="/peers/' + encodeURIComponent(p.name) + '" tabindex="0">';
+			var rowStart = remote ? '<tr data-name="' + esc(String(p.name).toLowerCase()) + '" data-state="' + filterState + '" data-family="' + familyOf(p) + '" data-model="' + model + '">' : '<tr data-name="' + esc(String(p.name).toLowerCase()) + '" data-state="' + filterState + '" data-family="' + familyOf(p) + '" data-model="' + model + '" class="row-link" data-href="/peers/' + encodeURIComponent(p.name) + '">';
+			// A real link makes the session reachable by keyboard, screen readers,
+			// and with JS off; the row-level data-href stays for mouse convenience.
+			var nameCell = remote ? esc(p.name) : '<a class="cell-link" href="/peers/' + encodeURIComponent(p.name) + '">' + esc(p.name) + "</a>";
 			return (
 				rowStart +
-				'<td class="mono">' + esc(p.name) + "</td>" +
+				'<td class="mono">' + nameCell + "</td>" +
 				'<td class="mono" data-col="table">' + esc(p.table) + "</td>" +
 				'<td><span class="badge ' + badgeClass + '"><span class="dot"></span>' + esc(state) + "</span></td>" +
 				'<td class="mono" data-col="since">' + esc(p.since) + "</td>" +

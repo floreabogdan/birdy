@@ -11,6 +11,12 @@ import (
 
 const sessionTTL = 7 * 24 * time.Hour
 
+// dummyPasswordHash is compared against when the submitted username does not
+// exist, so a failed login spends the same bcrypt time whether or not the user
+// is real — closing a username-enumeration timing oracle. Cost matches
+// HashPassword's DefaultCost so the timing lines up with real accounts.
+var dummyPasswordHash, _ = bcrypt.GenerateFromPassword([]byte("birdy-login-timing-guard"), bcrypt.DefaultCost)
+
 func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 	// Already logged in? go straight to the dashboard.
 	if cookie, err := r.Cookie(sessionCookieName); err == nil {
@@ -41,7 +47,14 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	if !ok || bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
+	// Always run one bcrypt comparison, against a dummy hash when the user is
+	// absent, so response time doesn't reveal whether the username exists. The
+	// trailing !ok rejects the (impossible) case of a password matching the dummy.
+	hash := dummyPasswordHash
+	if ok {
+		hash = []byte(user.PasswordHash)
+	}
+	if bcrypt.CompareHashAndPassword(hash, []byte(password)) != nil || !ok {
 		s.login.fail(ip)
 		http.Redirect(w, r, "/login?error=1", http.StatusSeeOther)
 		return
@@ -59,7 +72,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	setSessionCookie(w, token, r.TLS != nil)
+	setSessionCookie(w, token, s.cookieSecure(r))
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

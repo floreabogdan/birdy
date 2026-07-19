@@ -22,6 +22,10 @@ const (
 	dashboardHistoryPoints = 32
 	peerHistoryWindow      = 24 * time.Hour
 	peerHistoryPoints      = 80
+	// dashboardHistoryTTL bounds how often the dashboard trend series is
+	// recomputed. Samples land about once a minute, so a 30s cache serves every
+	// 5s dashboard poll from memory without the series ever looking stale.
+	dashboardHistoryTTL = 30 * time.Second
 )
 
 // Point is one sample: a route count at a moment. The time used to be dropped on

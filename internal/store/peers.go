@@ -392,6 +392,28 @@ func (s *Store) DisabledPeerNames() (map[string]bool, error) {
 	return out, rows.Err()
 }
 
+// PeerNameEnabled returns every configured peer's name mapped to whether it is
+// enabled, reading only those two columns. The dashboard uses it to annotate
+// BIRD's live protocol rows on every refresh without loading each peer's full,
+// policy-bearing row.
+func (s *Store) PeerNameEnabled() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT name, enabled FROM peers`)
+	if err != nil {
+		return nil, fmt.Errorf("store: list peer names: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var name string
+		var enabled bool
+		if err := rows.Scan(&name, &enabled); err != nil {
+			return nil, err
+		}
+		out[name] = enabled
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) DeletePeer(id int64) error {
 	res, err := s.db.Exec(`DELETE FROM peers WHERE id = ?`, id)
 	if err != nil {

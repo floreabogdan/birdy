@@ -96,6 +96,30 @@ func (s *Store) ResolveConfigVersion(id int64, status, message string) error {
 	return affectedOne(res)
 }
 
+// ConfirmAppliedVersion records a confirmed apply atomically: it stamps the
+// applied config hash and resolves the version in one transaction, so a failure
+// between the two can never leave the hash advanced while the version stays
+// pending — a state that would block the next apply on a change BIRD already ran.
+func (s *Store) ConfirmAppliedVersion(id int64, hash, status, message string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("store: confirm applied version: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	ts := now()
+	if _, err := tx.Exec(`UPDATE settings SET applied_config_hash = ?, updated_at = ? WHERE id = 1`, hash, ts); err != nil {
+		return fmt.Errorf("store: set applied config hash: %w", err)
+	}
+	res, err := tx.Exec(`UPDATE config_versions SET status = ?, message = ?, timeout_deadline = '', resolved_at = ? WHERE id = ?`, status, message, ts, id)
+	if err != nil {
+		return fmt.Errorf("store: resolve config version: %w", err)
+	}
+	if err := affectedOne(res); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // CountConfigVersions is the total the history pager needs. Counting rows is
 // cheap; reading them is not — each carries a full rendered bird.conf.
 func (s *Store) CountConfigVersions() (int, error) {
@@ -154,12 +178,22 @@ func scanConfigVersion(sc scanner) (ConfigVersion, error) {
 		&v.Status, &deadline, &v.Message, &resolved, &v.BaselineSessions, &v.ConfigFiles); err != nil {
 		return ConfigVersion{}, err
 	}
-	v.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+	// These are written by the store in RFC3339Nano, so a parse failure means a
+	// corrupt row. Surface it rather than silently yielding the zero time — a
+	// zero Deadline would quietly change Expired() logic.
+	var perr error
+	if v.CreatedAt, perr = time.Parse(time.RFC3339Nano, created); perr != nil {
+		return ConfigVersion{}, fmt.Errorf("store: parse config version created_at %q: %w", created, perr)
+	}
 	if deadline != "" {
-		v.Deadline, _ = time.Parse(time.RFC3339Nano, deadline)
+		if v.Deadline, perr = time.Parse(time.RFC3339Nano, deadline); perr != nil {
+			return ConfigVersion{}, fmt.Errorf("store: parse config version deadline %q: %w", deadline, perr)
+		}
 	}
 	if resolved != "" {
-		v.ResolvedAt, _ = time.Parse(time.RFC3339Nano, resolved)
+		if v.ResolvedAt, perr = time.Parse(time.RFC3339Nano, resolved); perr != nil {
+			return ConfigVersion{}, fmt.Errorf("store: parse config version resolved_at %q: %w", resolved, perr)
+		}
 	}
 	return v, nil
 }

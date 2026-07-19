@@ -97,6 +97,14 @@ type Server struct {
 	accessMu   sync.RWMutex
 	accessList []netip.Prefix
 
+	// histMu guards a short-lived cache of the dashboard's per-session route
+	// history. Recomputing it rescans the whole sample window; the samples only
+	// change once per poll interval, so a brief cache spares that work on every
+	// 5-second dashboard poll regardless of how many clients are open.
+	histMu       sync.Mutex
+	histCache    map[string]Series
+	histComputed time.Time
+
 	mux *http.ServeMux
 }
 

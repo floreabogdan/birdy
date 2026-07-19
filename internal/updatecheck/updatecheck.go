@@ -72,12 +72,16 @@ func (c *Client) Check(ctx context.Context, channel, currentVersion, currentComm
 	c.mu.Unlock()
 
 	result, err := c.check(ctx, channel, currentVersion, currentCommit)
-	c.mu.Lock()
-	if c.cache == nil {
-		c.cache = make(map[string]cachedResult)
+	// Only cache successes. Caching a failure would pin a transient GitHub
+	// outage on screen and block retries for the full TTL.
+	if err == nil {
+		c.mu.Lock()
+		if c.cache == nil {
+			c.cache = make(map[string]cachedResult)
+		}
+		c.cache[key] = cachedResult{result: result, err: err}
+		c.mu.Unlock()
 	}
-	c.cache[key] = cachedResult{result: result, err: err}
-	c.mu.Unlock()
 	return result, err
 }
 

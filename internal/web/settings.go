@@ -452,32 +452,32 @@ func (s *Server) apiSnapshotRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.snap == nil {
-		http.Error(w, "snapshots not configured", http.StatusServiceUnavailable)
+		writeJSONError(w, http.StatusServiceUnavailable, "snapshots not configured")
 		return
 	}
 	const maxSnapshotUpload = 64 << 20
 	r.Body = http.MaxBytesReader(w, r.Body, maxSnapshotUpload+(1<<20))
 	if err := r.ParseMultipartForm(maxSnapshotUpload); err != nil {
-		http.Error(w, "invalid upload", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "invalid upload")
 		return
 	}
 	file, _, err := r.FormFile("db")
 	if err != nil {
-		http.Error(w, "missing file field \"db\"", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "missing file field \"db\"")
 		return
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, maxSnapshotUpload+1))
 	if err != nil {
-		http.Error(w, "failed to read upload", http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "failed to read upload")
 		return
 	}
 	if len(data) > maxSnapshotUpload {
-		http.Error(w, "snapshot exceeds 64 MiB limit", http.StatusRequestEntityTooLarge)
+		writeJSONError(w, http.StatusRequestEntityTooLarge, "snapshot exceeds 64 MiB limit")
 		return
 	}
 	if err := s.snap.StageRestore(data); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, map[string]string{

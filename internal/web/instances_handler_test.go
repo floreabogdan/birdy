@@ -100,6 +100,49 @@ func TestBearerDashboardIgnoresInstanceCookie(t *testing.T) {
 	}
 }
 
+// isUniqueViolation matches a SQLite driver message by substring; pin it against
+// the real driver so a dependency bump that changes the text fails here loudly
+// rather than silently turning name clashes back into 500s.
+func TestIsUniqueViolationMatchesDriver(t *testing.T) {
+	env := newTestEnv(t, false)
+	if _, err := env.store.CreateInstance("dup", "https://a.example:8080", strings.Repeat("a", 40)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := env.store.CreateInstance("dup", "https://b.example:8080", strings.Repeat("b", 40))
+	if err == nil {
+		t.Fatal("expected a UNIQUE violation on the duplicate instance name")
+	}
+	if !isUniqueViolation(err) {
+		t.Fatalf("isUniqueViolation did not recognize the driver error: %v", err)
+	}
+}
+
+func TestValidateInstanceURLRejectsSSRFTargets(t *testing.T) {
+	blocked := []string{
+		"http://127.0.0.1:8080",
+		"https://[::1]:8080",
+		"http://169.254.169.254", // cloud metadata (link-local)
+		"http://0.0.0.0:8080",
+		"https://[fe80::1]:8080",
+	}
+	for _, raw := range blocked {
+		if _, err := validateInstanceURL(raw); err == nil {
+			t.Errorf("validateInstanceURL(%q) = nil error, want rejection", raw)
+		}
+	}
+	allowed := []string{
+		"https://router.example.net:8080",
+		"http://10.0.0.5:8080",   // private mgmt network — legitimate
+		"https://[fd00::1]:8080", // ULA — legitimate
+		"http://192.168.1.2:8080",
+	}
+	for _, raw := range allowed {
+		if _, err := validateInstanceURL(raw); err != nil {
+			t.Errorf("validateInstanceURL(%q) = %v, want allowed", raw, err)
+		}
+	}
+}
+
 func TestInstanceAddAndSelect(t *testing.T) {
 	env := newTestEnv(t, false)
 	rec := env.do(t, http.MethodPost, "/instances/add", url.Values{"name": {"remote"}, "baseURL": {"https://remote.example:8080"}, "token": {strings.Repeat("a", 40)}})

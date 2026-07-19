@@ -64,6 +64,18 @@ func (s *Server) requireDashboardAuth(next http.HandlerFunc) http.Handler {
 	})
 }
 
+// cookieSecure decides the Secure flag for session and selection cookies.
+// Native TLS always qualifies. When birdy is bound to loopback it sits behind a
+// local reverse proxy, so that proxy's X-Forwarded-Proto: https is trustworthy
+// and the cookie should be Secure even though this last hop is plaintext. On a
+// directly exposed listener the header is not trusted — a client could forge it.
+func (s *Server) cookieSecure(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return s.listenLoopback() && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
 func setSessionCookie(w http.ResponseWriter, token string, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
