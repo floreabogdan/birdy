@@ -60,6 +60,46 @@ func TestInstanceAPIRequiresBearerOrSession(t *testing.T) {
 	}
 }
 
+// A remote observer authenticates with a bearer token, not a session. It must
+// not be able to smuggle a birdy_instance cookie to make us relay another
+// federated instance's dashboard with our stored token — the token is scoped to
+// reading THIS instance only.
+func TestBearerDashboardIgnoresInstanceCookie(t *testing.T) {
+	relayed := false
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		relayed = true
+		t.Errorf("bearer request relayed to remote instance: %s", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer remote.Close()
+	env := newTestEnv(t, false)
+	if err := env.store.SaveSettings(store.Settings{RouterID: "192.0.2.1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.store.SaveInstanceAPITokenHash(store.HashInstanceAPIToken("remote-secret")); err != nil {
+		t.Fatal(err)
+	}
+	id, err := env.store.CreateInstance("remote-edge", remote.URL, strings.Repeat("b", 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard", nil)
+	req.Header.Set("Authorization", "Bearer remote-secret")
+	req.AddCookie(&http.Cookie{Name: instanceCookieName, Value: fmt.Sprint(id)})
+	rec := httptest.NewRecorder()
+	env.srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("bearer dashboard status=%d", rec.Code)
+	}
+	if relayed {
+		t.Fatal("token holder pivoted to a remote instance via the selection cookie")
+	}
+	// The response must be this instance's own dashboard, not the remote's.
+	if strings.Contains(rec.Body.String(), `"instanceRemote":true`) {
+		t.Fatalf("bearer dashboard served a remote view: %s", rec.Body.String())
+	}
+}
+
 func TestInstanceAddAndSelect(t *testing.T) {
 	env := newTestEnv(t, false)
 	rec := env.do(t, http.MethodPost, "/instances/add", url.Values{"name": {"remote"}, "baseURL": {"https://remote.example:8080"}, "token": {strings.Repeat("a", 40)}})

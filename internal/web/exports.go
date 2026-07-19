@@ -4,8 +4,22 @@ import (
 	"encoding/csv"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// csvSafe neutralizes spreadsheet formula injection. A cell a spreadsheet reads
+// as a formula (leading =, +, -, @, tab, or CR) is prefixed with a single quote
+// so peer names, BIRD info strings, and event messages cannot execute on open.
+func csvSafe(s string) string {
+	if s == "" {
+		return s
+	}
+	if strings.IndexByte("=+-@\t\r", s[0]) >= 0 {
+		return "'" + s
+	}
+	return s
+}
 
 func (s *Server) handleSessionExport(w http.ResponseWriter, r *http.Request) {
 	v := s.selectedDashboardView(r)
@@ -23,7 +37,7 @@ func (s *Server) handleSessionExport(w http.ResponseWriter, r *http.Request) {
 		if row.Configured {
 			managed = "yes"
 		}
-		_ = c.Write([]string{row.Name, row.Proto, row.BGPState(), row.Info, managed, strconv.Itoa(row.Imported), strconv.Itoa(row.Exported)})
+		_ = c.Write([]string{csvSafe(row.Name), csvSafe(row.Proto), csvSafe(row.BGPState()), csvSafe(row.Info), managed, strconv.Itoa(row.Imported), strconv.Itoa(row.Exported)})
 	}
 	c.Flush()
 }
@@ -44,7 +58,7 @@ func (s *Server) handleEventExport(w http.ResponseWriter, r *http.Request) {
 	c := csv.NewWriter(w)
 	_ = c.Write([]string{"id", "timestamp", "kind", "protocol", "actor", "message"})
 	for _, event := range events {
-		_ = c.Write([]string{strconv.FormatInt(event.ID, 10), event.Ts.Format(time.RFC3339Nano), event.Kind, event.Protocol, event.Actor, event.Message})
+		_ = c.Write([]string{strconv.FormatInt(event.ID, 10), event.Ts.Format(time.RFC3339Nano), csvSafe(event.Kind), csvSafe(event.Protocol), csvSafe(event.Actor), csvSafe(event.Message)})
 	}
 	c.Flush()
 }

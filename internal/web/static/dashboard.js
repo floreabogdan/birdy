@@ -161,9 +161,12 @@
 			var managed = p.configured
 				? '<span class="badge badge-success">configured</span>'
 				: '<span class="badge badge-warning">unmanaged</span>';
-			var state = p.up ? "up" : "down";
+			// filterState drives the up/down/all dropdown (data-state); the badge
+			// keeps the richer display text computed above (BIRD vocabulary, or
+			// "disabled" for a peer switched off on purpose).
+			var filterState = p.up ? "up" : "down";
 			var model = p.configured ? "managed" : "unmanaged";
-			var rowStart = remote ? '<tr data-name="' + esc(String(p.name).toLowerCase()) + '" data-state="' + state + '" data-family="' + familyOf(p) + '" data-model="' + model + '">' : '<tr data-name="' + esc(String(p.name).toLowerCase()) + '" data-state="' + state + '" data-family="' + familyOf(p) + '" data-model="' + model + '" class="row-link" data-href="/peers/' + encodeURIComponent(p.name) + '" tabindex="0">';
+			var rowStart = remote ? '<tr data-name="' + esc(String(p.name).toLowerCase()) + '" data-state="' + filterState + '" data-family="' + familyOf(p) + '" data-model="' + model + '">' : '<tr data-name="' + esc(String(p.name).toLowerCase()) + '" data-state="' + filterState + '" data-family="' + familyOf(p) + '" data-model="' + model + '" class="row-link" data-href="/peers/' + encodeURIComponent(p.name) + '" tabindex="0">';
 			return (
 				rowStart +
 				'<td class="mono">' + esc(p.name) + "</td>" +

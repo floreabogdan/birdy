@@ -43,11 +43,12 @@ func (s *Store) ListInstanceTokens() ([]InstanceToken, error) {
 }
 
 func (s *Store) RevokeInstanceToken(id int64) error {
-	res, err := s.db.Exec(`UPDATE instance_tokens SET revoked = 1 WHERE id = ?`, id)
-	if err != nil {
+	// Revocation is idempotent: revoking a token that is already gone or was
+	// never issued is a no-op success, not a 500 for the operator.
+	if _, err := s.db.Exec(`UPDATE instance_tokens SET revoked = 1 WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("store: revoke instance token: %w", err)
 	}
-	return affectedOne(res)
+	return nil
 }
 
 func (s *Store) RevokeAllInstanceTokens() error {

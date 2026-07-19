@@ -49,6 +49,11 @@ func (s *Server) requireDashboardAuth(next http.HandlerFunc) http.Handler {
 				return
 			}
 			if valid {
+				// A remote token authorizes read-only observation of THIS
+				// instance only. Drop any cookies (notably birdy_instance) so a
+				// token holder cannot set the selection cookie and make us relay
+				// another federated instance's dashboard with our stored token.
+				r.Header.Del("Cookie")
 				next(w, r)
 				return
 			}

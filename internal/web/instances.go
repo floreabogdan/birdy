@@ -18,6 +18,10 @@ import (
 
 const instanceCookieName = "birdy_instance"
 
+// maxConcurrentInstancePolls caps how many remote instances we contact at once
+// so a large fleet cannot spawn an unbounded burst of goroutines and sockets.
+const maxConcurrentInstancePolls = 8
+
 type instanceView struct {
 	ID            int64  `json:"id"`
 	Name          string `json:"name"`
@@ -99,11 +103,14 @@ func (s *Server) refreshInstanceHealth(ctx context.Context) {
 		return
 	}
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrentInstancePolls)
 	for _, instance := range instances {
 		instance := instance
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			checkCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 			defer cancel()
 			latency, checkErr := (federation.Client{BaseURL: instance.BaseURL, Token: instance.Token}).Check(checkCtx)
@@ -478,11 +485,14 @@ func (s *Server) apiInstanceActivity(w http.ResponseWriter, r *http.Request) {
 	}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, maxConcurrentInstancePolls)
 	for _, instance := range instances {
 		instance := instance
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 			defer cancel()
 			events, fetchErr := (federation.Client{BaseURL: instance.BaseURL, Token: instance.Token}).FetchEvents(ctx, limit)

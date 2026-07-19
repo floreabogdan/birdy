@@ -31,8 +31,6 @@ const routeCountInterval = time.Minute
 // while removing one command from the hot path.
 const statusInterval = 30 * time.Second
 
-const disabledPeerInterval = 10 * time.Second
-
 // ProtoState is the poller's last-known view of one protocol.
 type ProtoState struct {
 	Summary    birdc.ProtocolSummary
@@ -104,8 +102,6 @@ type Poller struct {
 	reachableKnown bool // whether birdReachable has been set at least once
 	lastStatus     birdc.Status
 	lastStatusAt   time.Time
-	disabledPeers  map[string]bool
-	disabledAt     time.Time
 }
 
 // SetNotifier attaches an alert sink. Call before Run.
@@ -225,13 +221,15 @@ func (p *Poller) poll() {
 	now := time.Now()
 	status := p.lastStatus
 	if p.lastStatusAt.IsZero() || now.Sub(p.lastStatusAt) >= statusInterval {
-		var statusErr error
-		status, statusErr = p.client.Status()
-		p.lastStatusAt = now
+		fresh, statusErr := p.client.Status()
 		if statusErr != nil {
+			// Keep serving the last-known identity and retry on the next poll
+			// rather than blanking version/router-id and waiting a full interval.
 			p.log.Warn("show status failed", "error", statusErr)
 		} else {
-			p.lastStatus = status
+			status = fresh
+			p.lastStatus = fresh
+			p.lastStatusAt = now
 		}
 	}
 
@@ -265,16 +263,13 @@ func (p *Poller) poll() {
 	// its protocol (rendered with "disabled"), so without this the act of applying
 	// a disable would fire a session-down alert and wake somebody up over a change
 	// they made on purpose.
-	disabled := p.disabledPeers
-	if disabled == nil || p.disabledAt.IsZero() || now.Sub(p.disabledAt) >= disabledPeerInterval {
-		var disabledErr error
-		disabled, disabledErr = p.store.DisabledPeerNames()
-		p.disabledAt = now
-		if disabledErr != nil {
-			p.log.Warn("could not read disabled peers; treating all as enabled", "error", disabledErr)
-			disabled = map[string]bool{}
-		}
-		p.disabledPeers = disabled
+	// Read this every poll: it is a cheap local query and it must reflect a
+	// just-applied disable immediately, or the disable itself fires a
+	// session-down alert. Caching it re-opens exactly that spurious page.
+	disabled, err := p.store.DisabledPeerNames()
+	if err != nil {
+		p.log.Warn("could not read disabled peers; treating all as enabled", "error", err)
+		disabled = map[string]bool{}
 	}
 
 	for _, proto := range protocols {
