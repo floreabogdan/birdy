@@ -110,10 +110,10 @@ func (s *Server) refreshInstanceHealth(ctx context.Context) {
 	sem := make(chan struct{}, maxConcurrentInstancePolls)
 	for _, instance := range instances {
 		instance := instance
+		sem <- struct{}{} // acquire before spawning so goroutine count is bounded too
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
 			defer func() { <-sem }()
 			checkCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 			defer cancel()
@@ -503,10 +503,10 @@ func (s *Server) apiInstanceActivity(w http.ResponseWriter, r *http.Request) {
 	sem := make(chan struct{}, maxConcurrentInstancePolls)
 	for _, instance := range instances {
 		instance := instance
+		sem <- struct{}{} // acquire before spawning so goroutine count is bounded too
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
 			defer func() { <-sem }()
 			ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 			defer cancel()

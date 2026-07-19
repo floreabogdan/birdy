@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"fmt"
 	"html/template"
@@ -193,11 +194,17 @@ func ratio(part, total int) float64 {
 var tmpl = template.Must(template.New("").Funcs(funcs).ParseFS(templateFS, "templates/*.html"))
 
 func render(w http.ResponseWriter, log *slog.Logger, name string, data any) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.ExecuteTemplate(w, name, data); err != nil {
+	// Render into a buffer first: a mid-execution template error (nil method,
+	// panicking func) must not leave a 200 with half-flushed HTML on the wire
+	// followed by a superfluous WriteHeader. On success, copy the whole page.
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, name, data); err != nil {
 		log.Error("template render failed", "template", name, "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = buf.WriteTo(w)
 }
 
 func staticHandler() http.Handler {

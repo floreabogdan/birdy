@@ -100,6 +100,23 @@ func TestBearerDashboardIgnoresInstanceCookie(t *testing.T) {
 	}
 }
 
+// isUniqueViolation matches a SQLite driver message by substring; pin it against
+// the real driver so a dependency bump that changes the text fails here loudly
+// rather than silently turning name clashes back into 500s.
+func TestIsUniqueViolationMatchesDriver(t *testing.T) {
+	env := newTestEnv(t, false)
+	if _, err := env.store.CreateInstance("dup", "https://a.example:8080", strings.Repeat("a", 40)); err != nil {
+		t.Fatal(err)
+	}
+	_, err := env.store.CreateInstance("dup", "https://b.example:8080", strings.Repeat("b", 40))
+	if err == nil {
+		t.Fatal("expected a UNIQUE violation on the duplicate instance name")
+	}
+	if !isUniqueViolation(err) {
+		t.Fatalf("isUniqueViolation did not recognize the driver error: %v", err)
+	}
+}
+
 func TestValidateInstanceURLRejectsSSRFTargets(t *testing.T) {
 	blocked := []string{
 		"http://127.0.0.1:8080",

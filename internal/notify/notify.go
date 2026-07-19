@@ -35,7 +35,12 @@ type Dispatcher struct {
 
 	mu   sync.Mutex
 	last map[string]time.Time // (kind|protocol) -> last delivery, for throttling
+
+	queueOnce sync.Once
+	queue     chan notification // FIFO into the single delivery worker
 }
+
+type notification struct{ kind, protocol, message string }
 
 // NewDispatcher builds a dispatcher. cooldown suppresses a repeat of the same
 // session event for a protocol within the window; 0 disables throttling.
@@ -169,10 +174,28 @@ func (a alert) plainLine() string {
 	return line + " — " + a.Message
 }
 
-// Notify delivers an event to every enabled destination, in the background so
-// the poller is never blocked. A delivery failure is logged, not retried.
+// Notify queues an event for delivery to every enabled destination. A single
+// background worker drains the queue, so deliveries keep their order (a
+// session_up never overtakes the session_down before it) and never fan out into
+// an unbounded burst of concurrent HTTP requests under a flap storm. The queue
+// is bounded; if it ever fills, the overflow is logged and dropped rather than
+// blocking the poller. A delivery failure is logged, not retried.
 func (d *Dispatcher) Notify(kind, protocol, message string) {
-	go d.deliverAllSync(kind, protocol, message)
+	d.queueOnce.Do(func() {
+		d.queue = make(chan notification, 256)
+		go d.deliverLoop()
+	})
+	select {
+	case d.queue <- notification{kind: kind, protocol: protocol, message: message}:
+	default:
+		d.log.Warn("alert queue full; dropping notification", "kind", kind, "protocol", protocol)
+	}
+}
+
+func (d *Dispatcher) deliverLoop() {
+	for n := range d.queue {
+		d.deliverAllSync(n.kind, n.protocol, n.message)
+	}
 }
 
 // deliverAllSync applies the throttle and per-destination filter, then delivers
