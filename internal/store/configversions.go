@@ -178,12 +178,22 @@ func scanConfigVersion(sc scanner) (ConfigVersion, error) {
 		&v.Status, &deadline, &v.Message, &resolved, &v.BaselineSessions, &v.ConfigFiles); err != nil {
 		return ConfigVersion{}, err
 	}
-	v.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+	// These are written by the store in RFC3339Nano, so a parse failure means a
+	// corrupt row. Surface it rather than silently yielding the zero time — a
+	// zero Deadline would quietly change Expired() logic.
+	var perr error
+	if v.CreatedAt, perr = time.Parse(time.RFC3339Nano, created); perr != nil {
+		return ConfigVersion{}, fmt.Errorf("store: parse config version created_at %q: %w", created, perr)
+	}
 	if deadline != "" {
-		v.Deadline, _ = time.Parse(time.RFC3339Nano, deadline)
+		if v.Deadline, perr = time.Parse(time.RFC3339Nano, deadline); perr != nil {
+			return ConfigVersion{}, fmt.Errorf("store: parse config version deadline %q: %w", deadline, perr)
+		}
 	}
 	if resolved != "" {
-		v.ResolvedAt, _ = time.Parse(time.RFC3339Nano, resolved)
+		if v.ResolvedAt, perr = time.Parse(time.RFC3339Nano, resolved); perr != nil {
+			return ConfigVersion{}, fmt.Errorf("store: parse config version resolved_at %q: %w", resolved, perr)
+		}
 	}
 	return v, nil
 }

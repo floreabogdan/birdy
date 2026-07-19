@@ -29,7 +29,10 @@ type instanceView struct {
 	GroupName     string `json:"group,omitempty"`
 	Tags          string `json:"tags,omitempty"`
 	Status        string `json:"status,omitempty"`
-	LatencyMS     int    `json:"latencyMS,omitempty"`
+	// No omitempty: a genuine 0 ms reading (a loopback target) must serialize,
+	// or the client's `latencyMS >= 0` check drops the latency for a healthy
+	// instance. Unchecked instances carry -1 and are correctly skipped.
+	LatencyMS int `json:"latencyMS"`
 	LastCheckAt   string `json:"lastCheckAt,omitempty"`
 	LastSuccessAt string `json:"lastSuccessAt,omitempty"`
 	LastError     string `json:"lastError,omitempty"`
@@ -124,7 +127,9 @@ func (s *Server) refreshInstanceHealth(ctx context.Context) {
 				success = checked
 			}
 			oldStatus := healthStatus(instance)
-			_ = s.store.UpdateInstanceHealth(instance.ID, checked, success, latencyMS, lastError)
+			if err := s.store.UpdateInstanceHealth(instance.ID, checked, success, latencyMS, lastError); err != nil {
+				s.log.Warn("could not persist instance health", "instance", instance.Name, "error", err)
+			}
 			newStatus := "offline"
 			if checkErr == nil {
 				newStatus = healthStatus(store.Instance{LastCheckAt: checked, LastLatencyMS: latencyMS})
