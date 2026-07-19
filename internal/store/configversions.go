@@ -96,6 +96,30 @@ func (s *Store) ResolveConfigVersion(id int64, status, message string) error {
 	return affectedOne(res)
 }
 
+// ConfirmAppliedVersion records a confirmed apply atomically: it stamps the
+// applied config hash and resolves the version in one transaction, so a failure
+// between the two can never leave the hash advanced while the version stays
+// pending — a state that would block the next apply on a change BIRD already ran.
+func (s *Store) ConfirmAppliedVersion(id int64, hash, status, message string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("store: confirm applied version: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	ts := now()
+	if _, err := tx.Exec(`UPDATE settings SET applied_config_hash = ?, updated_at = ? WHERE id = 1`, hash, ts); err != nil {
+		return fmt.Errorf("store: set applied config hash: %w", err)
+	}
+	res, err := tx.Exec(`UPDATE config_versions SET status = ?, message = ?, timeout_deadline = '', resolved_at = ? WHERE id = ?`, status, message, ts, id)
+	if err != nil {
+		return fmt.Errorf("store: resolve config version: %w", err)
+	}
+	if err := affectedOne(res); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // CountConfigVersions is the total the history pager needs. Counting rows is
 // cheap; reading them is not — each carries a full rendered bird.conf.
 func (s *Store) CountConfigVersions() (int, error) {

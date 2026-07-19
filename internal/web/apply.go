@@ -305,6 +305,18 @@ func (s *Server) restoreConfig(backup string) error {
 	return s.pruneIncludeDir(keep)
 }
 
+// rollbackConfig undoes a partial config write. If the undo itself fails, the
+// files on disk may no longer match what BIRD is running, so it logs loudly and
+// returns a suffix the caller appends to the operator-facing message. An empty
+// suffix means the rollback succeeded.
+func (s *Server) rollbackConfig(backup string) string {
+	if err := s.restoreConfig(backup); err != nil {
+		s.log.Error("config rollback failed; bird.conf on disk may not match the running config", "error", err)
+		return " WARNING: rolling the config files back also failed, so bird.conf on disk may not match what BIRD is running — check it before retrying."
+	}
+	return ""
+}
+
 func copyFile(src, dst string, perm os.FileMode) error {
 	data, err := os.ReadFile(src)
 	if err != nil {
@@ -508,20 +520,20 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 		// The usual cause is that birdy cannot write to bird.conf's directory —
 		// grant it, or run read-only. Undo any partial write before bailing.
 		s.log.Error("write config", "error", err)
-		_ = s.restoreConfig(backup)
+		suffix := s.rollbackConfig(backup)
 		s.redirectChanges(w, r, "Could not write to "+s.configDir()+": "+err.Error()+
-			". birdy needs write access to that directory.")
+			". birdy needs write access to that directory."+suffix)
 		return
 	}
 
 	// The daemon's own check, against the exact files it will load.
 	if res, err := s.client.ConfigureCheck(); err != nil {
-		_ = s.restoreConfig(backup)
+		s.rollbackConfig(backup)
 		s.serverError(w, "configure check", err)
 		return
 	} else if !res.OK {
-		_ = s.restoreConfig(backup)
-		s.redirectChanges(w, r, "BIRD rejected the config; it was rolled back:\n"+res.Message)
+		suffix := s.rollbackConfig(backup)
+		s.redirectChanges(w, r, "BIRD rejected the config; it was rolled back:\n"+res.Message+suffix)
 		return
 	}
 
@@ -529,13 +541,13 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 	// or the sessions never come up, BIRD reverts on its own.
 	res, err := s.client.ConfigureTimeout(s.applyTimeout, soft)
 	if err != nil {
-		_ = s.restoreConfig(backup)
+		s.rollbackConfig(backup)
 		s.serverError(w, "configure timeout", err)
 		return
 	}
 	if !res.OK {
-		_ = s.restoreConfig(backup)
-		s.redirectChanges(w, r, "BIRD could not apply the config; it was rolled back:\n"+res.Message)
+		suffix := s.rollbackConfig(backup)
+		s.redirectChanges(w, r, "BIRD could not apply the config; it was rolled back:\n"+res.Message+suffix)
 		return
 	}
 
@@ -624,21 +636,23 @@ func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := s.client.ConfigureConfirm()
 	if err != nil || !res.OK {
-		_ = s.restoreConfig(pending.BackupPath)
+		if err != nil {
+			s.log.Error("configure confirm", "error", err)
+		}
+		suffix := s.rollbackConfig(pending.BackupPath)
 		msg := "BIRD would not confirm the apply"
 		if err == nil {
 			msg += ": " + res.Message
 		}
-		s.redirectChanges(w, r, msg+". The previous config is back on disk; roll back to clear this.")
+		s.redirectChanges(w, r, msg+". The previous config is back on disk; roll back to clear this."+suffix)
 		return
 	}
 
-	if err := s.store.SetAppliedConfigHash(pending.SHA256); err != nil {
-		s.serverError(w, "set applied hash", err)
-		return
-	}
-	if err := s.store.ResolveConfigVersion(pending.ID, store.ConfigConfirmed, "Confirmed."); err != nil {
-		s.serverError(w, "resolve version", err)
+	// One transaction: stamping the applied hash and resolving the version must
+	// not tear, or a crash between them wedges the next apply on a phantom
+	// pending change that BIRD already confirmed.
+	if err := s.store.ConfirmAppliedVersion(pending.ID, pending.SHA256, store.ConfigConfirmed, "Confirmed."); err != nil {
+		s.serverError(w, "confirm applied version", err)
 		return
 	}
 	s.emitAuditedEvent(r, store.EventConfigApply, fmt.Sprintf("Config apply confirmed (version %d)", pending.ID))
