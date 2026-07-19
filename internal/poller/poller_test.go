@@ -22,9 +22,9 @@ type fakeClient struct {
 	errAt    map[int]error // poll (call) number -> error, to script BIRD-unreachable
 }
 
-func (f *fakeClient) Status() (birdc.Status, error) { return birdc.Status{}, nil }
+func (f *fakeClient) Status(_ context.Context) (birdc.Status, error) { return birdc.Status{}, nil }
 
-func (f *fakeClient) Protocols() ([]birdc.ProtocolSummary, error) {
+func (f *fakeClient) Protocols(_ context.Context) ([]birdc.ProtocolSummary, error) {
 	step := f.step
 	f.step++
 	if err, ok := f.errAt[step]; ok {
@@ -38,14 +38,14 @@ func (f *fakeClient) Protocols() ([]birdc.ProtocolSummary, error) {
 	return p, nil
 }
 
-func (f *fakeClient) ProtocolDetail(name string) (birdc.ProtocolDetail, error) {
+func (f *fakeClient) ProtocolDetail(_ context.Context, name string) (birdc.ProtocolDetail, error) {
 	if d, ok := f.detail[name]; ok {
 		return d, nil
 	}
 	return birdc.ProtocolDetail{}, nil
 }
 
-func (f *fakeClient) RouteCount() ([]birdc.RouteCountEntry, error) {
+func (f *fakeClient) RouteCount(_ context.Context) ([]birdc.RouteCountEntry, error) {
 	if f.countErr != nil {
 		return nil, f.countErr
 	}
@@ -62,14 +62,14 @@ func TestRouteCountFailureKeepsPublishedSessionsAndPreviousTotal(t *testing.T) {
 		counts: []birdc.RouteCountEntry{{Table: "master4", Routes: 42}},
 	}
 	p := New(fc, st, time.Second, nil)
-	p.poll()
+	p.poll(context.Background())
 	if got := p.Snapshot().TotalRoutes; got != 42 {
 		t.Fatalf("initial total = %d, want 42", got)
 	}
 
 	fc.countErr = context.DeadlineExceeded
 	p.lastRouteCount = time.Time{} // make the next poll attempt a refresh
-	p.poll()
+	p.poll(context.Background())
 	snap := p.Snapshot()
 	if len(snap.Protocols) != 1 || !snap.States["edge_v4"].Up {
 		t.Fatalf("session state was not published after count failure: %+v", snap)
@@ -98,7 +98,7 @@ func TestPollerNoEventsOnFirstPoll(t *testing.T) {
 	fc := &fakeClient{polls: [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}}}
 	p := New(fc, st, time.Second, nil)
 
-	p.poll()
+	p.poll(context.Background())
 
 	events, err := st.ListEvents(10, 0)
 	if err != nil {
@@ -122,9 +122,9 @@ func TestPollerDetectsDownThenFlap(t *testing.T) {
 	}}
 	p := New(fc, st, time.Second, nil)
 
-	p.poll()
-	p.poll()
-	p.poll()
+	p.poll(context.Background())
+	p.poll(context.Background())
+	p.poll(context.Background())
 
 	events, err := st.ListEvents(10, 0)
 	if err != nil {
@@ -162,9 +162,9 @@ func TestPollerImportLimitHitOnce(t *testing.T) {
 	}
 	p := New(fc, st, time.Second, nil)
 
-	p.poll() // baseline
-	p.poll() // limit already at cap -> should log once
-	p.poll() // still at cap -> should NOT log again
+	p.poll(context.Background()) // baseline
+	p.poll(context.Background()) // limit already at cap -> should log once
+	p.poll(context.Background()) // still at cap -> should NOT log again
 
 	events, err := st.ListEvents(10, 0)
 	if err != nil {
@@ -224,9 +224,9 @@ func TestPollerNoTransitionEventsForInfra(t *testing.T) {
 		{rpki("up")},   // would be a flap for a BGP session
 	}}
 	p := New(fc, st, time.Second, nil)
-	p.poll()
-	p.poll()
-	p.poll()
+	p.poll(context.Background())
+	p.poll(context.Background())
+	p.poll(context.Background())
 	events, _ := st.ListEvents(10, 0)
 	if len(events) != 0 {
 		t.Fatalf("infra protocol transitions must not emit session events, got %+v", events)
@@ -251,8 +251,8 @@ func TestPollerNoDownEventForADisabledPeer(t *testing.T) {
 		{bgp("edge_v4", "down", "")},          // the apply lands; BIRD parks the protocol
 	}}
 	p := New(fc, st, time.Second, nil)
-	p.poll()
-	p.poll()
+	p.poll(context.Background())
+	p.poll(context.Background())
 
 	events, _ := st.ListEvents(10, 0)
 	for _, e := range events {
@@ -282,8 +282,8 @@ func TestPollerStillAlertsForAnEnabledPeer(t *testing.T) {
 		{bgp("edge_v4", "start", "Connect")},
 	}}
 	p := New(fc, st, time.Second, nil)
-	p.poll()
-	p.poll()
+	p.poll(context.Background())
+	p.poll(context.Background())
 
 	events, _ := st.ListEvents(10, 0)
 	var down int
@@ -307,8 +307,8 @@ func TestPollerNotifiesOnTransition(t *testing.T) {
 	p := New(fc, st, time.Second, nil)
 	p.SetNotifier(n)
 
-	p.poll()
-	p.poll()
+	p.poll(context.Background())
+	p.poll(context.Background())
 
 	if len(n.kinds) != 1 || n.kinds[0] != store.EventSessionDown {
 		t.Fatalf("notifier kinds = %v, want [session_down]", n.kinds)
@@ -328,9 +328,9 @@ func TestPollerAlertsWhenBirdUnreachable(t *testing.T) {
 	p := New(fc, st, time.Second, nil)
 	p.SetNotifier(n)
 
-	p.poll() // baseline reachable, no event
-	p.poll() // unreachable -> bird_unreachable
-	p.poll() // reachable again -> bird_reachable
+	p.poll(context.Background()) // baseline reachable, no event
+	p.poll(context.Background()) // unreachable -> bird_unreachable
+	p.poll(context.Background()) // reachable again -> bird_reachable
 
 	events, err := st.ListEvents(10, 0)
 	if err != nil {
@@ -369,10 +369,10 @@ func TestPollerAlertsOnPrefixDrop(t *testing.T) {
 	}
 	p := New(fc, st, time.Second, nil)
 
-	p.poll() // baseline
-	p.poll() // still 900k, no alert
+	p.poll(context.Background()) // baseline
+	p.poll(context.Background()) // still 900k, no alert
 	fc.detail["edge_v4"] = broken
-	p.poll() // 50 -> prefix_drop
+	p.poll(context.Background()) // 50 -> prefix_drop
 
 	events, _ := st.ListEvents(10, 0)
 	var drops int
@@ -397,9 +397,9 @@ func TestPollerIgnoresSmallDrops(t *testing.T) {
 		detail: map[string]birdc.ProtocolDetail{"edge_v4": {Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 100}}}},
 	}
 	p := New(fc, st, time.Second, nil)
-	p.poll()
+	p.poll(context.Background())
 	fc.detail["edge_v4"] = birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 1}}}
-	p.poll()
+	p.poll(context.Background())
 	events, _ := st.ListEvents(10, 0)
 	for _, e := range events {
 		if e.Kind == store.EventPrefixDrop {
@@ -430,7 +430,7 @@ func TestTotalRoutesExcludesROATables(t *testing.T) {
 	}
 	st := openTestStore(t)
 	p := New(fc, st, time.Second, nil)
-	p.poll()
+	p.poll(context.Background())
 	if got := p.Snapshot().TotalRoutes; got != 10 {
 		t.Fatalf("TotalRoutes = %d, want 10 (ROA tables excluded)", got)
 	}

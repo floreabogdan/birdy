@@ -124,7 +124,7 @@ func (s *Server) handleRPKIPage(w http.ResponseWriter, r *http.Request) {
 			// Ask BIRD how many there are before asking for a page of them. This is
 			// the answer the dry run is for — "742 routes would be dropped" — and it
 			// also gives the pager a real page count.
-			if counts, err := s.client.RoutesRPKIInvalidCount(asn); err != nil {
+			if counts, err := s.client.RoutesRPKIInvalidCount(r.Context(), asn); err != nil {
 				v.InvalidsErr = err.Error()
 			} else {
 				for _, c := range counts {
@@ -142,7 +142,7 @@ func (s *Server) handleRPKIPage(w http.ResponseWriter, r *http.Request) {
 			if limit == defaultPageSize {
 				limit = rpkiInvalidLimit
 			}
-			page, err := s.client.RoutesRPKIInvalidPage(asn, offset, limit)
+			page, err := s.client.RoutesRPKIInvalidPage(r.Context(), asn, offset, limit)
 			if err != nil {
 				v.InvalidsErr = err.Error()
 			} else {

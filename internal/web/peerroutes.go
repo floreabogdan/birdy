@@ -40,11 +40,11 @@ func (s *Server) apiPeerRoutes(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch dir {
 	case "protocol":
-		page, err = s.client.RoutesByProtocolPage(name, false, offset, limit)
+		page, err = s.client.RoutesByProtocolPage(r.Context(), name, false, offset, limit)
 	case "export":
-		page, err = s.client.RoutesExportPage(name, false, offset, limit)
+		page, err = s.client.RoutesExportPage(r.Context(), name, false, offset, limit)
 	case "noexport":
-		page, err = s.client.RoutesNoExportPage(name, false, offset, limit)
+		page, err = s.client.RoutesNoExportPage(r.Context(), name, false, offset, limit)
 	}
 	if err != nil {
 		v.Err = err.Error()

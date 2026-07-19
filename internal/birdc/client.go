@@ -11,6 +11,7 @@ package birdc
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -96,44 +97,71 @@ func (c *Client) Close() error {
 }
 
 // Command sends a single-line command and returns the parsed reply. On
-// connection errors it transparently reconnects once and retries.
-func (c *Client) Command(cmd string) (Reply, error) {
+// connection errors it transparently reconnects once and retries. The context
+// bounds the command: its cancellation or deadline aborts a blocked socket
+// read, but never triggers the reconnect-retry (that is for a dropped socket).
+func (c *Client) Command(ctx context.Context, cmd string) (Reply, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	reply, err := c.commandLocked(cmd)
-	if err != nil && c.conn == nil {
+	reply, err := c.commandLocked(ctx, cmd)
+	if err != nil && c.conn == nil && ctx.Err() == nil {
 		// connection was dropped; try once more after reconnecting
 		if cerr := c.connect(); cerr == nil {
-			reply, err = c.commandLocked(cmd)
+			reply, err = c.commandLocked(ctx, cmd)
 		}
 	}
 	return reply, err
 }
 
-func (c *Client) commandLocked(cmd string) (Reply, error) {
+func (c *Client) commandLocked(ctx context.Context, cmd string) (Reply, error) {
 	if c.conn == nil {
 		return Reply{}, fmt.Errorf("birdc: not connected")
 	}
-	deadline := time.Now().Add(c.timeout)
-	if err := c.conn.SetDeadline(deadline); err != nil {
+	if err := ctx.Err(); err != nil {
 		return Reply{}, err
 	}
+	if err := c.conn.SetDeadline(deadlineFor(ctx, c.timeout)); err != nil {
+		return Reply{}, err
+	}
+	// Cancelling ctx closes the socket, unblocking any in-flight read/write.
+	stop := context.AfterFunc(ctx, func() { c.conn.Close() })
+	defer stop()
 	if strings.ContainsAny(cmd, "\r\n") {
 		return Reply{}, fmt.Errorf("birdc: command must not contain newlines")
 	}
 	if _, err := fmt.Fprintf(c.conn, "%s\n", cmd); err != nil {
 		c.conn.Close()
 		c.conn = nil
-		return Reply{}, fmt.Errorf("birdc: write: %w", err)
+		return Reply{}, ctxErr(ctx, fmt.Errorf("birdc: write: %w", err))
 	}
 	reply, err := readFrame(c.r)
 	if err != nil {
 		c.conn.Close()
 		c.conn = nil
-		return Reply{}, err
+		return Reply{}, ctxErr(ctx, err)
 	}
 	return reply, nil
+}
+
+// deadlineFor returns the sooner of now+timeout and ctx's own deadline, so a
+// socket op is bounded by whichever expires first.
+func deadlineFor(ctx context.Context, timeout time.Duration) time.Time {
+	dl := time.Now().Add(timeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(dl) {
+		return d
+	}
+	return dl
+}
+
+// ctxErr prefers the context's error when it is done, so a cancelled or
+// timed-out command reports context.Canceled/DeadlineExceeded rather than the
+// incidental "use of closed network connection" the close produced.
+func ctxErr(ctx context.Context, err error) error {
+	if cerr := ctx.Err(); cerr != nil {
+		return cerr
+	}
+	return err
 }
 
 // readFrame reads coded/continuation lines from r until a space-terminated

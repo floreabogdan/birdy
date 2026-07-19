@@ -2,6 +2,7 @@ package birdc
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -23,16 +24,20 @@ type RoutePage struct {
 // BIRD's reply. This is what keeps pagination bounded in memory: querying
 // page 1 of a peer carrying a full table never requires holding, or even
 // receiving, the other 2 million entries.
-func streamRoutes(socketPath string, timeout time.Duration, cmd string, fn func(table string, entry RouteEntry) bool) error {
+func streamRoutes(ctx context.Context, socketPath string, timeout time.Duration, cmd string, fn func(table string, entry RouteEntry) bool) error {
 	if strings.ContainsAny(cmd, "\r\n") {
 		return fmt.Errorf("birdc: command must not contain newlines")
 	}
-	conn, err := net.DialTimeout("unix", socketPath, timeout)
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "unix", socketPath)
 	if err != nil {
-		return fmt.Errorf("birdc: connect %s: %w", socketPath, err)
+		return ctxErr(ctx, fmt.Errorf("birdc: connect %s: %w", socketPath, err))
 	}
 	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+	// Cancelling ctx closes the socket, unblocking the read below on a deep page.
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
+	if err := conn.SetDeadline(deadlineFor(ctx, timeout)); err != nil {
 		return err
 	}
 	r := bufio.NewReader(conn)
@@ -120,7 +125,7 @@ func streamRoutes(socketPath string, timeout time.Duration, cmd string, fn func(
 // server-side offset — but never accumulated) and gathering up to limit
 // after that. It reads exactly one entry past the page to learn HasMore,
 // then stops.
-func paginate(socketPath string, timeout time.Duration, cmd string, offset, limit int) (RoutePage, error) {
+func paginate(ctx context.Context, socketPath string, timeout time.Duration, cmd string, offset, limit int) (RoutePage, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -129,7 +134,7 @@ func paginate(socketPath string, timeout time.Duration, cmd string, offset, limi
 	var order []string
 	seen := 0
 
-	err := streamRoutes(socketPath, timeout, cmd, func(table string, entry RouteEntry) bool {
+	err := streamRoutes(ctx, socketPath, timeout, cmd, func(table string, entry RouteEntry) bool {
 		seen++
 		if seen <= offset {
 			return true

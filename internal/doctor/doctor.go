@@ -98,7 +98,7 @@ func checkSocket(cfg Config) Result {
 		return Result{"control socket", Fail, fmt.Sprintf("%s: %v", cfg.SocketPath, err)}
 	}
 	defer c.Close()
-	st, err := c.Status()
+	st, err := c.Status(context.Background())
 	if err != nil {
 		return Result{"control socket", Fail, fmt.Sprintf("connected but \"show status\" failed: %v", err)}
 	}
@@ -154,7 +154,7 @@ func checkApplyReady(cfg Config) Result {
 	}
 	defer c.Close()
 
-	daemonPath, err := c.DaemonConfigPath()
+	daemonPath, err := c.DaemonConfigPath(context.Background())
 	switch {
 	case err != nil:
 		return Result{"apply readiness", Warn, "could not read BIRD's config path: " + err.Error()}

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"time"
@@ -33,7 +34,7 @@ type SessionDetailView struct {
 // HasHistory reports whether there are enough samples to draw a trend.
 func (v SessionDetailView) HasHistory() bool { return len(v.Imported) >= 2 }
 
-func (s *Server) buildSessionDetailView(name string) SessionDetailView {
+func (s *Server) buildSessionDetailView(ctx context.Context, name string) SessionDetailView {
 	v := SessionDetailView{Active: "peers", ReadOnly: s.readOnly, Name: name}
 	if _, err := s.store.GetPeerByName(name); err == nil {
 		v.Configured = true
@@ -46,7 +47,7 @@ func (s *Server) buildSessionDetailView(name string) SessionDetailView {
 		v.Imported = downsample(v.Imported, peerHistoryPoints)
 		v.Exported = downsample(v.Exported, peerHistoryPoints)
 	}
-	detail, err := s.client.ProtocolDetail(name)
+	detail, err := s.client.ProtocolDetail(ctx, name)
 	if err != nil {
 		v.Err = err.Error()
 		return v
@@ -56,13 +57,13 @@ func (s *Server) buildSessionDetailView(name string) SessionDetailView {
 }
 
 func (s *Server) handlePeerDetail(w http.ResponseWriter, r *http.Request) {
-	v := s.buildSessionDetailView(r.PathValue("name"))
+	v := s.buildSessionDetailView(r.Context(), r.PathValue("name"))
 	v.Tab = tabParam(r, "general", "bird")
 	render(w, s.log, "peer_detail.html", v)
 }
 
 func (s *Server) apiPeerDetail(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, s.buildSessionDetailView(r.PathValue("name")))
+	writeJSON(w, s.buildSessionDetailView(r.Context(), r.PathValue("name")))
 }
 
 // handleLegacySessionDetail keeps /sessions/{name} bookmarks alive now that the

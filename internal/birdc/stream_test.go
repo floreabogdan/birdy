@@ -1,6 +1,7 @@
 package birdc
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"path/filepath"
@@ -69,7 +70,7 @@ func buildRouteReply(n int) string {
 
 func TestPaginateFirstPage(t *testing.T) {
 	srv := startFakeBirdServer(t, buildRouteReply(500))
-	page, err := paginate(srv.path, 5*time.Second, "show route protocol testproto", 0, 10)
+	page, err := paginate(context.Background(), srv.path, 5*time.Second, "show route protocol testproto", 0, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +96,7 @@ func TestPaginateFirstPage(t *testing.T) {
 
 func TestPaginateMiddlePage(t *testing.T) {
 	srv := startFakeBirdServer(t, buildRouteReply(500))
-	page, err := paginate(srv.path, 5*time.Second, "show route protocol testproto", 20, 5)
+	page, err := paginate(context.Background(), srv.path, 5*time.Second, "show route protocol testproto", 20, 5)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +113,7 @@ func TestPaginateMiddlePage(t *testing.T) {
 
 func TestPaginateLastPageNoMore(t *testing.T) {
 	srv := startFakeBirdServer(t, buildRouteReply(15))
-	page, err := paginate(srv.path, 5*time.Second, "show route protocol testproto", 10, 10)
+	page, err := paginate(context.Background(), srv.path, 5*time.Second, "show route protocol testproto", 10, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +127,7 @@ func TestPaginateLastPageNoMore(t *testing.T) {
 
 func TestPaginateOffsetPastEnd(t *testing.T) {
 	srv := startFakeBirdServer(t, buildRouteReply(5))
-	page, err := paginate(srv.path, 5*time.Second, "show route protocol testproto", 100, 10)
+	page, err := paginate(context.Background(), srv.path, 5*time.Second, "show route protocol testproto", 100, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +148,7 @@ func TestPaginateOffsetPastEnd(t *testing.T) {
 func TestStreamRoutesStopsEarly(t *testing.T) {
 	srv := startFakeBirdServer(t, buildRouteReply(200000))
 	start := time.Now()
-	page, err := paginate(srv.path, 5*time.Second, "show route protocol testproto", 0, 3)
+	page, err := paginate(context.Background(), srv.path, 5*time.Second, "show route protocol testproto", 0, 3)
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatal(err)
@@ -163,10 +164,10 @@ func TestStreamRoutesStopsEarly(t *testing.T) {
 func TestPaginateValidation(t *testing.T) {
 	dir := t.TempDir()
 	c := &Client{path: filepath.Join(dir, "no-such.sock"), timeout: time.Second}
-	if _, err := c.RoutesByProtocolPage("not a valid ident", false, 0, 10); err == nil {
+	if _, err := c.RoutesByProtocolPage(context.Background(), "not a valid ident", false, 0, 10); err == nil {
 		t.Fatal("expected identifier validation error")
 	}
-	if _, err := c.RoutesForPage("not-a-prefix", false, 0, 10); err == nil {
+	if _, err := c.RoutesForPage(context.Background(), "not-a-prefix", false, 0, 10); err == nil {
 		t.Fatal("expected prefix validation error")
 	}
 }
