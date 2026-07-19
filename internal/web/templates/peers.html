@@ -84,9 +84,7 @@
 								</form>
 								<a class="icon-action" href="/peers/new?from={{.Name}}" title="Clone {{.Name}} into a new peer" aria-label="Clone {{.Name}}">{{template "icon-copy"}}</a>
 								<a class="icon-action a-primary" href="/peers/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
-								<form method="post" action="/peers/{{.Name}}/delete" data-confirm="Delete peer {{.Name}}? This only changes birdy's model — the running session is untouched.">
-									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
-								</form>
+								<a class="icon-action a-danger" href="/confirm?do=peer-delete&target={{.Name}}" data-post="/peers/{{.Name}}/delete" data-confirm="Delete peer {{.Name}}? This only changes birdy's model — the running session is untouched." title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</a>
 							</td>
 						</tr>
 						{{else}}

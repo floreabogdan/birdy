@@ -477,6 +477,10 @@ h1, h2, h3 { font-weight: 700; color: var(--text); margin: 0; }
 	display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0;
 }
 .avatar svg { width: 15px; height: 15px; }
+.confirm-card { max-width: 560px; }
+.confirm-message { margin: 0 0 18px; line-height: 1.5; }
+.confirm-actions { display: flex; gap: 10px; align-items: center; }
+.confirm-actions form { margin: 0; }
 .profile-name { font-size: 0.8125rem; font-weight: 500; }
 .profile-panel {
 	position: absolute; right: 0; top: calc(100% + 8px); width: 190px;

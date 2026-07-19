@@ -473,6 +473,7 @@ func (s *Server) routes() {
 
 	// Authenticated JSON API
 	s.mux.Handle("GET /api/dashboard", s.requireDashboardAuth(s.apiDashboard))
+	s.mux.Handle("GET /confirm", s.requireAuth(s.handleConfirm))
 	s.mux.Handle("GET /api/me", s.requireAuth(s.apiMe))
 	s.mux.Handle("GET /api/instances", s.requireAuth(s.apiInstances))
 	s.mux.Handle("POST /api/instances/refresh", s.requireAuth(s.apiInstancesRefresh))
