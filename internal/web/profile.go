@@ -138,7 +138,7 @@ func (s *Server) handleProfilePassword(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "rotate password session", err)
 		return
 	}
-	setSessionCookie(w, token, r.TLS != nil)
+	setSessionCookie(w, token, s.cookieSecure(r))
 	http.Redirect(w, r, "/profile?flash="+flash("Password changed; other sessions signed out"), http.StatusSeeOther)
 }
 

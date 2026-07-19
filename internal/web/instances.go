@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"sort"
 	"strconv"
@@ -197,6 +198,15 @@ func validateInstanceURL(raw string) (string, error) {
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return "", fmt.Errorf("use an http(s) URL without credentials, query parameters, or a fragment")
 	}
+	// Reject IP-literal targets that could only be an SSRF pivot, not a real
+	// remote Birdy: loopback, the link-local metadata range (169.254/16, fe80::),
+	// the unspecified address, and multicast. Private/ULA ranges are allowed on
+	// purpose — routers commonly observe each other over management networks.
+	if addr, perr := netip.ParseAddr(u.Hostname()); perr == nil {
+		if addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsUnspecified() || addr.IsMulticast() {
+			return "", fmt.Errorf("that address cannot be a remote Birdy target")
+		}
+	}
 	return strings.TrimRight(u.String(), "/"), nil
 }
 
@@ -314,7 +324,7 @@ func (s *Server) handleInstanceDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if selectedInstanceID(r) == id {
-		setSelectedInstance(w, 0, r.TLS != nil)
+		setSelectedInstance(w, 0, s.cookieSecure(r))
 	}
 	s.audit(r, "Removed remote Birdy instance "+instance.Name)
 	http.Redirect(w, r, "/instances?flash="+flash("Instance removed"), http.StatusSeeOther)
@@ -397,7 +407,7 @@ func (s *Server) handleInstanceSelect(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	setSelectedInstance(w, id, r.TLS != nil)
+	setSelectedInstance(w, id, s.cookieSecure(r))
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

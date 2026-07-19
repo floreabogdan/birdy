@@ -678,7 +678,9 @@ button.
 - **Database snapshots** — birdy's entire state is one SQLite file. A consistent
   snapshot is taken nightly and can be downloaded on demand; the **backup bundle**
   also includes the rendered config. A snapshot can be staged for restore (applied
-  on the next restart).
+  on the next restart). Treat these downloads as **secret-bearing**: the database
+  holds reversible secrets — remote-instance API tokens and any SMTP alert
+  password — so store and transfer backups over trusted channels only.
 - **Updates** — under System → Updates, choose **Stable releases** to compare the
   installed version with GitHub's latest release, or **Development branch** to
   compare the embedded build commit with upstream `main`. Results are cached for
