@@ -2,6 +2,7 @@ package birdc
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -29,8 +30,8 @@ type ConfigureResult struct {
 // ConfigureCheck asks the running daemon to parse its config file without
 // applying it. It is the socket twin of `bird -p`: it never changes the running
 // config, and it validates against the exact daemon that will load the file.
-func (c *Client) ConfigureCheck() (ConfigureResult, error) {
-	return c.configure("configure check")
+func (c *Client) ConfigureCheck(ctx context.Context) (ConfigureResult, error) {
+	return c.configure(ctx, "configure check")
 }
 
 // ConfigureTimeout applies the config file with an armed auto-revert: if it is
@@ -42,17 +43,17 @@ func (c *Client) ConfigureCheck() (ConfigureResult, error) {
 // restarting protocols, so a BGP session is not bounced for a policy change.
 // BIRD still restarts a protocol whose core parameters changed; soft only avoids
 // the restart where it safely can.
-func (c *Client) ConfigureTimeout(seconds int, soft bool) (ConfigureResult, error) {
+func (c *Client) ConfigureTimeout(ctx context.Context, seconds int, soft bool) (ConfigureResult, error) {
 	verb := "configure"
 	if soft {
 		verb += " soft"
 	}
-	return c.configure(fmt.Sprintf("%s timeout %d", verb, seconds))
+	return c.configure(ctx, fmt.Sprintf("%s timeout %d", verb, seconds))
 }
 
 // ConfigureConfirm keeps a timeout-armed reconfigure that would otherwise revert.
-func (c *Client) ConfigureConfirm() (ConfigureResult, error) {
-	return c.configure("configure confirm")
+func (c *Client) ConfigureConfirm(ctx context.Context) (ConfigureResult, error) {
+	return c.configure(ctx, "configure confirm")
 }
 
 // DaemonConfigPath returns the file BIRD reads its configuration from, parsed
@@ -60,13 +61,16 @@ func (c *Client) ConfigureConfirm() (ConfigureResult, error) {
 // The check never applies anything, so this is a safe probe. birdy uses it to
 // confirm --bird-conf points at the same file the daemon loads — otherwise an
 // apply would reconfigure the wrong file.
-func (c *Client) DaemonConfigPath() (string, error) {
-	conn, err := net.DialTimeout("unix", c.path, configureTimeout)
+func (c *Client) DaemonConfigPath(ctx context.Context) (string, error) {
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "unix", c.path)
 	if err != nil {
-		return "", fmt.Errorf("birdc: connect %s: %w", c.path, err)
+		return "", ctxErr(ctx, fmt.Errorf("birdc: connect %s: %w", c.path, err))
 	}
 	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(configureTimeout)); err != nil {
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
+	if err := conn.SetDeadline(deadlineFor(ctx, configureTimeout)); err != nil {
 		return "", err
 	}
 	r := bufio.NewReader(conn)
@@ -91,8 +95,8 @@ func (c *Client) DaemonConfigPath() (string, error) {
 
 // ConfigureUndo reverts the last reconfigure immediately, without waiting for
 // the timeout to elapse.
-func (c *Client) ConfigureUndo() (ConfigureResult, error) {
-	return c.configure("configure undo")
+func (c *Client) ConfigureUndo(ctx context.Context) (ConfigureResult, error) {
+	return c.configure(ctx, "configure undo")
 }
 
 // Reload re-runs every protocol's import and export against the routes already
@@ -108,32 +112,36 @@ func (c *Client) ConfigureUndo() (ConfigureResult, error) {
 // peer that lacks it cannot be refreshed without a restart. BIRD reports that per
 // protocol and still reloads the rest, so the caller treats a non-OK result as a
 // warning, not a failure — the config it applies is unaffected either way.
-func (c *Client) Reload() (ConfigureResult, error) {
-	return c.configure("reload all")
+func (c *Client) Reload(ctx context.Context) (ConfigureResult, error) {
+	return c.configure(ctx, "reload all")
 }
 
 // configure runs one configure command on a fresh, disposable connection with a
 // generous deadline — never the shared read connection, which uses a short
 // timeout tuned for "show" queries.
-func (c *Client) configure(cmd string) (ConfigureResult, error) {
-	conn, err := net.DialTimeout("unix", c.path, configureTimeout)
+func (c *Client) configure(ctx context.Context, cmd string) (ConfigureResult, error) {
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "unix", c.path)
 	if err != nil {
-		return ConfigureResult{}, fmt.Errorf("birdc: connect %s: %w", c.path, err)
+		return ConfigureResult{}, ctxErr(ctx, fmt.Errorf("birdc: connect %s: %w", c.path, err))
 	}
 	defer conn.Close()
-	if err := conn.SetDeadline(time.Now().Add(configureTimeout)); err != nil {
+	// Cancelling ctx closes the socket, aborting a configure that hangs.
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
+	if err := conn.SetDeadline(deadlineFor(ctx, configureTimeout)); err != nil {
 		return ConfigureResult{}, err
 	}
 	r := bufio.NewReader(conn)
 	if _, err := readFrame(r); err != nil { // banner
-		return ConfigureResult{}, fmt.Errorf("birdc: reading banner: %w", err)
+		return ConfigureResult{}, ctxErr(ctx, fmt.Errorf("birdc: reading banner: %w", err))
 	}
 	if _, err := fmt.Fprintf(conn, "%s\n", cmd); err != nil {
-		return ConfigureResult{}, fmt.Errorf("birdc: write: %w", err)
+		return ConfigureResult{}, ctxErr(ctx, fmt.Errorf("birdc: write: %w", err))
 	}
 	reply, err := readFrame(r)
 	if err != nil {
-		return ConfigureResult{}, err
+		return ConfigureResult{}, ctxErr(ctx, err)
 	}
 
 	// Join every line BIRD returned, dropping the "Reading configuration from

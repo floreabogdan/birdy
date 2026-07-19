@@ -45,14 +45,14 @@ func (f *fakeClient) result(ok bool, msg string) (birdc.ConfigureResult, error) 
 	return birdc.ConfigureResult{OK: ok, Message: msg}, nil
 }
 
-func (f *fakeClient) ConfigureCheck() (birdc.ConfigureResult, error) {
+func (f *fakeClient) ConfigureCheck(_ context.Context) (birdc.ConfigureResult, error) {
 	f.calls = append(f.calls, "check")
 	if f.cfgErr != nil {
 		return birdc.ConfigureResult{}, f.cfgErr
 	}
 	return f.result(!f.cfgCheckFail, "checked")
 }
-func (f *fakeClient) ConfigureTimeout(seconds int, soft bool) (birdc.ConfigureResult, error) {
+func (f *fakeClient) ConfigureTimeout(_ context.Context, seconds int, soft bool) (birdc.ConfigureResult, error) {
 	f.calls = append(f.calls, "timeout")
 	f.lastSoft = soft
 	if f.cfgErr != nil {
@@ -60,15 +60,15 @@ func (f *fakeClient) ConfigureTimeout(seconds int, soft bool) (birdc.ConfigureRe
 	}
 	return f.result(!f.cfgApplyFail, "applied")
 }
-func (f *fakeClient) ConfigureConfirm() (birdc.ConfigureResult, error) {
+func (f *fakeClient) ConfigureConfirm(_ context.Context) (birdc.ConfigureResult, error) {
 	f.calls = append(f.calls, "confirm")
 	return f.result(!f.cfgConfirmFail, "confirmed")
 }
-func (f *fakeClient) ConfigureUndo() (birdc.ConfigureResult, error) {
+func (f *fakeClient) ConfigureUndo(_ context.Context) (birdc.ConfigureResult, error) {
 	f.calls = append(f.calls, "undo")
 	return f.result(true, "undone")
 }
-func (f *fakeClient) Reload() (birdc.ConfigureResult, error) {
+func (f *fakeClient) Reload(_ context.Context) (birdc.ConfigureResult, error) {
 	f.calls = append(f.calls, "reload")
 	if f.cfgErr != nil {
 		return birdc.ConfigureResult{}, f.cfgErr
@@ -80,13 +80,17 @@ func (f *fakeClient) Reload() (birdc.ConfigureResult, error) {
 	return f.result(!f.cfgReloadFail, msg)
 }
 
-func (f *fakeClient) Status() (birdc.Status, error)               { return birdc.Status{Version: "2.17.1"}, nil }
-func (f *fakeClient) Protocols() ([]birdc.ProtocolSummary, error) { return f.protocols, nil }
-func (f *fakeClient) RouteCount() ([]birdc.RouteCountEntry, error) {
+func (f *fakeClient) Status(_ context.Context) (birdc.Status, error) {
+	return birdc.Status{Version: "2.17.1"}, nil
+}
+func (f *fakeClient) Protocols(_ context.Context) ([]birdc.ProtocolSummary, error) {
+	return f.protocols, nil
+}
+func (f *fakeClient) RouteCount(_ context.Context) ([]birdc.RouteCountEntry, error) {
 	return []birdc.RouteCountEntry{{Table: "master4", Routes: 5, Networks: 4}}, nil
 }
 
-func (f *fakeClient) ProtocolDetail(name string) (birdc.ProtocolDetail, error) {
+func (f *fakeClient) ProtocolDetail(_ context.Context, name string) (birdc.ProtocolDetail, error) {
 	if d, ok := f.details[name]; ok {
 		return d, nil
 	}
@@ -97,22 +101,22 @@ type notFoundErr struct{ name string }
 
 func (e *notFoundErr) Error() string { return "unknown protocol " + e.name }
 
-func (f *fakeClient) RoutesForPage(prefixOrIP string, all bool, offset, limit int) (birdc.RoutePage, error) {
+func (f *fakeClient) RoutesForPage(_ context.Context, prefixOrIP string, all bool, offset, limit int) (birdc.RoutePage, error) {
 	return f.lookup("for:" + prefixOrIP)
 }
-func (f *fakeClient) RoutesByProtocolPage(name string, all bool, offset, limit int) (birdc.RoutePage, error) {
+func (f *fakeClient) RoutesByProtocolPage(_ context.Context, name string, all bool, offset, limit int) (birdc.RoutePage, error) {
 	return f.lookup("protocol:" + name)
 }
-func (f *fakeClient) RoutesExportPage(name string, all bool, offset, limit int) (birdc.RoutePage, error) {
+func (f *fakeClient) RoutesExportPage(_ context.Context, name string, all bool, offset, limit int) (birdc.RoutePage, error) {
 	return f.lookup("export:" + name)
 }
-func (f *fakeClient) RoutesNoExportPage(name string, all bool, offset, limit int) (birdc.RoutePage, error) {
+func (f *fakeClient) RoutesNoExportPage(_ context.Context, name string, all bool, offset, limit int) (birdc.RoutePage, error) {
 	return f.lookup("noexport:" + name)
 }
-func (f *fakeClient) RoutesRPKIInvalidPage(localASN int64, offset, limit int) (birdc.RoutePage, error) {
+func (f *fakeClient) RoutesRPKIInvalidPage(_ context.Context, localASN int64, offset, limit int) (birdc.RoutePage, error) {
 	return f.lookup("rpki-invalid")
 }
-func (f *fakeClient) RoutesRPKIInvalidCount(localASN int64) ([]birdc.RouteCountEntry, error) {
+func (f *fakeClient) RoutesRPKIInvalidCount(_ context.Context, localASN int64) ([]birdc.RouteCountEntry, error) {
 	if f.routeErr != nil {
 		return nil, f.routeErr
 	}

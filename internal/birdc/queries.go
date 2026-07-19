@@ -1,6 +1,7 @@
 package birdc
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"regexp"
@@ -37,8 +38,8 @@ func validPrefixOrIP(s string) error {
 }
 
 // Status runs "show status".
-func (c *Client) Status() (Status, error) {
-	r, err := c.Command("show status")
+func (c *Client) Status(ctx context.Context) (Status, error) {
+	r, err := c.Command(ctx, "show status")
 	if err != nil {
 		return Status{}, err
 	}
@@ -49,8 +50,8 @@ func (c *Client) Status() (Status, error) {
 }
 
 // Protocols runs "show protocols".
-func (c *Client) Protocols() ([]ProtocolSummary, error) {
-	r, err := c.Command("show protocols")
+func (c *Client) Protocols(ctx context.Context) ([]ProtocolSummary, error) {
+	r, err := c.Command(ctx, "show protocols")
 	if err != nil {
 		return nil, err
 	}
@@ -61,11 +62,11 @@ func (c *Client) Protocols() ([]ProtocolSummary, error) {
 }
 
 // ProtocolDetail runs "show protocols all <name>".
-func (c *Client) ProtocolDetail(name string) (ProtocolDetail, error) {
+func (c *Client) ProtocolDetail(ctx context.Context, name string) (ProtocolDetail, error) {
 	if err := validIdent(name); err != nil {
 		return ProtocolDetail{}, err
 	}
-	r, err := c.Command(fmt.Sprintf("show protocols all %s", name))
+	r, err := c.Command(ctx, fmt.Sprintf("show protocols all %s", name))
 	if err != nil {
 		return ProtocolDetail{}, err
 	}
@@ -76,8 +77,8 @@ func (c *Client) ProtocolDetail(name string) (ProtocolDetail, error) {
 }
 
 // RouteCount runs "show route count".
-func (c *Client) RouteCount() ([]RouteCountEntry, error) {
-	r, err := c.Command("show route count")
+func (c *Client) RouteCount(ctx context.Context) ([]RouteCountEntry, error) {
+	r, err := c.Command(ctx, "show route count")
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +91,7 @@ func (c *Client) RouteCount() ([]RouteCountEntry, error) {
 // RoutesFor runs "show route for <prefix-or-ip>" (longest-prefix match), or
 // with all=true, "show route for <prefix-or-ip> all" (includes non-best routes
 // and per-route attributes).
-func (c *Client) RoutesFor(prefixOrIP string, all bool) ([]RouteTable, error) {
+func (c *Client) RoutesFor(ctx context.Context, prefixOrIP string, all bool) ([]RouteTable, error) {
 	if err := validPrefixOrIP(prefixOrIP); err != nil {
 		return nil, err
 	}
@@ -98,38 +99,38 @@ func (c *Client) RoutesFor(prefixOrIP string, all bool) ([]RouteTable, error) {
 	if all {
 		cmd += " all"
 	}
-	return c.runRouteQuery(cmd)
+	return c.runRouteQuery(ctx, cmd)
 }
 
 // RoutesByProtocol runs "show route protocol <name>" — the routes learned
 // (imported) from that protocol/peer.
-func (c *Client) RoutesByProtocol(name string) ([]RouteTable, error) {
+func (c *Client) RoutesByProtocol(ctx context.Context, name string) ([]RouteTable, error) {
 	if err := validIdent(name); err != nil {
 		return nil, err
 	}
-	return c.runRouteQuery(fmt.Sprintf("show route protocol %s", name))
+	return c.runRouteQuery(ctx, fmt.Sprintf("show route protocol %s", name))
 }
 
 // RoutesExport runs "show route export <name>" — the routes that pass the
 // export filter toward that protocol/peer (what is actually being sent).
-func (c *Client) RoutesExport(name string) ([]RouteTable, error) {
+func (c *Client) RoutesExport(ctx context.Context, name string) ([]RouteTable, error) {
 	if err := validIdent(name); err != nil {
 		return nil, err
 	}
-	return c.runRouteQuery(fmt.Sprintf("show route export %s", name))
+	return c.runRouteQuery(ctx, fmt.Sprintf("show route export %s", name))
 }
 
 // RoutesNoExport runs "show route noexport <name>" — routes that would be
 // rejected by the export filter toward that protocol/peer.
-func (c *Client) RoutesNoExport(name string) ([]RouteTable, error) {
+func (c *Client) RoutesNoExport(ctx context.Context, name string) ([]RouteTable, error) {
 	if err := validIdent(name); err != nil {
 		return nil, err
 	}
-	return c.runRouteQuery(fmt.Sprintf("show route noexport %s", name))
+	return c.runRouteQuery(ctx, fmt.Sprintf("show route noexport %s", name))
 }
 
-func (c *Client) runRouteQuery(cmd string) ([]RouteTable, error) {
-	r, err := c.Command(cmd)
+func (c *Client) runRouteQuery(ctx context.Context, cmd string) ([]RouteTable, error) {
+	r, err := c.Command(ctx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +147,7 @@ func (c *Client) runRouteQuery(cmd string) ([]RouteTable, error) {
 // show page one.
 
 // RoutesForPage is the paginated form of RoutesFor.
-func (c *Client) RoutesForPage(prefixOrIP string, all bool, offset, limit int) (RoutePage, error) {
+func (c *Client) RoutesForPage(ctx context.Context, prefixOrIP string, all bool, offset, limit int) (RoutePage, error) {
 	if err := validPrefixOrIP(prefixOrIP); err != nil {
 		return RoutePage{}, err
 	}
@@ -154,37 +155,37 @@ func (c *Client) RoutesForPage(prefixOrIP string, all bool, offset, limit int) (
 	if all {
 		cmd += " all"
 	}
-	return paginate(c.path, pageQueryTimeout, cmd, offset, limit)
+	return paginate(ctx, c.path, pageQueryTimeout, cmd, offset, limit)
 }
 
 // RoutesByProtocolPage is the paginated form of RoutesByProtocol. With all=true
 // it requests per-route attributes ("show route protocol X all"), so the caller
 // can see communities and path attributes.
-func (c *Client) RoutesByProtocolPage(name string, all bool, offset, limit int) (RoutePage, error) {
+func (c *Client) RoutesByProtocolPage(ctx context.Context, name string, all bool, offset, limit int) (RoutePage, error) {
 	if err := validIdent(name); err != nil {
 		return RoutePage{}, err
 	}
-	return paginate(c.path, pageQueryTimeout, routeCmd("show route protocol %s", name, all), offset, limit)
+	return paginate(ctx, c.path, pageQueryTimeout, routeCmd("show route protocol %s", name, all), offset, limit)
 }
 
 // RoutesExportPage is the paginated form of RoutesExport.
-func (c *Client) RoutesExportPage(name string, all bool, offset, limit int) (RoutePage, error) {
+func (c *Client) RoutesExportPage(ctx context.Context, name string, all bool, offset, limit int) (RoutePage, error) {
 	if err := validIdent(name); err != nil {
 		return RoutePage{}, err
 	}
-	return paginate(c.path, pageQueryTimeout, routeCmd("show route export %s", name, all), offset, limit)
+	return paginate(ctx, c.path, pageQueryTimeout, routeCmd("show route export %s", name, all), offset, limit)
 }
 
 // RoutesRPKIInvalidPage pages the routes carrying the RPKI_INVALID large
 // community birdy tags in log-only mode — i.e. what a policy would drop if it
 // were switched from log-only to reject. The community must match the
 // RPKI_INVALID define the renderer emits, (localASN, 2, 1).
-func (c *Client) RoutesRPKIInvalidPage(localASN int64, offset, limit int) (RoutePage, error) {
+func (c *Client) RoutesRPKIInvalidPage(ctx context.Context, localASN int64, offset, limit int) (RoutePage, error) {
 	if localASN < 1 || localASN > 4294967295 {
 		return RoutePage{}, fmt.Errorf("birdc: invalid local ASN %d", localASN)
 	}
 	cmd := fmt.Sprintf("show route where (%d, 2, 1) ~ bgp_large_community", localASN)
-	return paginate(c.path, pageQueryTimeout, cmd, offset, limit)
+	return paginate(ctx, c.path, pageQueryTimeout, cmd, offset, limit)
 }
 
 // RoutesRPKIInvalidCount asks BIRD how many routes carry the RPKI_INVALID tag —
@@ -194,11 +195,11 @@ func (c *Client) RoutesRPKIInvalidPage(localASN int64, offset, limit int) (Route
 // BIRD does the counting and answers with one line per table, so this is cheap
 // even on a full-table router: nothing walks 2.6M routes across the socket. The
 // paginated listing exists to show *which* routes; this says *how many*.
-func (c *Client) RoutesRPKIInvalidCount(localASN int64) ([]RouteCountEntry, error) {
+func (c *Client) RoutesRPKIInvalidCount(ctx context.Context, localASN int64) ([]RouteCountEntry, error) {
 	if localASN < 1 || localASN > 4294967295 {
 		return nil, fmt.Errorf("birdc: invalid local ASN %d", localASN)
 	}
-	r, err := c.Command(fmt.Sprintf("show route where (%d, 2, 1) ~ bgp_large_community count", localASN))
+	r, err := c.Command(ctx, fmt.Sprintf("show route where (%d, 2, 1) ~ bgp_large_community count", localASN))
 	if err != nil {
 		return nil, err
 	}
@@ -209,11 +210,11 @@ func (c *Client) RoutesRPKIInvalidCount(localASN int64) ([]RouteCountEntry, erro
 }
 
 // RoutesNoExportPage is the paginated form of RoutesNoExport.
-func (c *Client) RoutesNoExportPage(name string, all bool, offset, limit int) (RoutePage, error) {
+func (c *Client) RoutesNoExportPage(ctx context.Context, name string, all bool, offset, limit int) (RoutePage, error) {
 	if err := validIdent(name); err != nil {
 		return RoutePage{}, err
 	}
-	return paginate(c.path, pageQueryTimeout, routeCmd("show route noexport %s", name, all), offset, limit)
+	return paginate(ctx, c.path, pageQueryTimeout, routeCmd("show route noexport %s", name, all), offset, limit)
 }
 
 // routeCmd formats a "show route ..." command, appending " all" to request the

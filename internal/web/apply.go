@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -392,7 +393,9 @@ func (s *Server) reconcilePending() error {
 	// The apply reloaded filters onto the table while it was armed; BIRD has since
 	// reverted the config on its own, so re-run the restored filters to pull the
 	// table back off the un-confirmed policy.
-	s.reloadFilters("auto-revert")
+	// The auto-revert reconcile is self-healing, not tied to one request, so it
+	// runs on a background context bounded by the client's own command timeout.
+	s.reloadFilters(context.Background(), "auto-revert")
 	return nil
 }
 
@@ -403,8 +406,8 @@ func (s *Server) reconcilePending() error {
 // reports per protocol while reloading the rest, so a non-OK result is a warning,
 // not a failure — the config birdy applied stands either way. Returns BIRD's note
 // when something was off, for the operator-facing flash.
-func (s *Server) reloadFilters(reason string) (ok bool, note string) {
-	res, err := s.client.Reload()
+func (s *Server) reloadFilters(ctx context.Context, reason string) (ok bool, note string) {
+	res, err := s.client.Reload(ctx)
 	if err != nil {
 		s.log.Warn("reload failed", "when", reason, "error", err)
 		return false, ""
@@ -527,7 +530,7 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 	}
 
 	// The daemon's own check, against the exact files it will load.
-	if res, err := s.client.ConfigureCheck(); err != nil {
+	if res, err := s.client.ConfigureCheck(r.Context()); err != nil {
 		s.rollbackConfig(backup)
 		s.serverError(w, "configure check", err)
 		return
@@ -539,7 +542,7 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 
 	// Apply with the safety timeout armed. If this operator loses reachability,
 	// or the sessions never come up, BIRD reverts on its own.
-	res, err := s.client.ConfigureTimeout(s.applyTimeout, soft)
+	res, err := s.client.ConfigureTimeout(r.Context(), s.applyTimeout, soft)
 	if err != nil {
 		s.rollbackConfig(backup)
 		s.serverError(w, "configure timeout", err)
@@ -560,7 +563,7 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 	// already, so it needs no reload.
 	var reloadNote string
 	if soft {
-		if ok, msg := s.reloadFilters("apply"); !ok && msg != "" {
+		if ok, msg := s.reloadFilters(r.Context(), "apply"); !ok && msg != "" {
 			reloadNote = " Heads up — a peer could not be refreshed, so an import-policy" +
 				" change to it may need a session restart to fully apply: " + msg
 		}
@@ -634,7 +637,7 @@ func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "write config", err)
 		return
 	}
-	res, err := s.client.ConfigureConfirm()
+	res, err := s.client.ConfigureConfirm(r.Context())
 	if err != nil || !res.OK {
 		if err != nil {
 			s.log.Error("configure confirm", "error", err)
@@ -684,7 +687,7 @@ func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
 	// timeout was armed), so this only tells BIRD to drop the armed config and
 	// records the outcome. Undo is best-effort: if the timeout already fired,
 	// BIRD has nothing to undo and that is fine.
-	res, err := s.client.ConfigureUndo()
+	res, err := s.client.ConfigureUndo(r.Context())
 	msg := "Rolled back."
 	if err != nil {
 		msg = "Rolled back (BIRD undo errored, but the previous config is on disk)."
@@ -694,7 +697,7 @@ func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
 	}
 	// The apply reloaded the new filters onto the table; now that the config is
 	// back to the previous one, re-run its filters so the table follows.
-	s.reloadFilters("rollback")
+	s.reloadFilters(r.Context(), "rollback")
 	if err := s.store.ResolveConfigVersion(pending.ID, store.ConfigReverted, msg); err != nil {
 		s.serverError(w, "resolve version", err)
 		return

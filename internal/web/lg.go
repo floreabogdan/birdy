@@ -68,13 +68,13 @@ func (s *Server) runLookingGlass(r *http.Request) LGView {
 	var err error
 	switch v.Type {
 	case "for":
-		page, err = s.client.RoutesForPage(v.Target, v.All, offset, limit)
+		page, err = s.client.RoutesForPage(r.Context(), v.Target, v.All, offset, limit)
 	case "protocol":
-		page, err = s.client.RoutesByProtocolPage(v.Target, v.All, offset, limit)
+		page, err = s.client.RoutesByProtocolPage(r.Context(), v.Target, v.All, offset, limit)
 	case "export":
-		page, err = s.client.RoutesExportPage(v.Target, v.All, offset, limit)
+		page, err = s.client.RoutesExportPage(r.Context(), v.Target, v.All, offset, limit)
 	case "noexport":
-		page, err = s.client.RoutesNoExportPage(v.Target, v.All, offset, limit)
+		page, err = s.client.RoutesNoExportPage(r.Context(), v.Target, v.All, offset, limit)
 	}
 	v.Ran = true
 	if err != nil {

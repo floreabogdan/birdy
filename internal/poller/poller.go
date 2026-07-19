@@ -64,10 +64,10 @@ type Snapshot struct {
 // tests can drive the transition/flap/limit-hit logic with a fake instead of
 // a live BIRD socket.
 type birdClient interface {
-	Status() (birdc.Status, error)
-	Protocols() ([]birdc.ProtocolSummary, error)
-	ProtocolDetail(name string) (birdc.ProtocolDetail, error)
-	RouteCount() ([]birdc.RouteCountEntry, error)
+	Status(ctx context.Context) (birdc.Status, error)
+	Protocols(ctx context.Context) ([]birdc.ProtocolSummary, error)
+	ProtocolDetail(ctx context.Context, name string) (birdc.ProtocolDetail, error)
+	RouteCount(ctx context.Context) ([]birdc.RouteCountEntry, error)
 }
 
 // Notifier receives every event the poller records, so an out-of-band channel
@@ -200,7 +200,7 @@ func (p *Poller) Snapshot() Snapshot {
 // immediately before entering the loop so a dashboard load right after
 // startup already has data.
 func (p *Poller) Run(ctx context.Context) {
-	p.poll()
+	p.poll(ctx)
 	t := time.NewTicker(p.interval)
 	defer t.Stop()
 	for {
@@ -208,7 +208,7 @@ func (p *Poller) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			p.poll()
+			p.poll(ctx)
 		}
 	}
 }
@@ -217,11 +217,11 @@ func (p *Poller) Run(ctx context.Context) {
 // snapshot entirely from local state, then publishes it under a single lock.
 // This keeps the lock held only for the in-memory copy, never across socket
 // round trips, and avoids any unsynchronized access to the shared map.
-func (p *Poller) poll() {
+func (p *Poller) poll(ctx context.Context) {
 	now := time.Now()
 	status := p.lastStatus
 	if p.lastStatusAt.IsZero() || now.Sub(p.lastStatusAt) >= statusInterval {
-		fresh, statusErr := p.client.Status()
+		fresh, statusErr := p.client.Status(ctx)
 		if statusErr != nil {
 			// Keep serving the last-known identity and retry on the next poll
 			// rather than blanking version/router-id and waiting a full interval.
@@ -233,7 +233,7 @@ func (p *Poller) poll() {
 		}
 	}
 
-	protocols, err := p.client.Protocols()
+	protocols, err := p.client.Protocols(ctx)
 	if err != nil {
 		// BIRD is unreachable. Alert on the transition — this is the one failure
 		// the session-transition alerts can never catch, because detecting a
@@ -302,7 +302,7 @@ func (p *Poller) poll() {
 		}
 
 		if proto.Proto == "BGP" && up {
-			p.updateImportLimits(proto, &state)
+			p.updateImportLimits(ctx, proto, &state)
 			p.checkPrefixDrop(proto, prior, seen, first, &state)
 		}
 
@@ -323,7 +323,7 @@ func (p *Poller) poll() {
 	if p.lastRouteCount.IsZero() || now.Sub(p.lastRouteCount) >= routeCountInterval {
 		p.lastRouteCount = now
 		totalRoutes := 0
-		if counts, err := p.client.RouteCount(); err != nil {
+		if counts, err := p.client.RouteCount(ctx); err != nil {
 			p.log.Warn("show route count failed; keeping previous total", "error", err)
 		} else {
 			for _, c := range counts {
@@ -393,8 +393,8 @@ func (p *Poller) recordTransition(proto birdc.ProtocolSummary, prior ProtoState,
 // per-channel route counts for the dashboard, and logs an event the first
 // time a channel's imported route count reaches its import limit, mutating
 // state in place.
-func (p *Poller) updateImportLimits(proto birdc.ProtocolSummary, state *ProtoState) {
-	detail, err := p.client.ProtocolDetail(proto.Name)
+func (p *Poller) updateImportLimits(ctx context.Context, proto birdc.ProtocolSummary, state *ProtoState) {
+	detail, err := p.client.ProtocolDetail(ctx, proto.Name)
 	if err != nil {
 		return
 	}

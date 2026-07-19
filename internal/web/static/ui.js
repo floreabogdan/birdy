@@ -40,6 +40,19 @@
 	});
 
 	document.addEventListener("click", function (event) {
+		// A danger link posts to data-post after an inline confirm; its href is
+		// the no-JS confirmation page, which we skip when JS can confirm here.
+		var postLink = event.target.closest("a[data-post]");
+		if (postLink) {
+			event.preventDefault();
+			if (!window.confirm(postLink.getAttribute("data-confirm") || "Are you sure?")) return;
+			var form = document.createElement("form");
+			form.method = "post";
+			form.action = postLink.getAttribute("data-post");
+			document.body.appendChild(form);
+			form.submit();
+			return;
+		}
 		var confirmTarget = event.target.closest("[data-confirm]:not(form)");
 		if (confirmTarget && !window.confirm(confirmTarget.getAttribute("data-confirm"))) {
 			event.preventDefault();

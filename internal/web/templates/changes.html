@@ -117,9 +117,7 @@
 						&mdash; and this button appears.
 					</p>
 					{{else}}
-					<form method="post" action="/apply/adopt" data-confirm="Back up the current bird.conf and let birdy manage it?">
-						<button type="submit" class="btn btn-primary">Adopt this router</button>
-					</form>
+					<a class="btn btn-primary" href="/confirm?do=adopt" data-post="/apply/adopt" data-confirm="Back up the current bird.conf and let birdy manage it?">Adopt this router</a>
 					{{end}}
 				</div>
 			</div>

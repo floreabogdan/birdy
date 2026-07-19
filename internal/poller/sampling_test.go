@@ -1,6 +1,7 @@
 package poller
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ func TestPollerRecordsSamples(t *testing.T) {
 	st := openTestStore(t)
 	p := New(upSessionWithCounts(), st, time.Second, nil)
 	p.SetSampling(time.Nanosecond, time.Hour) // due on every poll
-	p.poll()
+	p.poll(context.Background())
 
 	samples, err := st.ListSamples("edge_v4", time.Now().Add(-time.Hour))
 	if err != nil {
@@ -42,8 +43,8 @@ func TestPollerSamplingRespectsInterval(t *testing.T) {
 	st := openTestStore(t)
 	p := New(upSessionWithCounts(), st, time.Second, nil)
 	p.SetSampling(time.Hour, time.Hour)
-	p.poll()
-	p.poll()
+	p.poll(context.Background())
+	p.poll(context.Background())
 
 	samples, _ := st.ListSamples("edge_v4", time.Now().Add(-2*time.Hour))
 	if len(samples) != 1 {
@@ -56,7 +57,7 @@ func TestPollerSamplingDisabled(t *testing.T) {
 	st := openTestStore(t)
 	p := New(upSessionWithCounts(), st, time.Second, nil)
 	// SetSampling not called: interval is zero.
-	p.poll()
+	p.poll(context.Background())
 
 	samples, _ := st.ListSamples("edge_v4", time.Now().Add(-time.Hour))
 	if len(samples) != 0 {

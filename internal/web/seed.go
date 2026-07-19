@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/netip"
@@ -124,7 +125,7 @@ func parseASN(s string) int64 {
 // discoverSeedRows lists the live BGP sessions birdy's model does not yet name,
 // each mapped to a proposed peer. The second return is a message to show when
 // the table is empty (BIRD unreachable, or nothing left to import).
-func (s *Server) discoverSeedRows() ([]seedRow, string) {
+func (s *Server) discoverSeedRows(ctx context.Context) ([]seedRow, string) {
 	snap := s.poller.Snapshot()
 	if snap.Err != nil {
 		return nil, "birdy could not read BIRD: " + snap.Err.Error()
@@ -150,7 +151,7 @@ func (s *Server) discoverSeedRows() ([]seedRow, string) {
 			Up:    strings.EqualFold(strings.TrimSpace(proto.Info), "Established"),
 			State: state,
 		}
-		detail, err := s.client.ProtocolDetail(proto.Name)
+		detail, err := s.client.ProtocolDetail(ctx, proto.Name)
 		if err != nil {
 			row.Invalid = "could not read session detail: " + err.Error()
 			rows = append(rows, row)
@@ -176,7 +177,7 @@ func (s *Server) discoverSeedRows() ([]seedRow, string) {
 }
 
 func (s *Server) handleSeedPage(w http.ResponseWriter, r *http.Request) {
-	rows, msg := s.discoverSeedRows()
+	rows, msg := s.discoverSeedRows(r.Context())
 	render(w, s.log, "seed.html", seedView{
 		Active: "peers", ReadOnly: s.readOnly, Rows: rows, Message: msg,
 	})
@@ -208,7 +209,7 @@ func (s *Server) handleSeedSave(w http.ResponseWriter, r *http.Request) {
 		if !strings.EqualFold(proto.Proto, "BGP") || !include[proto.Name] || modelled[proto.Name] {
 			continue
 		}
-		detail, err := s.client.ProtocolDetail(proto.Name)
+		detail, err := s.client.ProtocolDetail(r.Context(), proto.Name)
 		if err != nil {
 			skipped = append(skipped, proto.Name)
 			continue

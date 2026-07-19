@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — confirm</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-header"><div><h1>{{.Title}}</h1></div></div>
+			<div class="card confirm-card">
+				<div class="card-body">
+					<p class="confirm-message">{{.Message}}</p>
+					<div class="confirm-actions">
+						<form method="post" action="{{.Post}}"><button type="submit" class="btn btn-danger">{{.Label}}</button></form>
+						<a class="btn" href="{{.Cancel}}">Cancel</a>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>

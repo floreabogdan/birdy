@@ -117,6 +117,17 @@ func TestIsUniqueViolationMatchesDriver(t *testing.T) {
 	}
 }
 
+func TestAPIMeReturnsUsername(t *testing.T) {
+	env := newTestEnv(t, false)
+	rec := env.do(t, http.MethodGet, "/api/me", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/me: status %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"username":"admin"`) {
+		t.Fatalf("GET /api/me body = %s", rec.Body.String())
+	}
+}
+
 func TestValidateInstanceURLRejectsSSRFTargets(t *testing.T) {
 	blocked := []string{
 		"http://127.0.0.1:8080",

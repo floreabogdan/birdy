@@ -31,26 +31,26 @@ import (
 // the looking glass — a peer carrying a full table could otherwise mean
 // loading millions of routes into memory to answer one query.
 type birdClient interface {
-	ProtocolDetail(name string) (birdc.ProtocolDetail, error)
-	RoutesForPage(prefixOrIP string, all bool, offset, limit int) (birdc.RoutePage, error)
-	RoutesByProtocolPage(name string, all bool, offset, limit int) (birdc.RoutePage, error)
-	RoutesExportPage(name string, all bool, offset, limit int) (birdc.RoutePage, error)
-	RoutesNoExportPage(name string, all bool, offset, limit int) (birdc.RoutePage, error)
-	RoutesRPKIInvalidPage(localASN int64, offset, limit int) (birdc.RoutePage, error)
+	ProtocolDetail(ctx context.Context, name string) (birdc.ProtocolDetail, error)
+	RoutesForPage(ctx context.Context, prefixOrIP string, all bool, offset, limit int) (birdc.RoutePage, error)
+	RoutesByProtocolPage(ctx context.Context, name string, all bool, offset, limit int) (birdc.RoutePage, error)
+	RoutesExportPage(ctx context.Context, name string, all bool, offset, limit int) (birdc.RoutePage, error)
+	RoutesNoExportPage(ctx context.Context, name string, all bool, offset, limit int) (birdc.RoutePage, error)
+	RoutesRPKIInvalidPage(ctx context.Context, localASN int64, offset, limit int) (birdc.RoutePage, error)
 	// RoutesRPKIInvalidCount is how many there are in total — BIRD counts them, so
 	// the dry run can answer "how many would I drop" without listing them all.
-	RoutesRPKIInvalidCount(localASN int64) ([]birdc.RouteCountEntry, error)
+	RoutesRPKIInvalidCount(ctx context.Context, localASN int64) ([]birdc.RouteCountEntry, error)
 
 	// The apply pipeline. These act on BIRD's own configured config file, which
 	// birdy writes before calling them. ConfigureCheck never changes the running
 	// config; ConfigureTimeout applies with an armed auto-revert.
-	ConfigureCheck() (birdc.ConfigureResult, error)
-	ConfigureTimeout(seconds int, soft bool) (birdc.ConfigureResult, error)
-	ConfigureConfirm() (birdc.ConfigureResult, error)
-	ConfigureUndo() (birdc.ConfigureResult, error)
+	ConfigureCheck(ctx context.Context) (birdc.ConfigureResult, error)
+	ConfigureTimeout(ctx context.Context, seconds int, soft bool) (birdc.ConfigureResult, error)
+	ConfigureConfirm(ctx context.Context) (birdc.ConfigureResult, error)
+	ConfigureUndo(ctx context.Context) (birdc.ConfigureResult, error)
 	// Reload re-runs filters on existing routes without restarting protocols;
 	// birdy pairs it with a soft reconfigure so a filter change actually applies.
-	Reload() (birdc.ConfigureResult, error)
+	Reload(ctx context.Context) (birdc.ConfigureResult, error)
 }
 
 // Server is birdy's HTTP handler: it holds the store, the BIRD client, the
@@ -473,6 +473,8 @@ func (s *Server) routes() {
 
 	// Authenticated JSON API
 	s.mux.Handle("GET /api/dashboard", s.requireDashboardAuth(s.apiDashboard))
+	s.mux.Handle("GET /confirm", s.requireAuth(s.handleConfirm))
+	s.mux.Handle("GET /api/me", s.requireAuth(s.apiMe))
 	s.mux.Handle("GET /api/instances", s.requireAuth(s.apiInstances))
 	s.mux.Handle("POST /api/instances/refresh", s.requireAuth(s.apiInstancesRefresh))
 	s.mux.Handle("POST /api/instances/test", s.requireAuth(s.apiInstanceTest))
