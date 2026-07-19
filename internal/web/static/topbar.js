@@ -175,6 +175,22 @@
 	}
 })();
 
+// Fill the avatar with the logged-in user's initial (it renders a generic user
+// icon until this resolves, so it degrades gracefully without JS).
+(function () {
+	var avatar = document.querySelector("[data-avatar]");
+	if (!avatar) return;
+	fetch("/api/me", { credentials: "same-origin" })
+		.then(function (r) { return r.ok ? r.json() : null; })
+		.then(function (data) {
+			if (!data || !data.username) return;
+			avatar.textContent = data.username.trim().charAt(0).toUpperCase() || "?";
+			var summary = avatar.closest("summary");
+			if (summary) summary.title = data.username;
+		})
+		.catch(function () {});
+})();
+
 // The profile menu is a bare <details>; close it on an outside click or Escape
 // so it doesn't sit open over other controls once dismissed elsewhere.
 (function () {

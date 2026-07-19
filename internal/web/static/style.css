@@ -476,6 +476,7 @@ h1, h2, h3 { font-weight: 700; color: var(--text); margin: 0; }
 	width: 28px; height: 28px; border-radius: 50%; background: var(--secondary); color: #fff;
 	display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0;
 }
+.avatar svg { width: 15px; height: 15px; }
 .profile-name { font-size: 0.8125rem; font-weight: 500; }
 .profile-panel {
 	position: absolute; right: 0; top: calc(100% + 8px); width: 190px;

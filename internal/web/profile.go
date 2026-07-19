@@ -25,6 +25,25 @@ type profileView struct {
 	Msg          string
 }
 
+// apiMe returns the logged-in user's identity for the topbar (the avatar
+// initial). It is deliberately tiny: the username is not sensitive to the user
+// who owns the session, and plumbing it through every page's view model would be
+// far more invasive than one small authenticated lookup.
+func (s *Server) apiMe(w http.ResponseWriter, r *http.Request) {
+	id, _ := r.Context().Value(ctxUserID).(int64)
+	u, ok, err := s.store.GetUserByID(id)
+	if err != nil {
+		s.serverError(w, "get user", err)
+		return
+	}
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, map[string]string{"username": u.Username})
+}
+
 // currentUser resolves the logged-in user from the id the auth middleware put on
 // the request context. It returns ok=false having already written a response —
 // a redirect to /login if the account is gone, a 500 if the lookup failed — so
