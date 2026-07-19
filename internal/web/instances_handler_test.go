@@ -132,8 +132,8 @@ func TestValidateInstanceURLRejectsSSRFTargets(t *testing.T) {
 	}
 	allowed := []string{
 		"https://router.example.net:8080",
-		"http://10.0.0.5:8080",     // private mgmt network — legitimate
-		"https://[fd00::1]:8080",   // ULA — legitimate
+		"http://10.0.0.5:8080",   // private mgmt network — legitimate
+		"https://[fd00::1]:8080", // ULA — legitimate
 		"http://192.168.1.2:8080",
 	}
 	for _, raw := range allowed {

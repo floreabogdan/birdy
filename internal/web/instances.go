@@ -24,16 +24,16 @@ const instanceCookieName = "birdy_instance"
 const maxConcurrentInstancePolls = 8
 
 type instanceView struct {
-	ID            int64  `json:"id"`
-	Name          string `json:"name"`
-	BaseURL       string `json:"baseURL,omitempty"`
-	GroupName     string `json:"group,omitempty"`
-	Tags          string `json:"tags,omitempty"`
-	Status        string `json:"status,omitempty"`
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	BaseURL   string `json:"baseURL,omitempty"`
+	GroupName string `json:"group,omitempty"`
+	Tags      string `json:"tags,omitempty"`
+	Status    string `json:"status,omitempty"`
 	// No omitempty: a genuine 0 ms reading (a loopback target) must serialize,
 	// or the client's `latencyMS >= 0` check drops the latency for a healthy
 	// instance. Unchecked instances carry -1 and are correctly skipped.
-	LatencyMS int `json:"latencyMS"`
+	LatencyMS     int    `json:"latencyMS"`
 	LastCheckAt   string `json:"lastCheckAt,omitempty"`
 	LastSuccessAt string `json:"lastSuccessAt,omitempty"`
 	LastError     string `json:"lastError,omitempty"`

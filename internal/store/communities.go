@@ -162,39 +162,6 @@ func (c Community) BIRD() string {
 	return fmt.Sprintf("(%d, %d)", c.A, c.B)
 }
 
-// ParseCommunities reads a textarea of communities. Each entry is colon-
-// separated — "65000:666" for a standard community, "65551:1:2" for a large one
-// — one per line or comma-separated, with blank lines and # comments ignored.
-// Returns the parsed communities and a list of human-readable errors.
-func ParseCommunities(text string) ([]Community, []string) {
-	var out []Community
-	var errs []string
-	line := 0
-	for raw := range strings.Lines(text) {
-		line++
-		s := strings.TrimSpace(raw)
-		if i := strings.IndexByte(s, '#'); i >= 0 {
-			s = strings.TrimSpace(s[:i])
-		}
-		if s == "" {
-			continue
-		}
-		for _, tok := range strings.Split(s, ",") {
-			tok = strings.TrimSpace(tok)
-			if tok == "" {
-				continue
-			}
-			c, err := parseCommunity(tok)
-			if err != "" {
-				errs = append(errs, fmt.Sprintf("Line %d: %s", line, err))
-				continue
-			}
-			out = append(out, c)
-		}
-	}
-	return out, errs
-}
-
 // A CommunityRef is one entry in a peer-export or policy-match field: either a
 // literal community value, or a reference to a named community in the library
 // (rendered as the define symbol, so the config reads by name).

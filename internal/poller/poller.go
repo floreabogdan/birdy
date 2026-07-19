@@ -26,7 +26,6 @@ const flapWindow = 3 * time.Minute
 // and refresh the aggregate on a slower cadence.
 const routeCountInterval = time.Minute
 
-
 // Status contains mostly static identity/version data. Do not ask the control
 // socket for it on every session poll; a short cache preserves quick recovery
 // while removing one command from the hot path.
@@ -101,8 +100,8 @@ type Poller struct {
 	initialized    bool // false until the first poll completes, so we don't log spurious transitions at startup
 	birdReachable  bool // last-known reachability of the control socket, for edge-triggered alerts
 	reachableKnown bool // whether birdReachable has been set at least once
-	lastStatus   birdc.Status
-	lastStatusAt time.Time
+	lastStatus     birdc.Status
+	lastStatusAt   time.Time
 }
 
 // SetNotifier attaches an alert sink. Call before Run.
