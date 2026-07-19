@@ -164,10 +164,10 @@ func (s *Server) buildDashboardView() DashboardView {
 	// out of the main table.
 	configured := map[string]bool{}
 	disabled := map[string]bool{}
-	if peers, err := s.store.ListPeers(); err == nil {
-		for _, p := range peers {
-			configured[p.Name] = true
-			disabled[p.Name] = !p.Enabled
+	if enabledByName, err := s.store.PeerNameEnabled(); err == nil {
+		for name, enabled := range enabledByName {
+			configured[name] = true
+			disabled[name] = !enabled
 		}
 	}
 	for i := range v.Protocols {
@@ -199,9 +199,7 @@ func (s *Server) buildDashboardView() DashboardView {
 	if events, err := s.store.ListEvents(8, 0); err == nil {
 		v.RecentEvents = events
 	}
-	if samples, err := s.store.RecentSamples(time.Now().Add(-dashboardHistoryWindow)); err == nil {
-		v.History = seriesByProtocol(samples, dashboardHistoryPoints)
-	}
+	v.History = s.dashboardHistory()
 	v.StatusText, v.StatusOK = sessionVerdict(v.PollErr, v.SessionUp+v.SessionDown, v.SessionDown, v.SessionDisabled)
 	return v
 }
@@ -282,6 +280,25 @@ func (s *Server) selectedDashboardView(r *http.Request) DashboardView {
 		}
 	}
 	return v
+}
+
+// dashboardHistory returns the per-session trend series, recomputing it at most
+// once per dashboardHistoryTTL. seriesByProtocol builds a fresh map each time
+// and the pointer is swapped under histMu, so readers holding an earlier map are
+// never mutated underneath them. On a read error the last good series is served.
+func (s *Server) dashboardHistory() map[string]Series {
+	s.histMu.Lock()
+	defer s.histMu.Unlock()
+	if s.histCache != nil && time.Since(s.histComputed) < dashboardHistoryTTL {
+		return s.histCache
+	}
+	samples, err := s.store.RecentSamples(time.Now().Add(-dashboardHistoryWindow))
+	if err != nil {
+		return s.histCache
+	}
+	s.histCache = seriesByProtocol(samples, dashboardHistoryPoints)
+	s.histComputed = time.Now()
+	return s.histCache
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

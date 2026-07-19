@@ -26,6 +26,7 @@ const flapWindow = 3 * time.Minute
 // and refresh the aggregate on a slower cadence.
 const routeCountInterval = time.Minute
 
+
 // Status contains mostly static identity/version data. Do not ask the control
 // socket for it on every session poll; a short cache preserves quick recovery
 // while removing one command from the hot path.
@@ -100,8 +101,8 @@ type Poller struct {
 	initialized    bool // false until the first poll completes, so we don't log spurious transitions at startup
 	birdReachable  bool // last-known reachability of the control socket, for edge-triggered alerts
 	reachableKnown bool // whether birdReachable has been set at least once
-	lastStatus     birdc.Status
-	lastStatusAt   time.Time
+	lastStatus   birdc.Status
+	lastStatusAt time.Time
 }
 
 // SetNotifier attaches an alert sink. Call before Run.
@@ -255,7 +256,8 @@ func (p *Poller) poll() {
 	}
 	p.birdReachable, p.reachableKnown = true, true
 
-	prevStates := p.Snapshot().States
+	prev := p.Snapshot()
+	prevStates := prev.States
 	first := !p.initialized
 	next := make(map[string]ProtoState, len(protocols))
 
@@ -311,10 +313,11 @@ func (p *Poller) poll() {
 	// Publish session state before the expensive whole-RIB count. On a router
 	// carrying full tables this is the difference between seeing the BGP rows
 	// immediately and staring at an empty table until the count times out.
-	previousTotal := p.Snapshot().TotalRoutes
+	// Carry the last total forward from the snapshot captured at the top of the
+	// poll rather than deep-copying the whole snapshot a second time.
 	p.mu.Lock()
 	p.initialized = true
-	p.snap = Snapshot{Status: status, Protocols: protocols, States: next, TotalRoutes: previousTotal, UpdatedAt: time.Now()}
+	p.snap = Snapshot{Status: status, Protocols: protocols, States: next, TotalRoutes: prev.TotalRoutes, UpdatedAt: time.Now()}
 	p.mu.Unlock()
 
 	now = time.Now()
