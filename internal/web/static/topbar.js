@@ -174,3 +174,20 @@
 		setInterval(poll, 20000);
 	}
 })();
+
+// The profile menu is a bare <details>; close it on an outside click or Escape
+// so it doesn't sit open over other controls once dismissed elsewhere.
+(function () {
+	var menu = document.querySelector("details.profile-menu");
+	if (!menu) return;
+	document.addEventListener("click", function (event) {
+		if (menu.open && !menu.contains(event.target)) menu.open = false;
+	});
+	document.addEventListener("keydown", function (event) {
+		if (event.key === "Escape" && menu.open) {
+			menu.open = false;
+			var summary = menu.querySelector("summary");
+			if (summary) summary.focus();
+		}
+	});
+})();

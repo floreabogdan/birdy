@@ -93,8 +93,8 @@
 					<thead><tr><th>Name</th><th data-col="table">Table</th><th>State</th><th data-col="since">Since</th><th class="num">Imported</th><th class="num" data-col="rejected">Rejected</th><th class="num">Exported</th><th style="min-width:130px">Import limit</th><th data-col="trend">Trend</th><th data-col="model">In birdy</th></tr></thead>
 					<tbody id="proto-table-body" data-search-target>
 						{{range .Sessions}}
-						<tr class="{{if not $.InstanceRemote}}row-link{{end}}" {{if not $.InstanceRemote}}data-href="/peers/{{.Name}}" tabindex="0"{{end}}>
-							<td class="mono">{{.Name}}</td>
+						<tr class="{{if not $.InstanceRemote}}row-link{{end}}" {{if not $.InstanceRemote}}data-href="/peers/{{.Name}}"{{end}}>
+							<td class="mono">{{if $.InstanceRemote}}{{.Name}}{{else}}<a class="cell-link" href="/peers/{{.Name}}">{{.Name}}</a>{{end}}</td>
 							<td class="mono" data-col="table">{{.Table}}</td>
 							{{/* A peer switched off in birdy is not a session that failed. BIRD calls both
 							     "down"; painting them the same red is how you learn to ignore red. */}}

@@ -6,7 +6,7 @@
 	var items = Array.prototype.slice.call(panel.querySelectorAll("a[data-command]"));
 	var active = -1;
 
-	function close() { panel.hidden = true; document.body.classList.remove("palette-open"); active = -1; }
+	function close() { panel.hidden = true; document.body.classList.remove("palette-open"); active = -1; toggle.focus(); }
 	function open() { panel.hidden = false; document.body.classList.add("palette-open"); input.value = ""; filter(); input.focus(); }
 	function filter() {
 		var query = input.value.trim().toLowerCase();
@@ -31,6 +31,15 @@
 			var visible = items.filter(function (item) { return !item.hidden; });
 			if (visible.length) { event.preventDefault(); visible[Math.max(active, 0)].click(); }
 		}
+	});
+	// Trap Tab within the dialog so focus can't wander onto the page behind the
+	// modal; the input and the visible commands form the focus cycle.
+	panel.addEventListener("keydown", function (event) {
+		if (event.key !== "Tab") return;
+		var focusables = [input].concat(items.filter(function (item) { return !item.hidden; }));
+		var firstEl = focusables[0], lastEl = focusables[focusables.length - 1];
+		if (event.shiftKey && document.activeElement === firstEl) { event.preventDefault(); lastEl.focus(); }
+		else if (!event.shiftKey && document.activeElement === lastEl) { event.preventDefault(); firstEl.focus(); }
 	});
 	panel.addEventListener("click", function (event) { if (event.target === panel) close(); });
 	document.addEventListener("keydown", function (event) {

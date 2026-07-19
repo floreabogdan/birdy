@@ -615,8 +615,8 @@ svg.sparkline[data-spark] { cursor: crosshair; }
 .activity-main { display: flex; gap: 10px; min-width: 0; }
 .activity-main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .activity-row time { color: var(--muted); font-size: .78rem; white-space: nowrap; }
-.instance-link { color: inherit; text-decoration: none; }
-.instance-link input { cursor: pointer; }
+.instance-link { color: var(--text-muted); text-decoration: none; display: inline-block; overflow-wrap: anywhere; }
+.instance-link:hover, .instance-link:focus-visible { color: var(--primary); text-decoration: underline; }
 .hero-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
 :focus-visible { outline: 3px solid color-mix(in srgb, var(--primary) 60%, transparent); outline-offset: 2px; }
 @media (max-width: 720px) {
@@ -634,9 +634,11 @@ svg.sparkline[data-spark] { cursor: crosshair; }
 .instance-state { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: var(--text-muted); }
 .instance-state.local { background: var(--success); }
 .instance-state.healthy { background: var(--success); }
-.instance-state.degraded { background: var(--warning); }
-.instance-state.offline { background: var(--danger); }
-.instance-state.unknown { background: var(--text-muted); }
+/* Beyond hue: degraded gets a ring, offline is hollow, unknown is a dashed
+   ring — so status is not distinguishable by colour alone at 9px. */
+.instance-state.degraded { background: var(--warning); box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 40%, transparent); }
+.instance-state.offline { background: transparent; box-shadow: inset 0 0 0 2px var(--danger); }
+.instance-state.unknown { background: transparent; border: 1px dashed var(--text-muted); }
 .inline-form { margin-left: auto; }
 .danger-btn { color: var(--danger); }
 .danger-btn:hover { color: var(--danger-deep); background: color-mix(in srgb, var(--danger) 12%, var(--surface-alt)); }
@@ -1198,6 +1200,10 @@ textarea {
 .table-scroll { overflow-x: auto; }
 .row-link { cursor: pointer; }
 .row-link:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Session-name link inside a dashboard row: inherits the cell's look, so the
+   row still reads as one unit, but is a real focusable, no-JS-safe link. */
+.cell-link { color: inherit; text-decoration: none; }
+.cell-link:hover, .cell-link:focus-visible { color: var(--primary); text-decoration: underline; }
 .mono, td.num, .stat-value, .timeline-time { font-variant-numeric: tabular-nums; }
 .login-sub { text-align: center; color: var(--text-muted); font-size: 0.75rem; margin: -14px 0 18px; }
 
