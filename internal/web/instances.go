@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -102,6 +103,11 @@ func healthStatus(i store.Instance) string {
 }
 
 func (s *Server) refreshInstanceHealth(ctx context.Context) {
+	// Serialize refreshes: the background loop and an operator-triggered refresh
+	// must not overlap, or each independently reads the pre-transition state and
+	// both emit a duplicate up/down alert for one change.
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
 	instances, err := s.store.ListInstances()
 	if err != nil {
 		return
@@ -118,6 +124,12 @@ func (s *Server) refreshInstanceHealth(ctx context.Context) {
 			checkCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 			defer cancel()
 			latency, checkErr := (federation.Client{BaseURL: instance.BaseURL, Token: instance.Token}).Check(checkCtx)
+			if checkErr != nil && ctx.Err() != nil {
+				// The whole batch was cancelled (shutdown, or the handler's own
+				// timeout) — not evidence the instance is down. Don't persist a
+				// false outage or fire a spurious offline alert.
+				return
+			}
 			checked := time.Now().UTC().Format(time.RFC3339Nano)
 			success := instance.LastSuccessAt
 			latencyMS := int(latency / time.Millisecond)
@@ -198,16 +210,40 @@ func validateInstanceURL(raw string) (string, error) {
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return "", fmt.Errorf("use an http(s) URL without credentials, query parameters, or a fragment")
 	}
-	// Reject IP-literal targets that could only be an SSRF pivot, not a real
-	// remote Birdy: loopback, the link-local metadata range (169.254/16, fe80::),
-	// the unspecified address, and multicast. Private/ULA ranges are allowed on
+	// Reject targets that could only be an SSRF pivot, not a real remote Birdy:
+	// loopback, the link-local metadata range (169.254/16, fe80::), the
+	// unspecified address, and multicast. Private/ULA ranges are allowed on
 	// purpose — routers commonly observe each other over management networks.
 	if addr, perr := netip.ParseAddr(u.Hostname()); perr == nil {
-		if addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsUnspecified() || addr.IsMulticast() {
+		if blockedInstanceAddr(addr) {
 			return "", fmt.Errorf("that address cannot be a remote Birdy target")
+		}
+	} else {
+		// A DNS name could resolve into a blocked range (the classic
+		// metadata.internal SSRF the literal check above cannot see). Resolve and
+		// apply the same block to every address it maps to. A lookup failure is
+		// left to the connection attempt rather than blocking a temporarily
+		// unresolvable target from being added; a rebind between this check and a
+		// later fetch is a residual risk under the operator-controlled model.
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if addrs, lerr := net.DefaultResolver.LookupNetIP(ctx, "ip", u.Hostname()); lerr == nil {
+			for _, addr := range addrs {
+				if blockedInstanceAddr(addr) {
+					return "", fmt.Errorf("that host resolves to an address that cannot be a remote Birdy target")
+				}
+			}
 		}
 	}
 	return strings.TrimRight(u.String(), "/"), nil
+}
+
+// blockedInstanceAddr reports whether an address can only be an SSRF pivot
+// rather than a reachable remote Birdy: loopback, link-local (including the
+// cloud metadata range), unspecified, or multicast.
+func blockedInstanceAddr(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	return addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsUnspecified() || addr.IsMulticast()
 }
 
 func normalizeInstanceTags(raw string) (string, error) {

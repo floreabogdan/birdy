@@ -65,12 +65,12 @@ func TestCrossOriginPostRejected(t *testing.T) {
 func TestSameOriginWriteRequiresMatchingScheme(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "https://birdy.example/logout", nil)
 	req.Header.Set("Origin", "http://birdy.example")
-	if sameOriginWrite(req) {
+	if sameOriginWrite(req, true) {
 		t.Fatal("HTTP origin should not be accepted for an HTTPS request")
 	}
 
 	req.Header.Set("Origin", "https://birdy.example")
-	if !sameOriginWrite(req) {
+	if !sameOriginWrite(req, true) {
 		t.Fatal("matching HTTPS origin should be accepted")
 	}
 }

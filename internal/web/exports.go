@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/floreabogdan/birdy/internal/store"
 )
 
 // csvSafe neutralizes spreadsheet formula injection. A cell a spreadsheet reads
@@ -43,10 +45,20 @@ func (s *Server) handleSessionExport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEventExport(w http.ResponseWriter, r *http.Request) {
-	events, err := s.store.ListEvents(500, 0)
-	if err != nil {
-		s.serverError(w, "export events", err)
-		return
+	// Honor the selected dashboard target, exactly as the session export does, so
+	// the two files describe the same router rather than silently mixing a remote
+	// instance's sessions with this router's events. A remote selection exports
+	// that instance's bounded recent activity; the local instance exports up to 500.
+	var events []store.Event
+	if selectedInstanceID(r) != 0 {
+		events = s.selectedDashboardView(r).RecentEvents
+	} else {
+		var err error
+		events, err = s.store.ListEvents(500, 0)
+		if err != nil {
+			s.serverError(w, "export events", err)
+			return
+		}
 	}
 	if r.URL.Query().Get("format") == "json" {
 		w.Header().Set("Content-Disposition", `attachment; filename="birdy-events.json"`)

@@ -40,6 +40,29 @@ func TestStableAndDevelopmentChecks(t *testing.T) {
 	}
 }
 
+// A failing check must be cached for the negative TTL, so a slow or rate-limited
+// GitHub is not re-hit on every page render (the check runs inline in the
+// request path).
+func TestFailedCheckIsNegativelyCached(t *testing.T) {
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	c := &Client{BaseURL: srv.URL, HTTP: srv.Client(), TTL: time.Hour}
+
+	if _, err := c.Check(context.Background(), ChannelStable, "0.3.7", ""); err == nil {
+		t.Fatal("expected an error from a failing endpoint")
+	}
+	if _, err := c.Check(context.Background(), ChannelStable, "0.3.7", ""); err == nil {
+		t.Fatal("expected the cached error on the second call")
+	}
+	if requests != 1 {
+		t.Fatalf("requests = %d, want 1 — a failed check must be negatively cached", requests)
+	}
+}
+
 func TestStableAvailable(t *testing.T) {
 	for _, tc := range []struct {
 		current, latest string

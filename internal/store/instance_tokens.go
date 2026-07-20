@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/subtle"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -58,16 +59,18 @@ func (s *Store) RevokeAllInstanceTokens() error {
 }
 
 func (s *Store) VerifyScopedInstanceToken(raw string) (bool, error) {
-	rows, err := s.db.Query(`SELECT id, token_hash, expires_at FROM instance_tokens WHERE revoked = 0`)
+	rows, err := s.db.Query(`SELECT id, token_hash, expires_at, scope FROM instance_tokens WHERE revoked = 0`)
 	if err != nil {
 		return false, fmt.Errorf("store: get instance tokens: %w", err)
 	}
-	defer rows.Close()
 	hash := HashInstanceAPIToken(raw)
+	var matchedID int64
+	found := false
 	for rows.Next() {
 		var id int64
-		var stored, expiresAt string
-		if err := rows.Scan(&id, &stored, &expiresAt); err != nil {
+		var stored, expiresAt, scope string
+		if err := rows.Scan(&id, &stored, &expiresAt, &scope); err != nil {
+			rows.Close()
 			return false, fmt.Errorf("store: scan instance token: %w", err)
 		}
 		if expiresAt != "" {
@@ -76,10 +79,38 @@ func (s *Store) VerifyScopedInstanceToken(raw string) (bool, error) {
 				continue
 			}
 		}
-		if len(stored) == len(hash) && subtle.ConstantTimeCompare([]byte(stored), []byte(hash)) == 1 {
-			_, _ = s.db.Exec(`UPDATE instance_tokens SET last_used = ? WHERE id = ?`, now(), id)
-			return true, nil
+		// Enforce the token's scope: only a dashboard-scoped token authorizes the
+		// read-only dashboard/timeline API, so a scope added later cannot silently
+		// ride these endpoints.
+		if len(stored) == len(hash) && subtle.ConstantTimeCompare([]byte(stored), []byte(hash)) == 1 && scopeGrantsDashboard(scope) {
+			matchedID = id
+			found = true
+			break
 		}
 	}
-	return false, rows.Err()
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, err
+	}
+	rows.Close()
+	if !found {
+		return false, nil
+	}
+	// Stamp last_used only after the SELECT cursor is closed, so the write does
+	// not check out a second pooled connection while the read is still open.
+	_, _ = s.db.Exec(`UPDATE instance_tokens SET last_used = ? WHERE id = ?`, now(), matchedID)
+	return true, nil
+}
+
+// scopeGrantsDashboard reports whether a token scope authorizes the read-only
+// dashboard and timeline API. Tokens are minted with scope "dashboard timeline";
+// requiring the capability here means a scope added later does not silently gain
+// access to these endpoints.
+func scopeGrantsDashboard(scope string) bool {
+	for _, f := range strings.Fields(scope) {
+		if f == "dashboard" {
+			return true
+		}
+	}
+	return false
 }

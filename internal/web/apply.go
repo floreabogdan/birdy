@@ -529,8 +529,16 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 		return
 	}
 
+	// From here birdy is mutating BIRD's running config: check, arm with the
+	// auto-revert timeout, then reload filters. A dropped browser connection must
+	// not abort this mid-flight — BIRD's armed timeout is the safety net, and
+	// leaving a version unrecorded while BIRD holds a freshly-armed config is the
+	// worst outcome. Detach from the request; birdc still bounds each call with its
+	// own socket deadline, so this cannot hang.
+	applyCtx := context.WithoutCancel(r.Context())
+
 	// The daemon's own check, against the exact files it will load.
-	if res, err := s.client.ConfigureCheck(r.Context()); err != nil {
+	if res, err := s.client.ConfigureCheck(applyCtx); err != nil {
 		s.rollbackConfig(backup)
 		s.serverError(w, "configure check", err)
 		return
@@ -542,7 +550,7 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 
 	// Apply with the safety timeout armed. If this operator loses reachability,
 	// or the sessions never come up, BIRD reverts on its own.
-	res, err := s.client.ConfigureTimeout(r.Context(), s.applyTimeout, soft)
+	res, err := s.client.ConfigureTimeout(applyCtx, s.applyTimeout, soft)
 	if err != nil {
 		s.rollbackConfig(backup)
 		s.serverError(w, "configure timeout", err)
@@ -637,7 +645,9 @@ func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "write config", err)
 		return
 	}
-	res, err := s.client.ConfigureConfirm(r.Context())
+	// A dropped connection here must not leave BIRD confirmed while birdy still
+	// records the version as pending; detach so confirm-and-record completes.
+	res, err := s.client.ConfigureConfirm(context.WithoutCancel(r.Context()))
 	if err != nil || !res.OK {
 		if err != nil {
 			s.log.Error("configure confirm", "error", err)
@@ -686,8 +696,10 @@ func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
 	// bird.conf on disk is already the previous config (restored when the
 	// timeout was armed), so this only tells BIRD to drop the armed config and
 	// records the outcome. Undo is best-effort: if the timeout already fired,
-	// BIRD has nothing to undo and that is fine.
-	res, err := s.client.ConfigureUndo(r.Context())
+	// BIRD has nothing to undo and that is fine. Detach from the request so a
+	// dropped connection cannot leave BIRD reverted while birdy records nothing.
+	applyCtx := context.WithoutCancel(r.Context())
+	res, err := s.client.ConfigureUndo(applyCtx)
 	msg := "Rolled back."
 	if err != nil {
 		msg = "Rolled back (BIRD undo errored, but the previous config is on disk)."
@@ -697,7 +709,7 @@ func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
 	}
 	// The apply reloaded the new filters onto the table; now that the config is
 	// back to the previous one, re-run its filters so the table follows.
-	s.reloadFilters(r.Context(), "rollback")
+	s.reloadFilters(applyCtx, "rollback")
 	if err := s.store.ResolveConfigVersion(pending.ID, store.ConfigReverted, msg); err != nil {
 		s.serverError(w, "resolve version", err)
 		return

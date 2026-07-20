@@ -89,6 +89,11 @@ type Server struct {
 	// two pending versions. One writer at a time.
 	applyMu sync.Mutex
 
+	// refreshMu serialises remote-instance health refreshes so the background
+	// loop and an operator-triggered refresh cannot overlap and both fire a
+	// duplicate up/down alert for a single state transition.
+	refreshMu sync.Mutex
+
 	// login throttles failed logins per client IP.
 	login *loginLimiter
 
@@ -230,8 +235,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
-	setSecurityHeaders(w)
-	if !sameOriginWrite(r) {
+	secure := s.cookieSecure(r)
+	setSecurityHeaders(w, secure)
+	if !sameOriginWrite(r, secure) {
 		http.Error(w, "cross-origin write rejected", http.StatusForbidden)
 		return
 	}
@@ -242,7 +248,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // SameSite=Strict cookies and CSP form-action already cover modern browsers;
 // this validates the request at the server as a separate boundary. Requests
 // without browser origin headers remain supported for local CLI automation.
-func sameOriginWrite(r *http.Request) bool {
+func sameOriginWrite(r *http.Request, secure bool) bool {
 	if r.Method != http.MethodPost {
 		return true
 	}
@@ -258,7 +264,7 @@ func sameOriginWrite(r *http.Request) bool {
 		return false
 	}
 	expectedScheme := "http"
-	if r.TLS != nil {
+	if secure {
 		expectedScheme = "https"
 	}
 	return strings.EqualFold(u.Scheme, expectedScheme) && strings.EqualFold(u.Host, r.Host)
@@ -307,7 +313,7 @@ func clientAddr(r *http.Request) netip.Addr {
 // loads, no framing, forms post only to birdy itself, and scripts must be loaded
 // from embedded static assets. Styles retain inline support because route gauges
 // and several compact layout values are data-driven style attributes.
-func setSecurityHeaders(w http.ResponseWriter) {
+func setSecurityHeaders(w http.ResponseWriter, secure bool) {
 	h := w.Header()
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("X-Content-Type-Options", "nosniff")
@@ -319,6 +325,13 @@ func setSecurityHeaders(w http.ResponseWriter) {
 		"default-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; "+
 			"frame-ancestors 'none'; img-src 'self' data:; "+
 			"style-src 'self' 'unsafe-inline'; script-src 'self'")
+	// HSTS only over a secure transport (native TLS, or a trusted loopback proxy
+	// that terminated TLS) — never on plaintext, where it would pin a scheme birdy
+	// is not serving. Pins the browser to HTTPS after the first secure visit,
+	// closing the SSL-strip window on later ones.
+	if secure {
+		h.Set("Strict-Transport-Security", "max-age=31536000")
+	}
 }
 
 func (s *Server) routes() {

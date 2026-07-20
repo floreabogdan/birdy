@@ -55,6 +55,82 @@ func TestMigrateAddsColumnFromOlderVersion(t *testing.T) {
 	}
 }
 
+// The instances/update-tracking columns and tables (v31–v34) are all created by
+// schema.go's unconditional CREATE TABLE IF NOT EXISTS, so a test that opens the
+// full schema never exercises the migration steps. Build a genuinely pre-v31
+// database — settings and instances stripped back to their pre-instances shape,
+// instance_tokens absent, stamped at v30 — and confirm opening it converges: the
+// new settings columns, the instances metadata columns (v33 ALTERs), and the
+// instance_tokens table (v34) all appear and work.
+func TestMigrateInstancesFeatureFromV30(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v30.db")
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveSettings(Settings{RouterID: "192.0.2.1"}); err != nil {
+		t.Fatal(err)
+	}
+	// Peel the schema back to what a v30 database looked like, before the
+	// instances/update-tracking work landed.
+	if _, err := st.db.Exec(`
+		ALTER TABLE settings DROP COLUMN update_channel;
+		ALTER TABLE settings DROP COLUMN instance_api_token_hash;
+		ALTER TABLE settings DROP COLUMN instance_api_token_expires_at;
+		ALTER TABLE settings DROP COLUMN instance_api_token_revoked;
+		ALTER TABLE instances DROP COLUMN group_name;
+		ALTER TABLE instances DROP COLUMN tags;
+		ALTER TABLE instances DROP COLUMN last_check_at;
+		ALTER TABLE instances DROP COLUMN last_success_at;
+		ALTER TABLE instances DROP COLUMN last_latency_ms;
+		ALTER TABLE instances DROP COLUMN last_error;
+		DROP TABLE instance_tokens;
+		PRAGMA user_version = 30;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err = Open(path)
+	if err != nil {
+		t.Fatalf("open/migrate v30 database: %v", err)
+	}
+	defer st.Close()
+
+	var version int
+	if err := st.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != schemaVersion {
+		t.Fatalf("user_version = %d after migrate, want %d", version, schemaVersion)
+	}
+	// v31 settings.update_channel: the column is present and writable.
+	if err := st.SaveUpdateChannel("development"); err != nil {
+		t.Fatalf("update_channel column missing after migrate: %v", err)
+	}
+	// v33 instances metadata columns: an instance round-trips with its metadata.
+	if _, err := st.CreateInstanceWithMetadata("edge", "https://198.51.100.7", "0123456789abcdef0123456789abcdef", "eu", "core, transit"); err != nil {
+		t.Fatalf("instances metadata columns missing after migrate: %v", err)
+	}
+	got, err := st.ListInstances()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].GroupName != "eu" || got[0].Tags != "core, transit" {
+		t.Fatalf("instance metadata did not survive migrate: %+v", got)
+	}
+	// v34 instance_tokens: the table exists and a scoped token verifies.
+	raw := "feedfacefeedfacefeedfacefeedface"
+	if _, err := st.CreateInstanceToken("observer", HashInstanceAPIToken(raw), "dashboard timeline", ""); err != nil {
+		t.Fatalf("instance_tokens table missing after migrate: %v", err)
+	}
+	if ok, err := st.VerifyScopedInstanceToken(raw); err != nil || !ok {
+		t.Fatalf("scoped token should verify after migrate: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestMigrateKernelBGPExportDefaultsOffForFreshDB(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v29.db")
 	st, err := Open(path)

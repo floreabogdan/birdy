@@ -65,23 +65,29 @@ func (c *Client) Check(ctx context.Context, channel, currentVersion, currentComm
 	}
 	key := channel + "\x00" + currentVersion + "\x00" + currentCommit
 	c.mu.Lock()
-	if cached, ok := c.cache[key]; ok && time.Since(cached.result.CheckedAt) < c.ttl() {
-		c.mu.Unlock()
-		return cached.result, cached.err
+	if cached, ok := c.cache[key]; ok {
+		ttl := c.ttl()
+		if cached.err != nil {
+			ttl = c.negativeTTL()
+		}
+		if time.Since(cached.result.CheckedAt) < ttl {
+			c.mu.Unlock()
+			return cached.result, cached.err
+		}
 	}
 	c.mu.Unlock()
 
 	result, err := c.check(ctx, channel, currentVersion, currentCommit)
-	// Only cache successes. Caching a failure would pin a transient GitHub
-	// outage on screen and block retries for the full TTL.
-	if err == nil {
-		c.mu.Lock()
-		if c.cache == nil {
-			c.cache = make(map[string]cachedResult)
-		}
-		c.cache[key] = cachedResult{result: result, err: err}
-		c.mu.Unlock()
+	// Cache both outcomes, but a failure only for a short negative TTL: long
+	// enough that a slow or rate-limited GitHub is not re-hit on every page
+	// render (the check runs inline in the request), short enough that a
+	// transient outage clears on its own without pinning the full TTL.
+	c.mu.Lock()
+	if c.cache == nil {
+		c.cache = make(map[string]cachedResult)
 	}
+	c.cache[key] = cachedResult{result: result, err: err}
+	c.mu.Unlock()
 	return result, err
 }
 
@@ -90,6 +96,16 @@ func (c *Client) ttl() time.Duration {
 		return 15 * time.Minute
 	}
 	return c.TTL
+}
+
+// negativeTTL bounds how long a failed check is cached — capped well under the
+// success TTL so an outage self-heals quickly, but long enough to stop a burst
+// of renders from hammering a down or rate-limited GitHub.
+func (c *Client) negativeTTL() time.Duration {
+	if t := c.ttl(); t < 2*time.Minute {
+		return t
+	}
+	return 2 * time.Minute
 }
 
 func (c *Client) check(ctx context.Context, channel, currentVersion, currentCommit string) (Result, error) {
