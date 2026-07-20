@@ -194,9 +194,10 @@ things follow from that, and both are one setting away:
 
 - **Set the access list.** Settings → Access control takes the IPs allowed to reach birdy at all;
   anything else has its connection closed with no response. Until you do, birdy accepts connections
-  from anywhere and says so on the dashboard. **There is no TLS** — on a public address the login
-  crosses the network in the clear, so either restrict it to a management range you trust, or run it
-  closed with `birdy server --listen 127.0.0.1:8080` and an SSH tunnel.
+  from anywhere and says so on the dashboard. **There is no TLS by default** — on a public address the
+  login crosses the network in the clear, so either terminate TLS in birdy itself
+  (`--tls-cert`/`--tls-key`), restrict it to a management range you trust, or run it closed with
+  `birdy server --listen 127.0.0.1:8080` and an SSH tunnel.
 - **Run it as a viewer, if you prefer.** Add `--read-only` to the unit and birdy never writes
   `bird.conf` or issues a write command to BIRD. Out of the box it *can* write — but only when you
   press Adopt and then Apply, both deliberate acts with a diff, a backup and an armed auto-revert.
@@ -278,9 +279,9 @@ still masked everywhere in the browser.
 
 ## Security
 
-**birdy listens on every interface, and has no TLS.** It ships that way on purpose — a router UI that
-needs a config file edited before it answers is a UI nobody sets up — but it means the first thing to
-do after logging in is narrow who can reach it.
+**birdy listens on every interface, and serves plaintext HTTP by default.** It ships that way on
+purpose — a router UI that needs a config file edited before it answers is a UI nobody sets up — but
+it means the first thing to do after logging in is narrow who can reach it.
 
 The **IP allow-list** (Settings → Access control) is that control: every request from an address you
 did not list has its connection closed with no response at all. Loopback is always allowed, so an SSH
@@ -289,9 +290,11 @@ startup log and flags it on that settings page. The unauthenticated `/metrics` e
 too — no cookie can protect a Prometheus scrape, so
 it stays closed until the list is narrowed, and starts serving the moment it is.
 
-That is not TLS. On a public address the login and session cookie cross the network in the clear, and
-an allow-list does nothing about interception — only about who may connect. If the router is on the
-public internet, restrict it to a management range you control, or run it closed:
+That is not encryption. On a public address the login and session cookie cross the network in the
+clear, and an allow-list does nothing about interception — only about who may connect. Either
+terminate TLS in birdy itself — pass a PEM certificate and key (`--tls-cert`/`--tls-key`) and it
+serves native HTTPS (TLS 1.2+) — or, if the router is on the public internet, restrict it to a
+management range you control, or run it closed:
 
 ```sh
 birdy server --listen 127.0.0.1:8080     # then: ssh -L 8080:127.0.0.1:8080 router

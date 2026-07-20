@@ -237,7 +237,8 @@ sudo systemctl enable --now birdy
 **4. Open the UI.** birdy listens on **port 8080 on every interface**, so it is
 reachable the moment it starts: `http://<router>:8080`.
 
-**Then narrow who can reach it.** birdy has no TLS, and its IP allow-list starts as
+**Then narrow who can reach it.** birdy serves plaintext HTTP unless you hand it a
+certificate (`--tls-cert`/`--tls-key`, see §5), and its IP allow-list starts as
 allow-all (it says so in the startup log, and flags it on the page below). Under
 **Settings → Access control**, list the addresses allowed to reach birdy; every other connection is
 closed with no response (this also switches on the unauthenticated `/metrics`).
@@ -310,7 +311,7 @@ Runs the web UI and the background poller.
 | `--bird-backup-dir` | `/var/lib/birdy/bird-backups` | Where a copy of `bird.conf` is saved before each apply overwrites it. |
 | `--bird-binary` | `bird` | `bird` executable used for `bird -p` config checks. |
 | `--apply-timeout` | `60` | Seconds an applied config has to be confirmed before BIRD auto-reverts it. |
-| `--poll-interval` | `4s` | How often to poll BIRD for session state. |
+| `--poll-interval` | `5s` | How often to poll BIRD for session state. |
 | `--snapshot-dir` | `/var/lib/birdy/snapshots` | Directory for nightly database snapshots. |
 | `--snapshot-interval` | `24h` | How often to take a nightly snapshot. |
 | `--snapshot-retain` | `14` | How many nightly snapshots to keep. |
@@ -735,11 +736,13 @@ Reach it from the avatar menu at the top right → **Profile**.
 birdy is a thin, single-user admin panel. Treat it as sensitive as `bird.conf`
 itself.
 
-- **Bind it to loopback and reach it over SSH.** It listens on `127.0.0.1:8080` by
-  default. It has **no TLS**; a session cookie and a bcrypt password hash are the
-  login's only defence (though every write action is recorded — see the audit trail
-  below). Prefer the tunnel; if you must bind to a LAN address, understand exactly
-  what you are exposing.
+- **Bind it to loopback and reach it over SSH, or terminate TLS.** It listens on
+  `0.0.0.0:8080` (every interface) by default and serves plaintext HTTP, so a session
+  cookie and a bcrypt password hash are the login's only defence on the wire — unless
+  you enable native HTTPS by passing a certificate and key (`--tls-cert`/`--tls-key`,
+  TLS 1.2+). Every write action is recorded regardless (see the audit trail below).
+  Prefer the tunnel (`--listen 127.0.0.1:8080`); if you must bind to a LAN or public
+  address in the clear, understand exactly what you are exposing.
 - **Restrict access by IP** with the allow-list under Settings → Access control
   (§13). It refuses every request from an address you did not list — the connection
   is closed with **no response at all**, and it covers the unauthenticated

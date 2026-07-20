@@ -40,10 +40,18 @@ Some properties are documented and by design, not vulnerabilities:
 - **`/metrics` is unauthenticated**, because a Prometheus scrape cannot carry a session cookie. It is
   therefore gated on the allow-list: it returns 403 while every IP is allowed, and serves as soon as
   the list is narrowed.
-- **There is no TLS.** On a public address the login and session cookie travel in the clear, and the
-  allow-list does nothing about that — it governs who may connect, not what is readable on the wire.
-  Put birdy on a management network you trust, or on loopback behind an SSH tunnel. Operator actions
-  are recorded in an audit trail on the event timeline.
+- **There is no TLS by default.** Out of the box birdy serves plaintext HTTP, so on a public address
+  the login and session cookie travel in the clear, and the allow-list does nothing about that — it
+  governs who may connect, not what is readable on the wire. You can enable native HTTPS by passing a
+  certificate and key (`--tls-cert`/`--tls-key`, TLS 1.2+); otherwise put birdy on a management network
+  you trust, or on loopback behind an SSH tunnel. Operator actions are recorded in an audit trail on
+  the event timeline.
+- **The IP allow-list and login lockout key on the real TCP peer**, never a spoofable
+  `X-Forwarded-For`. This is correct for the recommended deployments — a directly exposed listener or an
+  SSH tunnel. Behind a reverse proxy every request arrives from the proxy (loopback for a local one), so
+  the per-IP login lockout and the allow-list see the proxy, not the real client. In that setup, either
+  enforce access control and rate-limiting at the proxy, or prefer birdy's own native TLS
+  (`--tls-cert`/`--tls-key`) so it is exposed directly and sees real client addresses.
 
 Reports that amount to "you can do damage if you already have the birdy database, the login
 cookie, or root on the router" are out of scope — those are equivalent to already controlling
