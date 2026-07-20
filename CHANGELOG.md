@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-07-20
+
 ### Fixed
 - **Original theme: unreadable table headers in light mode.** The light "original"
   palette set the indigo header band but never its text colour, so headers rendered
@@ -488,7 +490,8 @@ router and gives you:
 - Multi-arch release binaries (Linux amd64/arm64/arm, FreeBSD, macOS) and a
   multi-arch container image on GHCR.
 
-[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/floreabogdan/birdy/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/floreabogdan/birdy/compare/v0.3.8...v0.4.0
 [0.3.8]: https://github.com/floreabogdan/birdy/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/floreabogdan/birdy/compare/v0.3.6...v0.3.7
