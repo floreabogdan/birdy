@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-20
+
 ### Added
 - **Operator-focused navigation and guided workflows.** The modern panel now
   includes collapsible contextual navigation, explicit local/remote router
@@ -64,6 +66,38 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Remote dashboard tokens.** Settings → General can generate and rotate a
   high-entropy token for dashboard observation. Only its SHA-256 digest is kept
   on the observed router.
+
+### Security
+- **Native HTTPS emits HSTS.** When birdy serves over `--tls-cert`/`--tls-key`
+  (or behind a trusted loopback TLS proxy), responses carry a
+  `Strict-Transport-Security` header, pinning the browser to HTTPS after the
+  first secure visit. It is never sent on plaintext.
+- **Remote-instance URLs are validated against their resolved addresses.** A
+  hostname that resolves into loopback, the link-local/cloud-metadata range, or
+  an unspecified or multicast address is now rejected when the instance is added,
+  not only an IP literal — closing an SSRF-by-hostname bypass.
+- **Observation tokens are scope-enforced.** Only a dashboard-scoped token
+  authorizes the read-only dashboard and timeline API, so a differently-scoped
+  token introduced later cannot silently reach those endpoints.
+- **Access control and the login lockout key on the real TCP peer**, never a
+  spoofable `X-Forwarded-For`. The reverse-proxy implications of that choice are
+  documented in `SECURITY.md`.
+
+### Fixed
+- **A config apply survives a dropped UI connection.** The arm, confirm, and
+  rollback exchanges with BIRD are detached from the HTTP request, so losing the
+  browser mid-apply lets BIRD's armed auto-revert govern the outcome instead of
+  an interrupted request forcing an immediate rollback with no recorded version.
+- **Same-origin write checks accept the correct scheme behind a TLS-terminating
+  reverse proxy**, matching the secure-cookie logic, so `fetch`-driven writes are
+  no longer rejected in that deployment.
+- **Activity exports follow the selected dashboard instance**, matching the
+  session export, so the two downloads describe the same router.
+- **Remote-instance health refreshes no longer double-fire** up/down alerts when
+  a manual refresh overlaps the background poll, and a shutdown mid-refresh no
+  longer records a spurious outage.
+- **Failed update checks are briefly cached** instead of re-hitting GitHub on
+  every System → Updates render.
 
 ## [0.3.8] - 2026-07-17
 
@@ -448,7 +482,8 @@ router and gives you:
 - Multi-arch release binaries (Linux amd64/arm64/arm, FreeBSD, macOS) and a
   multi-arch container image on GHCR.
 
-[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.3.8...HEAD
+[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/floreabogdan/birdy/compare/v0.3.8...v0.4.0
 [0.3.8]: https://github.com/floreabogdan/birdy/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/floreabogdan/birdy/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/floreabogdan/birdy/compare/v0.3.5...v0.3.6
