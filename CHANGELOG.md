@@ -6,6 +6,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- **Original theme: unreadable table headers in light mode.** The light "original"
+  palette set the indigo header band but never its text colour, so headers rendered
+  as low-contrast grey on blue. They now use the same light header text as the
+  original theme's dark variants.
+
 ## [0.4.0] - 2026-07-20
 
 ### Added
