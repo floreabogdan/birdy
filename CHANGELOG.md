@@ -19,6 +19,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   moment an export policy is attached.
 
 ### Changed
+- **Flash confirmations travel in a one-shot cookie, not the URL.** Post-redirect
+  messages ("Saved …", "Deleted …", apply results) used a `?flash=` query param, so
+  they lingered in the address bar, re-appeared on every refresh, and could bloat
+  the URL with multi-line `bird -p` output. They now ride in a short-lived,
+  read-once cookie: the message shows exactly once, the URL stays clean, and a
+  refresh does not replay it.
 - **Theming system, typography and spacing rebuilt — Modern colours preserved.**
   The stylesheet set a sub-1rem font-size on both `html` and `body`, compounding
   to ~12px body text and shrinking every `rem` in the sheet; the root is fixed and

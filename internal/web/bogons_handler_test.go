@@ -51,8 +51,8 @@ func TestBogonSetCannotBeDeletedOverHTTP(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("code=%d", rec.Code)
 	}
-	if !strings.Contains(rec.Header().Get("Location"), "Could+not+delete") {
-		t.Errorf("expected a refusal flash, got %q", rec.Header().Get("Location"))
+	if !strings.Contains(flashOf(rec), "Could not delete") {
+		t.Errorf("expected a refusal flash, got %q", flashOf(rec))
 	}
 	if _, err := env.store.GetPrefixSetByName(store.BogonSetV4); err != nil {
 		t.Error("the bogon set must survive")

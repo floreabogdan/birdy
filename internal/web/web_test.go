@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"log/slog"
 	"net/http"
@@ -243,6 +244,24 @@ func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
 		}
 	}
 	return nil
+}
+
+// flashOf decodes the one-shot flash message from a response's birdy_flash cookie
+// (they used to ride in the redirect URL's ?flash= param).
+func flashOf(rec *httptest.ResponseRecorder) string {
+	c := findCookie(rec.Result().Cookies(), flashCookieName)
+	if c == nil || c.Value == "" {
+		return ""
+	}
+	_, enc, ok := strings.Cut(c.Value, ":")
+	if !ok {
+		return ""
+	}
+	b, err := base64.RawURLEncoding.DecodeString(enc)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func TestPasswordChangeRevokesOtherSessions(t *testing.T) {

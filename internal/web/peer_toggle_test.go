@@ -38,7 +38,7 @@ func TestPeerToggleFromTheList(t *testing.T) {
 		t.Error("the peer should now be disabled")
 	}
 	// It is a model change, not a router command: the operator has to apply it.
-	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "apply") {
+	if loc := flashOf(rec); !strings.Contains(loc, "apply") {
 		t.Errorf("the flash should say an apply is needed, got %q", loc)
 	}
 

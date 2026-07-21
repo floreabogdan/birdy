@@ -292,8 +292,8 @@ func TestDeleteAttachedPolicyIsRefused(t *testing.T) {
 	}
 
 	rec := env.do(t, "POST", "/policies/IMPORT_SANITY/delete", nil)
-	if !strings.Contains(rec.Header().Get("Location"), "Could+not+delete") {
-		t.Errorf("expected a refusal flash, got %q", rec.Header().Get("Location"))
+	if !strings.Contains(flashOf(rec), "Could not delete") {
+		t.Errorf("expected a refusal flash, got %q", flashOf(rec))
 	}
 	if _, err := env.store.GetPolicyByName("IMPORT_SANITY"); err != nil {
 		t.Error("the policy must survive a refused delete")
@@ -354,8 +354,8 @@ func TestPrefixSetCreateAndDeleteGuard(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("code=%d", rec.Code)
 	}
-	if !strings.Contains(rec.Header().Get("Location"), "Could+not+delete") {
-		t.Errorf("expected a refusal flash, got %q", rec.Header().Get("Location"))
+	if !strings.Contains(flashOf(rec), "Could not delete") {
+		t.Errorf("expected a refusal flash, got %q", flashOf(rec))
 	}
 	if _, err := env.store.GetPrefixSetByName("MY_AGGREGATES"); err != nil {
 		t.Error("the set must survive a refused delete")

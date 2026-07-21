@@ -34,7 +34,7 @@ func (s *Server) handleUpdatesPage(w http.ResponseWriter, r *http.Request) {
 	view := updatesView{
 		Active: "updates", ReadOnly: s.readOnly, Channel: channel,
 		BuildVersion: buildinfo.Version, BuildCommit: buildinfo.Commit,
-		Flash: r.URL.Query().Get("flash"),
+		Flash: s.flashMsg(w, r),
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 9*time.Second)
 	defer cancel()
@@ -66,5 +66,5 @@ func (s *Server) handleUpdateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "Update channel changed to "+channel)
-	http.Redirect(w, r, "/updates?flash="+flash("Update channel saved"), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/updates", "Update channel saved", false)
 }

@@ -51,7 +51,7 @@ func (s *Server) handleASSetsList(w http.ResponseWriter, r *http.Request) {
 	render(w, s.log, "as_sets.html", asSetsView{
 		Active: "library", ReadOnly: s.readOnly, Bgpq4: s.bgpq4Bin != "", Sets: page, InUse: inUse,
 		Pager: pagerFor(r, offset, limit, len(page), len(sets)),
-		Flash: r.URL.Query().Get("flash"),
+		Flash: s.flashMsg(w, r),
 	})
 }
 
@@ -79,16 +79,16 @@ func (s *Server) handleASSetRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if as.Source == "" {
-		http.Redirect(w, r, "/library/as-sets?flash="+flash(as.Name+" has no IRR AS-SET to expand."), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/library/as-sets", as.Name+" has no IRR AS-SET to expand.", false)
 		return
 	}
 	client := irr.New(s.bgpq4Bin)
 	if !client.Available() {
-		http.Redirect(w, r, "/library/as-sets?flash="+flash("bgpq4 is not installed on the router, so "+as.Source+" cannot be expanded."), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/library/as-sets", "bgpq4 is not installed on the router, so "+as.Source+" cannot be expanded.", false)
 		return
 	}
 	msg := s.refreshOneASSet(r.Context(), client, as)
-	http.Redirect(w, r, "/library/as-sets?flash="+flash(msg), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/library/as-sets", msg, false)
 }
 
 func (s *Server) handleASSetSave(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +138,7 @@ func (s *Server) handleASSetSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(errs) == 0 {
-		http.Redirect(w, r, "/library/as-sets?flash="+flash("Saved "+as.Name), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/library/as-sets", "Saved "+as.Name, false)
 		return
 	}
 	s.renderASSetForm(w, asSetFormView{
@@ -152,10 +152,10 @@ func (s *Server) handleASSetDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.DeleteASSet(as.ID); err != nil {
-		http.Redirect(w, r, "/library/as-sets?flash="+flash("Could not delete "+as.Name+": "+err.Error()), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/library/as-sets", "Could not delete "+as.Name+": "+err.Error(), false)
 		return
 	}
-	http.Redirect(w, r, "/library/as-sets?flash="+flash("Deleted "+as.Name), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/library/as-sets", "Deleted "+as.Name, false)
 }
 
 func (s *Server) renderASSetForm(w http.ResponseWriter, v asSetFormView) {

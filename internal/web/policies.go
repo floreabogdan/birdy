@@ -71,7 +71,7 @@ func (s *Server) handlePoliciesList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v := policiesView{Active: "policies", ReadOnly: s.readOnly, InUse: inUse, SetNames: names,
-		Flash: r.URL.Query().Get("flash")}
+		Flash: s.flashMsg(w, r)}
 	var imports, exports []store.Policy
 	for _, p := range policies {
 		if p.IsImport() {
@@ -218,7 +218,7 @@ func (s *Server) handlePolicySave(w http.ResponseWriter, r *http.Request) {
 			verb = "created"
 		}
 		s.audit(r, verb+" policy "+p.Name)
-		http.Redirect(w, r, "/policies?flash="+flash("Saved "+p.Name), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/policies", "Saved "+p.Name, false)
 		return
 	}
 	s.renderPolicyForm(w, policyFormView{Active: "policies", ReadOnly: s.readOnly, IsNew: isNew, Policy: p, Errs: errs})
@@ -230,11 +230,11 @@ func (s *Server) handlePolicyDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.DeletePolicy(p.ID); err != nil {
-		http.Redirect(w, r, "/policies?flash="+flash("Could not delete "+p.Name+": "+err.Error()), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/policies", "Could not delete "+p.Name+": "+err.Error(), false)
 		return
 	}
 	s.audit(r, "deleted policy "+p.Name)
-	http.Redirect(w, r, "/policies?flash="+flash("Deleted "+p.Name), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/policies", "Deleted "+p.Name, false)
 }
 
 func (s *Server) renderPolicyForm(w http.ResponseWriter, v policyFormView) {

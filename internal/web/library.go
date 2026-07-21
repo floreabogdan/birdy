@@ -49,7 +49,7 @@ func (s *Server) handlePrefixSetsList(w http.ResponseWriter, r *http.Request) {
 	render(w, s.log, "prefix_sets.html", prefixSetsView{
 		Active: "library", ReadOnly: s.readOnly, Sets: page, InUse: inUse,
 		Pager: pagerFor(r, offset, limit, len(page), len(sets)),
-		Flash: r.URL.Query().Get("flash"),
+		Flash: s.flashMsg(w, r),
 	})
 }
 
@@ -141,7 +141,7 @@ func (s *Server) handlePrefixSetSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(errs) == 0 {
-		http.Redirect(w, r, "/library/prefix-sets?flash="+flash("Saved "+ps.Name), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/library/prefix-sets", "Saved "+ps.Name, false)
 		return
 	}
 	s.renderPrefixSetForm(w, prefixSetFormView{Active: "library", ReadOnly: s.readOnly, IsNew: isNew, Set: ps, Errs: errs})
@@ -155,10 +155,10 @@ func (s *Server) handlePrefixSetDelete(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.DeletePrefixSet(ps.ID); err != nil {
 		// Expected failures: still referenced by a policy, or a system set.
 		// Both are the user's to resolve, not a server fault.
-		http.Redirect(w, r, "/library/prefix-sets?flash="+flash("Could not delete "+ps.Name+": "+err.Error()), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/library/prefix-sets", "Could not delete "+ps.Name+": "+err.Error(), false)
 		return
 	}
-	http.Redirect(w, r, "/library/prefix-sets?flash="+flash("Deleted "+ps.Name), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/library/prefix-sets", "Deleted "+ps.Name, false)
 }
 
 // handlePrefixSetToggle switches a prefix set off (or back on) from the list, the
@@ -172,7 +172,7 @@ func (s *Server) handlePrefixSetToggle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if ps.System {
-		http.Redirect(w, r, "/library/prefix-sets?flash="+flash(ps.Name+" is a system set and cannot be disabled."), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/library/prefix-sets", ps.Name+" is a system set and cannot be disabled.", false)
 		return
 	}
 	if err := s.store.SetPrefixSetDisabled(ps.ID, !ps.Disabled); err != nil {
@@ -184,7 +184,7 @@ func (s *Server) handlePrefixSetToggle(w http.ResponseWriter, r *http.Request) {
 		verb = "Enabled"
 	}
 	s.audit(r, strings.ToLower(verb)+" prefix set "+ps.Name)
-	http.Redirect(w, r, "/library/prefix-sets?flash="+flash(verb+" "+ps.Name+" — review it under Changes and apply to take effect on the router."), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/library/prefix-sets", verb+" "+ps.Name+" — review it under Changes and apply to take effect on the router.", false)
 }
 
 func (s *Server) renderPrefixSetForm(w http.ResponseWriter, v prefixSetFormView) {

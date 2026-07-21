@@ -42,7 +42,7 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	render(w, s.log, "history.html", historyView{
-		Active: "changes", ReadOnly: s.readOnly, Flash: r.URL.Query().Get("flash"),
+		Active: "changes", ReadOnly: s.readOnly, Flash: s.flashMsg(w, r),
 		Versions: versions,
 		Pager:    pagerFor(r, offset, limit, len(versions), total),
 	})

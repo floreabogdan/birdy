@@ -1,8 +1,8 @@
 package web
 
 import (
+	"encoding/base64"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -63,8 +63,70 @@ func (s *Server) audit(r *http.Request, message string) {
 	}
 }
 
-// flash builds the ?flash= value for a post-redirect-get confirmation.
-func flash(msg string) string { return url.QueryEscape(msg) }
+// Flash messages travel in a short-lived cookie, not a ?flash= query param, so a
+// post-redirect-get confirmation no longer lingers in the address bar, re-appears
+// on refresh, or bloats the URL with multi-line bird -p output.
+const flashCookieName = "birdy_flash"
+
+// setFlash stashes a one-shot message for the page a redirect lands on. isErr
+// selects error styling there.
+func (s *Server) setFlash(w http.ResponseWriter, r *http.Request, msg string, isErr bool) {
+	kind := "ok"
+	if isErr {
+		kind = "err"
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     flashCookieName,
+		Value:    kind + ":" + base64.RawURLEncoding.EncodeToString([]byte(msg)),
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   s.cookieSecure(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   120,
+	})
+}
+
+// takeFlash reads and immediately clears the flash cookie, returning the message
+// and whether it is an error. Clearing it is what makes the message show once and
+// not survive a refresh; call it once, when rendering the landing page.
+func (s *Server) takeFlash(w http.ResponseWriter, r *http.Request) (msg string, isErr bool) {
+	c, err := r.Cookie(flashCookieName)
+	if err != nil || c.Value == "" {
+		return "", false
+	}
+	http.SetCookie(w, &http.Cookie{Name: flashCookieName, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1})
+	kind, enc, ok := strings.Cut(c.Value, ":")
+	if !ok {
+		return "", false
+	}
+	b, derr := base64.RawURLEncoding.DecodeString(enc)
+	if derr != nil {
+		return "", false
+	}
+	return string(b), kind == "err"
+}
+
+// flashRedirect stashes a flash message and redirects (See Other) to path.
+func (s *Server) flashRedirect(w http.ResponseWriter, r *http.Request, path, msg string, isErr bool) {
+	s.setFlash(w, r, msg, isErr)
+	http.Redirect(w, r, path, http.StatusSeeOther)
+}
+
+// flashMsg takes the flash for a page with a single, neutral message slot.
+func (s *Server) flashMsg(w http.ResponseWriter, r *http.Request) string {
+	m, _ := s.takeFlash(w, r)
+	return m
+}
+
+// flashSplit takes the flash and routes it into (neutral, error) slots for pages
+// that style success and error messages differently.
+func (s *Server) flashSplit(w http.ResponseWriter, r *http.Request) (msg, errMsg string) {
+	m, isErr := s.takeFlash(w, r)
+	if isErr {
+		return "", m
+	}
+	return m, ""
+}
 
 // tabParam resolves ?tab= against the tabs a page actually has, defaulting to
 // the first. An unknown value is a stale bookmark, not an error worth a 404.

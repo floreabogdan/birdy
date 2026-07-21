@@ -233,7 +233,7 @@ func TestApplyRefusesForeignConfig(t *testing.T) {
 	// applied_config_hash is empty, so this file is foreign.
 
 	rec := env.do(t, "POST", "/apply", nil)
-	loc := rec.Header().Get("Location")
+	loc := flashOf(rec)
 	if !strings.Contains(loc, "adopt") {
 		t.Fatalf("apply should refuse a foreign config, redirect=%q", loc)
 	}
@@ -301,7 +301,7 @@ func TestApplyRefusesSecondPending(t *testing.T) {
 	env.do(t, "POST", "/apply", nil)
 
 	rec := env.do(t, "POST", "/apply", nil)
-	loc := rec.Header().Get("Location")
+	loc := flashOf(rec)
 	if !strings.Contains(loc, "pending") {
 		t.Fatalf("a second apply should be refused while one is pending, redirect=%q", loc)
 	}
@@ -315,7 +315,7 @@ func TestApplyNoopWhenInSync(t *testing.T) {
 
 	env.fc.calls = nil
 	rec := env.do(t, "POST", "/apply", nil)
-	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "Already+applied") {
+	if loc := flashOf(rec); !strings.Contains(loc, "Already applied") {
 		t.Fatalf("re-applying an unchanged config should be a no-op, redirect=%q", loc)
 	}
 	if len(env.fc.calls) != 0 {
@@ -462,7 +462,7 @@ func TestApplySoftReloadIssueSurfaced(t *testing.T) {
 	}
 	// The heads-up rides the flash, URL-escaped into the redirect. "restart" carries
 	// no characters that escaping would alter, so match on it directly.
-	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "restart") {
+	if loc := flashOf(rec); !strings.Contains(loc, "restart") {
 		t.Errorf("operator should be warned a peer could not be refreshed, redirect=%q", loc)
 	}
 }

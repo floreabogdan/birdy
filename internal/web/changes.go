@@ -211,7 +211,7 @@ func (s *Server) handleChanges(w http.ResponseWriter, r *http.Request) {
 		Active:       "changes",
 		ReadOnly:     s.readOnly,
 		LivePath:     s.birdConfPath,
-		Flash:        r.URL.Query().Get("flash"),
+		Flash:        s.flashMsg(w, r),
 		Tab:          tabParam(r, "config", "diff"),
 		ApplyTimeout: s.applyTimeout,
 	}

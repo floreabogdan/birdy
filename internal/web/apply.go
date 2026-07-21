@@ -772,5 +772,5 @@ func (s *Server) handleAdopt(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) redirectChanges(w http.ResponseWriter, r *http.Request, msg string) {
-	http.Redirect(w, r, "/changes?flash="+flash(msg), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/changes", msg, false)
 }

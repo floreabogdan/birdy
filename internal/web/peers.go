@@ -71,7 +71,7 @@ func (s *Server) handlePeersList(w http.ResponseWriter, r *http.Request) {
 	render(w, s.log, "peers.html", peersView{
 		Active: "peers", ReadOnly: s.readOnly, Peers: page, Live: s.liveStates(),
 		Pager: pagerFor(r, offset, limit, len(page), len(peers)),
-		Flash: r.URL.Query().Get("flash"),
+		Flash: s.flashMsg(w, r),
 	})
 }
 
@@ -219,7 +219,7 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 			verb = "created"
 		}
 		s.audit(r, verb+" peer "+p.Name)
-		http.Redirect(w, r, "/peers?flash="+flash("Saved "+p.Name), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/peers", "Saved "+p.Name, false)
 		return
 	}
 
@@ -269,7 +269,7 @@ func (s *Server) handlePeerDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "deleted peer "+p.Name)
-	http.Redirect(w, r, "/peers?flash="+flash("Deleted "+p.Name), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/peers", "Deleted "+p.Name, false)
 }
 
 // handlePeerToggle switches a peer off (or back on) straight from the list,
@@ -295,7 +295,7 @@ func (s *Server) handlePeerToggle(w http.ResponseWriter, r *http.Request) {
 		verb = "Enabled"
 	}
 	s.audit(r, strings.ToLower(verb)+" peer "+p.Name)
-	http.Redirect(w, r, "/peers?flash="+flash(verb+" "+p.Name+" — review it under Changes and apply to take effect on the router."), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/peers", verb+" "+p.Name+" — review it under Changes and apply to take effect on the router.", false)
 }
 
 // renderPeerForm fills in the live BIRD-code preview and the lint findings

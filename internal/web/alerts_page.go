@@ -88,7 +88,7 @@ func (s *Server) handleAlertSave(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "save alert destination", err)
 		return
 	}
-	settingsRedirect(w, r, "alerts", "Saved "+d.Name)
+	s.settingsRedirect(w, r, "alerts", "Saved "+d.Name)
 }
 
 func (s *Server) handleAlertDelete(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +100,7 @@ func (s *Server) handleAlertDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "delete alert destination", err)
 		return
 	}
-	settingsRedirect(w, r, "alerts", "Deleted "+d.Name)
+	s.settingsRedirect(w, r, "alerts", "Deleted "+d.Name)
 }
 
 // handleAlertTest sends a synthetic alert to one destination and reports the
@@ -111,10 +111,10 @@ func (s *Server) handleAlertTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if terr := notify.NewDispatcher(s.store, s.log, 0).SendTest(d); terr != nil {
-		http.Redirect(w, r, "/settings?tab=alerts&err="+flash("Test to "+d.Name+" failed: "+terr.Error()), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/settings?tab=alerts", "Test to "+d.Name+" failed: "+terr.Error(), true)
 		return
 	}
-	settingsRedirect(w, r, "alerts", "Test alert sent to "+d.Name)
+	s.settingsRedirect(w, r, "alerts", "Test alert sent to "+d.Name)
 }
 
 func alertFromForm(r *http.Request) store.Destination {

@@ -107,8 +107,8 @@ func TestDeleteASSetInUseIsRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	rec := env.do(t, "POST", "/library/as-sets/AS_CUST/delete", nil)
-	if !strings.Contains(rec.Header().Get("Location"), "Could+not+delete") {
-		t.Errorf("expected a refusal flash, got %q", rec.Header().Get("Location"))
+	if !strings.Contains(flashOf(rec), "Could not delete") {
+		t.Errorf("expected a refusal flash, got %q", flashOf(rec))
 	}
 	if _, err := env.store.GetASSetByName("AS_CUST"); err != nil {
 		t.Error("the AS set must survive a refused delete")

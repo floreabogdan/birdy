@@ -71,7 +71,7 @@ func (s *Server) handleProfilePage(w http.ResponseWriter, r *http.Request) {
 	}
 	s.renderProfile(w, profileView{
 		Active: "profile", ReadOnly: s.readOnly,
-		Username: u.Username, Msg: r.URL.Query().Get("flash"),
+		Username: u.Username, Msg: s.flashMsg(w, r),
 	})
 }
 
@@ -94,7 +94,7 @@ func (s *Server) handleProfileIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if username == u.Username {
-		http.Redirect(w, r, "/profile?flash="+flash("Username unchanged"), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/profile", "Username unchanged", false)
 		return
 	}
 	if err := s.store.SetUsername(u.ID, username); err != nil {
@@ -106,7 +106,7 @@ func (s *Server) handleProfileIdentity(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "set username", err)
 		return
 	}
-	http.Redirect(w, r, "/profile?flash="+flash("Username updated"), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/profile", "Username updated", false)
 }
 
 // handleProfilePassword changes the password. It re-checks the current password
@@ -158,7 +158,7 @@ func (s *Server) handleProfilePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setSessionCookie(w, token, s.cookieSecure(r))
-	http.Redirect(w, r, "/profile?flash="+flash("Password changed; other sessions signed out"), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/profile", "Password changed; other sessions signed out", false)
 }
 
 func (s *Server) renderProfile(w http.ResponseWriter, v profileView) {

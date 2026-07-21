@@ -165,7 +165,8 @@ func (s *Server) handleInstancesPage(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "list instances", err)
 		return
 	}
-	v := instancesPageView{Active: "instances", ReadOnly: s.readOnly, LocalName: s.localInstanceName(), Items: items, Msg: r.URL.Query().Get("flash"), Err: r.URL.Query().Get("err")}
+	fMsg, fErr := s.flashSplit(w, r)
+	v := instancesPageView{Active: "instances", ReadOnly: s.readOnly, LocalName: s.localInstanceName(), Items: items, Msg: fMsg, Err: fErr}
 	for _, item := range items {
 		switch item.Status {
 		case "healthy":
@@ -281,31 +282,31 @@ func (s *Server) handleInstanceAdd(w http.ResponseWriter, r *http.Request) {
 	tags, tagErr := normalizeInstanceTags(r.FormValue("tags"))
 	baseURL, urlErr := validateInstanceURL(r.FormValue("baseURL"))
 	if name == "" || len(name) > 64 || strings.ContainsAny(name, "\r\n") {
-		http.Redirect(w, r, "/instances?err="+flash("Enter a unique name of 64 characters or fewer"), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/instances", "Enter a unique name of 64 characters or fewer", true)
 		return
 	}
 	if urlErr != nil {
-		http.Redirect(w, r, "/instances?err="+flash(urlErr.Error()), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/instances", urlErr.Error(), true)
 		return
 	}
 	if len(token) < 32 || len(token) > 4096 {
-		http.Redirect(w, r, "/instances?err="+flash("The read-only API token looks invalid"), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/instances", "The read-only API token looks invalid", true)
 		return
 	}
 	if tagErr != nil || len(groupName) > 64 || strings.ContainsAny(groupName, "\r\n") {
-		http.Redirect(w, r, "/instances?err="+flash("Group and tags are limited to short single-line values"), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/instances", "Group and tags are limited to short single-line values", true)
 		return
 	}
 	if _, err := s.store.CreateInstanceWithMetadata(name, baseURL, token, groupName, tags); err != nil {
 		if isUniqueViolation(err) {
-			http.Redirect(w, r, "/instances?err="+flash("That instance name is already in use"), http.StatusSeeOther)
+			s.flashRedirect(w, r, "/instances", "That instance name is already in use", true)
 			return
 		}
 		s.serverError(w, "create instance", err)
 		return
 	}
 	s.audit(r, "Added remote Birdy instance "+name)
-	http.Redirect(w, r, "/instances?flash="+flash("Instance added"), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/instances", "Instance added", false)
 }
 
 func (s *Server) handleInstanceMetadata(w http.ResponseWriter, r *http.Request) {
@@ -329,7 +330,7 @@ func (s *Server) handleInstanceMetadata(w http.ResponseWriter, r *http.Request) 
 	groupName := strings.TrimSpace(r.FormValue("group"))
 	tags, tagErr := normalizeInstanceTags(r.FormValue("tags"))
 	if tagErr != nil || len(groupName) > 64 || strings.ContainsAny(groupName, "\r\n") {
-		http.Redirect(w, r, "/instances?err="+flash("Group and tags are limited to short single-line values"), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/instances", "Group and tags are limited to short single-line values", true)
 		return
 	}
 	if err := s.store.UpdateInstanceMetadata(id, groupName, tags); err != nil {
@@ -337,7 +338,7 @@ func (s *Server) handleInstanceMetadata(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.audit(r, "Updated metadata for remote Birdy instance")
-	http.Redirect(w, r, "/instances?flash="+flash("Instance metadata saved"), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/instances", "Instance metadata saved", false)
 }
 
 func (s *Server) handleInstanceDelete(w http.ResponseWriter, r *http.Request) {
@@ -363,7 +364,7 @@ func (s *Server) handleInstanceDelete(w http.ResponseWriter, r *http.Request) {
 		setSelectedInstance(w, 0, s.cookieSecure(r))
 	}
 	s.audit(r, "Removed remote Birdy instance "+instance.Name)
-	http.Redirect(w, r, "/instances?flash="+flash("Instance removed"), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/instances", "Instance removed", false)
 }
 
 func (s *Server) handleInstanceRename(w http.ResponseWriter, r *http.Request) {
@@ -387,19 +388,19 @@ func (s *Server) handleInstanceRename(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
 	if name == "" || len(name) > 64 || strings.ContainsAny(name, "\r\n") {
-		http.Redirect(w, r, "/instances?err="+flash("Use a friendly name of 1 to 64 characters"), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/instances", "Use a friendly name of 1 to 64 characters", true)
 		return
 	}
 	if err := s.store.RenameInstance(id, name); err != nil {
 		if isUniqueViolation(err) {
-			http.Redirect(w, r, "/instances?err="+flash("That instance name is already in use"), http.StatusSeeOther)
+			s.flashRedirect(w, r, "/instances", "That instance name is already in use", true)
 			return
 		}
 		s.serverError(w, "rename instance", err)
 		return
 	}
 	s.audit(r, "Renamed remote Birdy instance "+instance.Name+" to "+name)
-	http.Redirect(w, r, "/instances?flash="+flash("Instance renamed"), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/instances", "Instance renamed", false)
 }
 
 func (s *Server) handleLocalInstanceRename(w http.ResponseWriter, r *http.Request) {
@@ -413,7 +414,7 @@ func (s *Server) handleLocalInstanceRename(w http.ResponseWriter, r *http.Reques
 	}
 	name := strings.TrimSpace(r.FormValue("name"))
 	if name == "" || len(name) > 64 || strings.ContainsAny(name, "\r\n") {
-		http.Redirect(w, r, "/instances?err="+flash("Use a friendly name of 1 to 64 characters"), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/instances", "Use a friendly name of 1 to 64 characters", true)
 		return
 	}
 	settings, ok, err := s.store.GetSettings()
@@ -428,18 +429,18 @@ func (s *Server) handleLocalInstanceRename(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	s.audit(r, "Renamed local Birdy instance "+old+" to "+name)
-	http.Redirect(w, r, "/instances?flash="+flash("Local instance renamed"), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/instances", "Local instance renamed", false)
 }
 
 func (s *Server) handleInstanceSelect(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.URL.Query().Get("id"), 10, 64)
 	if err != nil || id < 0 {
-		http.Redirect(w, r, "/?err="+flash("Unknown Birdy instance"), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/", "Unknown Birdy instance", true)
 		return
 	}
 	if id > 0 {
 		if _, ok, err := s.store.GetInstance(id); err != nil || !ok {
-			http.Redirect(w, r, "/?err="+flash("Unknown Birdy instance"), http.StatusSeeOther)
+			s.flashRedirect(w, r, "/", "Unknown Birdy instance", true)
 			return
 		}
 	}
@@ -611,7 +612,7 @@ func (s *Server) handleSettingsInstanceTokenRevoke(w http.ResponseWriter, r *htt
 		return
 	}
 	s.audit(r, "Revoked the read-only instance API token")
-	http.Redirect(w, r, "/settings?tab=general&flash="+flash("Remote dashboard token revoked"), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/settings?tab=general", "Remote dashboard token revoked", false)
 }
 
 func (s *Server) handleSettingsInstanceTokenRevokeOne(w http.ResponseWriter, r *http.Request) {
@@ -629,5 +630,5 @@ func (s *Server) handleSettingsInstanceTokenRevokeOne(w http.ResponseWriter, r *
 		return
 	}
 	s.audit(r, "Revoked a read-only instance API token")
-	http.Redirect(w, r, "/settings?tab=general&flash="+flash("Remote dashboard token revoked"), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/settings?tab=general", "Remote dashboard token revoked", false)
 }

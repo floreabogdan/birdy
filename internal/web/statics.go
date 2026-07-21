@@ -38,7 +38,7 @@ func (s *Server) handleStaticRoutesList(w http.ResponseWriter, r *http.Request) 
 	render(w, s.log, "static_routes.html", staticRoutesView{
 		Active: "library", ReadOnly: s.readOnly, Routes: page,
 		Pager: pagerFor(r, offset, limit, len(page), len(routes)),
-		Flash: r.URL.Query().Get("flash"),
+		Flash: s.flashMsg(w, r),
 	})
 }
 
@@ -106,7 +106,7 @@ func (s *Server) handleStaticRouteSave(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "save static route", err)
 		return
 	}
-	http.Redirect(w, r, "/library/static-routes?flash="+flash("Saved "+route.Prefix), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/library/static-routes", "Saved "+route.Prefix, false)
 }
 
 func (s *Server) handleStaticRouteDelete(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +118,7 @@ func (s *Server) handleStaticRouteDelete(w http.ResponseWriter, r *http.Request)
 		s.serverError(w, "delete static route", err)
 		return
 	}
-	http.Redirect(w, r, "/library/static-routes?flash="+flash("Deleted "+route.Prefix), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/library/static-routes", "Deleted "+route.Prefix, false)
 }
 
 // staticRouteFromPath resolves {id}. Static routes are addressed by id, not by

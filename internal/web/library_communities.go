@@ -39,7 +39,7 @@ func (s *Server) handleCommunitiesList(w http.ResponseWriter, r *http.Request) {
 	render(w, s.log, "communities.html", communitiesView{
 		Active: "library", ReadOnly: s.readOnly, Defs: page,
 		Pager: pagerFor(r, offset, limit, len(page), len(defs)),
-		Flash: r.URL.Query().Get("flash"),
+		Flash: s.flashMsg(w, r),
 	})
 }
 
@@ -117,7 +117,7 @@ func (s *Server) handleCommunitySave(w http.ResponseWriter, r *http.Request) {
 			verb = "created"
 		}
 		s.audit(r, verb+" community "+cd.Name)
-		http.Redirect(w, r, "/library/communities?flash="+flash("Saved "+cd.Name), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/library/communities", "Saved "+cd.Name, false)
 		return
 	}
 	s.renderCommunityForm(w, communityFormView{
@@ -134,8 +134,7 @@ func (s *Server) handleCommunityDelete(w http.ResponseWriter, r *http.Request) {
 	// Refuse to delete a community a peer or policy still references by name, or
 	// the next render would emit an undefined symbol.
 	if users, err := s.communityInUse(cd.Name); err == nil && len(users) > 0 {
-		http.Redirect(w, r, "/library/communities?flash="+
-			flash("Could not delete "+cd.Name+": still used by "+strings.Join(users, ", ")), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/library/communities", "Could not delete "+cd.Name+": still used by "+strings.Join(users, ", "), false)
 		return
 	}
 	if err := s.store.DeleteCommunityDef(cd.ID); err != nil {
@@ -143,7 +142,7 @@ func (s *Server) handleCommunityDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "deleted community "+cd.Name)
-	http.Redirect(w, r, "/library/communities?flash="+flash("Deleted "+cd.Name), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/library/communities", "Deleted "+cd.Name, false)
 }
 
 // checkCommunityRefs returns a field error if a named community referenced in

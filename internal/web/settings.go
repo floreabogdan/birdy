@@ -62,18 +62,19 @@ type SettingsView struct {
 var settingsTabs = []string{"general", "theme", "bogons", "access", "alerts", "advanced"}
 
 func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
+	fMsg, fErr := s.flashSplit(w, r)
 	s.renderSettings(w, SettingsView{
 		Active: "settings", ReadOnly: s.readOnly,
 		Tab: tabParam(r, settingsTabs...),
-		Msg: r.URL.Query().Get("flash"), Err: r.URL.Query().Get("err"),
+		Msg: fMsg, Err: fErr,
 		ConnectingIP: clientAddr(r).String(),
 	})
 }
 
 // settingsRedirect returns to a specific Settings tab with a flash message, so a
 // save keeps the operator on the panel they were editing.
-func settingsRedirect(w http.ResponseWriter, r *http.Request, tab, msg string) {
-	http.Redirect(w, r, "/settings?tab="+tab+"&flash="+flash(msg), http.StatusSeeOther)
+func (s *Server) settingsRedirect(w http.ResponseWriter, r *http.Request, tab, msg string) {
+	s.flashRedirect(w, r, "/settings?tab="+tab, msg, false)
 }
 
 func (s *Server) renderSettings(w http.ResponseWriter, v SettingsView) {
@@ -212,7 +213,7 @@ func (s *Server) handleSettingsBogons(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "save bogon ASNs", err)
 		return
 	}
-	settingsRedirect(w, r, "bogons", "Bogon lists saved")
+	s.settingsRedirect(w, r, "bogons", "Bogon lists saved")
 }
 
 // parseEntries reads the prefix textarea, ignoring blanks and # comments.
@@ -314,7 +315,7 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 		s.serverError(w, "save settings", err)
 		return
 	}
-	settingsRedirect(w, r, "general", "Router identity saved")
+	s.settingsRedirect(w, r, "general", "Router identity saved")
 }
 
 // maxRawConfig bounds the escape hatch. It is a router config, not a document;
@@ -382,7 +383,7 @@ func (s *Server) handleSettingsRaw(w http.ResponseWriter, r *http.Request) {
 	if unchecked {
 		msg = "Raw config saved, but not checked: " + reason
 	}
-	settingsRedirect(w, r, "advanced", msg)
+	s.settingsRedirect(w, r, "advanced", msg)
 }
 
 // handleSettingsAccess saves the access whitelist. It is a birdy setting, not a
@@ -418,7 +419,7 @@ func (s *Server) handleSettingsAccess(w http.ResponseWriter, r *http.Request) {
 			" is not in it. You can still reach birdy over an SSH tunnel (loopback is always allowed)."
 	}
 	s.audit(r, "updated the access whitelist")
-	settingsRedirect(w, r, "access", msg)
+	s.settingsRedirect(w, r, "access", msg)
 }
 
 // apiSnapshotDownload always produces a fresh, consistent snapshot on demand

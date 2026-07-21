@@ -88,7 +88,7 @@ func (s *Server) handleRPKIPage(w http.ResponseWriter, r *http.Request) {
 	serverPage := pageSlice(servers, sOff, sLimit)
 	v := rpkiView{Active: "rpki", ReadOnly: s.readOnly, Servers: serverPage,
 		ServerPager: pagerForNamed(r, "soffset", sOff, sLimit, len(serverPage), len(servers)),
-		Live:        s.liveStates(), Flash: r.URL.Query().Get("flash")}
+		Live:        s.liveStates(), Flash: s.flashMsg(w, r)}
 	// Which peers ride on each import policy. A policy that validates nothing but
 	// carries every session is a very different thing from one nobody uses, and the
 	// old list of names could not tell them apart.
@@ -227,7 +227,7 @@ func (s *Server) handleRPKISave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(errs) == 0 {
-		http.Redirect(w, r, "/rpki?flash="+flash("Saved "+srv.Name), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/rpki", "Saved "+srv.Name, false)
 		return
 	}
 	render(w, s.log, "rpki_form.html", rpkiFormView{Active: "rpki", ReadOnly: s.readOnly, IsNew: isNew, Server: srv, Errs: errs})
@@ -269,7 +269,7 @@ func (s *Server) handleRPKIDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if srv.Enabled {
 		if msg := s.lastEnabledServerGuard(srv); msg != "" {
-			http.Redirect(w, r, "/rpki?flash="+flash("Could not delete "+srv.Name+": "+msg), http.StatusSeeOther)
+			s.flashRedirect(w, r, "/rpki", "Could not delete "+srv.Name+": "+msg, false)
 			return
 		}
 	}
@@ -277,5 +277,5 @@ func (s *Server) handleRPKIDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "delete RPKI server", err)
 		return
 	}
-	http.Redirect(w, r, "/rpki?flash="+flash("Deleted "+srv.Name), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/rpki", "Deleted "+srv.Name, false)
 }

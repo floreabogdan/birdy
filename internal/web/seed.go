@@ -237,7 +237,7 @@ func (s *Server) handleSeedSave(w http.ResponseWriter, r *http.Request) {
 	if len(skipped) > 0 {
 		msg += fmt.Sprintf("; skipped %d (%s)", len(skipped), strings.Join(skipped, ", "))
 	}
-	http.Redirect(w, r, "/peers?flash="+flash(msg), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/peers", msg, false)
 }
 
 // peerRoleValid guards a posted role before it reaches a peer, so the form

@@ -108,8 +108,8 @@ func TestDisablingTheLastServerWhileValidatingIsRefused(t *testing.T) {
 
 	// Deleting it is refused for the same reason.
 	del := env.do(t, "POST", "/rpki/cloudflare/delete", nil)
-	if !strings.Contains(del.Header().Get("Location"), "Could+not+delete") {
-		t.Errorf("expected a refusal flash, got %q", del.Header().Get("Location"))
+	if !strings.Contains(flashOf(del), "Could not delete") {
+		t.Errorf("expected a refusal flash, got %q", flashOf(del))
 	}
 }
 

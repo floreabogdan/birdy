@@ -37,7 +37,7 @@ func (s *Server) handleBMPPage(w http.ResponseWriter, r *http.Request) {
 	render(w, s.log, "bmp.html", bmpView{
 		Active: "bmp", ReadOnly: s.readOnly, Stations: page,
 		Live: s.liveStates(), Pager: pagerFor(r, offset, limit, len(page), len(stations)),
-		Flash: r.URL.Query().Get("flash"),
+		Flash: s.flashMsg(w, r),
 	})
 }
 
@@ -103,7 +103,7 @@ func (s *Server) handleBMPSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(errs) == 0 {
-		http.Redirect(w, r, "/bmp?flash="+flash("Saved "+st.Name), http.StatusSeeOther)
+		s.flashRedirect(w, r, "/bmp", "Saved "+st.Name, false)
 		return
 	}
 	render(w, s.log, "bmp_form.html", bmpFormView{Active: "bmp", ReadOnly: s.readOnly, IsNew: isNew, Station: st, Errs: errs})
@@ -118,5 +118,5 @@ func (s *Server) handleBMPDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "delete BMP station", err)
 		return
 	}
-	http.Redirect(w, r, "/bmp?flash="+flash("Deleted "+st.Name), http.StatusSeeOther)
+	s.flashRedirect(w, r, "/bmp", "Deleted "+st.Name, false)
 }
