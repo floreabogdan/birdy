@@ -576,6 +576,10 @@ svg.sparkline[data-spark] { cursor: crosshair; }
 .tab-btn { font-weight: 500; }
 .tab-btn.active { background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); color: #fff; }
 .card-body { padding: 18px; }
+/* Two-column layout (Instances, Updates). Was referenced in the templates but
+   never defined, so the cards fell back to block flow and stacked full-width. */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: start; }
+@media (max-width: 1000px) { .grid-2 { grid-template-columns: 1fr; } }
 .instances-layout { align-items: start; }
 .instances-list { display: grid; gap: var(--space-1); }
 .instance-filters { display: flex; gap: var(--space-2); margin-bottom: 12px; }
@@ -587,8 +591,16 @@ svg.sparkline[data-spark] { cursor: crosshair; }
 .instance-item > div { display: grid; gap: 3px; min-width: 0; flex: 1; }
 .instance-rename { display: grid; gap: 3px; min-width: 0; flex: 1; }
 .instance-name-line { display: flex; align-items: center; gap: 6px; }
-.instance-name-line input { min-width: 0; padding: 5px 8px; font-weight: 600; background: transparent; border-color: transparent; }
-.instance-name-line input:hover, .instance-name-line input:focus { background: var(--surface-alt); border-color: var(--border); }
+/* An inline-edit field: transparent until hovered/focused, sized to the name
+   rather than stretching the row. The extra specificity is deliberate — it has to
+   beat the base input rule (width:100%, solid border) and the modern min-height. */
+.instances-list .instance-name-line input[type=text] {
+	width: auto; max-width: 100%; min-width: 60px; flex: 0 1 auto; min-height: 0;
+	padding: 4px 8px; font-weight: 600; font-size: var(--fs-sm);
+	background: transparent; border-color: transparent;
+}
+.instances-list .instance-name-line input[type=text]:hover,
+.instances-list .instance-name-line input[type=text]:focus { background: var(--surface-alt); border-color: var(--border); }
 .instance-name-line .icon-action { width: 28px; height: 28px; opacity: 0; transition: opacity 0.12s ease; }
 .instance-item:hover .instance-name-line .icon-action, .instance-name-line input:focus + .icon-action { opacity: 1; }
 .instance-item small { color: var(--text-muted); overflow-wrap: anywhere; }
