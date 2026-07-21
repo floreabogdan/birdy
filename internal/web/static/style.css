@@ -576,20 +576,16 @@ svg.sparkline[data-spark] { cursor: crosshair; }
 .tab-btn { font-weight: 500; }
 .tab-btn.active { background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); color: #fff; }
 .card-body { padding: 18px; }
-/* Two-column layout (Instances, Updates). Was referenced in the templates but
-   never defined, so the cards fell back to block flow and stacked full-width. */
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); align-items: start; }
-@media (max-width: 1000px) { .grid-2 { grid-template-columns: 1fr; } }
 .instances-layout { align-items: start; }
 .instances-list { display: grid; gap: var(--space-1); }
-.instance-filters { display: flex; gap: var(--space-2); margin-bottom: 12px; }
+.instance-filters { display: flex; gap: var(--space-2); margin-bottom: 12px; max-width: 640px; }
 .instance-filters input { min-width: 0; flex: 1; }
 .instance-filters select { width: auto; min-width: 130px; }
 .instance-item[hidden] { display: none; }
 .instance-item { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .instance-item:last-child { border-bottom: 0; }
 .instance-item > div { display: grid; gap: 3px; min-width: 0; flex: 1; }
-.instance-rename { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.instance-rename { display: grid; gap: 3px; min-width: 0; flex: 0 1 auto; }
 .instance-name-line { display: flex; align-items: center; gap: 6px; }
 /* An inline-edit field: transparent until hovered/focused, sized to the name
    rather than stretching the row. The extra specificity is deliberate — it has to
