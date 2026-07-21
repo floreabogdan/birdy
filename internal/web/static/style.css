@@ -1200,6 +1200,11 @@ textarea {
 .unsaved-bar small { color: var(--text-muted); font-size: 0.6875rem; }
 .timeline-item { display: flex; gap: 12px; padding: 11px 18px; border-bottom: 1px solid var(--border); font-size: 0.8125rem; align-items: center; }
 .timeline-item:last-child { border-bottom: none; }
+/* Events not yet seen in this browser: a left accent bar + a leading dot, set by
+   timeline.js against the same "seen" marker the top-bar bell uses. */
+.timeline-item.is-new { background: color-mix(in srgb, var(--primary) 8%, transparent); box-shadow: inset 3px 0 0 var(--primary); }
+.timeline-new-dot { display: none; }
+.timeline-item.is-new .timeline-new-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); margin-right: 7px; vertical-align: middle; }
 .timeline-time { color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; width: 150px; flex-shrink: 0; font-size: 0.75rem; }
 .timeline-time .rel { font-size: 0.6875rem; opacity: 0.75; margin-top: 1px; }
 

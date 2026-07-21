@@ -135,8 +135,11 @@
 	});
 
 	// ---- notification bell + BIRD connection dot ----
-	// Real state polled lightly on every authenticated page: count of
-	// currently-down sessions, and whether the last BIRD poll succeeded.
+	// The bell is an unread-alerts counter: how many fault events are newer than
+	// the highest event id this browser has already seen (SEEN_KEY in
+	// localStorage). Opening the Timeline advances that marker (see timeline.js),
+	// which clears the bell. The connection dot reflects the last poll outcome.
+	var SEEN_KEY = "birdyAlertsSeen";
 	var pill = document.getElementById("notif-pill");
 	var connDot = document.getElementById("bird-conn");
 	var connLabel = document.getElementById("bird-conn-label");
@@ -144,28 +147,34 @@
 		if (connDot) connDot.className = "conn-dot " + cls;
 		if (connLabel) connLabel.textContent = text;
 	}
+	function getSeen() { return Number(localStorage.getItem(SEEN_KEY) || 0); }
+	function setSeen(id) { try { localStorage.setItem(SEEN_KEY, String(id)); } catch (e) { /* private mode */ } }
 	function poll() {
 		if (selector && selector.value !== "0") {
 			setConn("ok", "remote dashboard");
 			return;
 		}
-		fetch("/api/alerts/summary", { credentials: "same-origin" })
+		var hadMarker = localStorage.getItem(SEEN_KEY) !== null;
+		fetch("/api/alerts/summary?since=" + getSeen(), { credentials: "same-origin" })
 			.then(function (r) { return r.ok ? r.json() : null; })
 			.then(function (data) {
 				if (!data) { setConn("bad", "birdy unreachable"); return; }
+				// First run in this browser: treat everything already on record as
+				// seen, so the bell only lights for what happens from now on.
+				if (!hadMarker) setSeen(data.latestEventId);
 				if (pill) {
-					if (data.downCount > 0) {
-						pill.textContent = data.downCount > 99 ? "99+" : String(data.downCount);
+					// Re-read the marker: the Timeline page may have advanced it while
+					// this request was in flight. If we have caught up to the latest
+					// event, there is nothing unread regardless of the server's count.
+					var unread = getSeen() >= data.latestEventId ? 0 : data.unread;
+					if (unread > 0) {
+						pill.textContent = unread > 99 ? "99+" : String(unread);
 						pill.style.display = "";
 					} else {
 						pill.style.display = "none";
 					}
 				}
-				if (data.pollOK) {
-					setConn("ok", "BIRD connected");
-				} else {
-					setConn("bad", "BIRD unreachable");
-				}
+				setConn(data.pollOK ? "ok" : "bad", data.pollOK ? "BIRD connected" : "BIRD unreachable");
 			})
 			.catch(function () { setConn("bad", "birdy unreachable"); });
 	}

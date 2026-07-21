@@ -18,6 +18,17 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   as before; the choice only governs the empty-chain fallback and is ignored the
   moment an export policy is attached.
 
+### Changed
+- **The top-bar bell is an unread-alerts counter, not a live down-gauge.** It used
+  to show the number of currently-down sessions — which counted a peer you
+  *disabled on purpose*, so the badge stuck at "1" and reappeared on every poll.
+  The bell now counts the fault events (session down, flap, import-limit hit,
+  prefix drop, config drift, BIRD unreachable) you have not seen yet; opening the
+  Timeline marks them seen and clears the badge, and the Timeline now accents the
+  events that are new since your last visit. A disabled peer records no event, so
+  it can never light the bell. "Seen" is tracked per browser; your own config
+  applies and model edits, and a session coming back up, do not count.
+
 ### Security
 - **A blackhole is honoured only for a host route the peer is authorised to
   hold.** With RFC 7999 blackhole acceptance enabled on an import policy, the

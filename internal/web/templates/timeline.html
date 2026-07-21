@@ -23,12 +23,12 @@
 			<div class="card">
 				<div data-search-target>
 					{{range .Events}}
-					<div class="timeline-item">
+					<div class="timeline-item" data-event-id="{{.ID}}">
 						<div class="timeline-time">
 							<div>{{fmttime .Ts}}</div>
 							<div class="rel" data-ts="{{isotime .Ts}}"></div>
 						</div>
-						<div>{{eventBadge .Kind}} <span class="mono">{{.Protocol}}</span> — {{.Message}}{{if .Actor}} <span class="text-muted">by {{.Actor}}</span>{{end}}</div>
+						<div><span class="timeline-new-dot" aria-label="new"></span>{{eventBadge .Kind}} <span class="mono">{{.Protocol}}</span> — {{.Message}}{{if .Actor}} <span class="text-muted">by {{.Actor}}</span>{{end}}</div>
 					</div>
 					{{else}}
 					<div class="empty">No events yet. Session ups and downs, flaps and limit hits will appear here as they happen.</div>
@@ -39,5 +39,6 @@
 		</div>
 	</div>
 </div>
+<script src="/static/timeline.js?v=dev-ui1"></script>
 </body>
 </html>

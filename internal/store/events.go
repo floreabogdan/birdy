@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -128,4 +129,49 @@ func (s *Store) CountEvents() (int, error) {
 		return 0, fmt.Errorf("store: count events: %w", err)
 	}
 	return n, nil
+}
+
+// AlertKinds are the fault/notable event kinds the top-bar bell counts as
+// unread. Recoveries (session_up, bird_reachable, instance_up) and operator
+// actions (config_apply, config_revert, model_change, irr_refresh) are
+// deliberately excluded — the bell is for problems, not for your own edits or
+// for a session that came back. Returned as a stable slice so the SQL IN-clause
+// order is deterministic.
+func AlertKinds() []string {
+	return []string{
+		EventSessionDown, EventFlap, EventLimitHit, EventPrefixDrop,
+		EventConfigDrift, EventBirdUnreach, EventInstanceDown,
+	}
+}
+
+// CountAlertsAfter counts alert-kind events newer than sinceID — the unread
+// count behind the top-bar bell. sinceID is the highest event id the viewer has
+// already seen; pass 0 to count every alert on record. A disabled peer is never
+// counted because the poller records no event for it in the first place.
+func (s *Store) CountAlertsAfter(sinceID int64) (int, error) {
+	kinds := AlertKinds()
+	args := make([]any, 0, len(kinds)+1)
+	args = append(args, sinceID)
+	ph := make([]string, len(kinds))
+	for i, k := range kinds {
+		ph[i] = "?"
+		args = append(args, k)
+	}
+	q := `SELECT COUNT(*) FROM events WHERE id > ? AND kind IN (` + strings.Join(ph, ", ") + `)`
+	var n int
+	if err := s.db.QueryRow(q, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("store: count alerts after: %w", err)
+	}
+	return n, nil
+}
+
+// LatestEventID is the highest event id on record (0 when the timeline is
+// empty). The bell uses it to seed a fresh browser's "seen" marker so it does
+// not light up for the entire backlog on first visit.
+func (s *Store) LatestEventID() (int64, error) {
+	var id int64
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&id); err != nil {
+		return 0, fmt.Errorf("store: latest event id: %w", err)
+	}
+	return id, nil
 }
