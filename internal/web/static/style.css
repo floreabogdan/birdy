@@ -409,8 +409,8 @@ h1, h2, h3 { font-weight: 700; color: var(--text); margin: 0; line-height: var(-
 .target-banner a { font-weight: 600; }
 .dashboard-table-head { align-items: center; }
 .dashboard-filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.dashboard-filters select { width: auto; min-width: 112px; padding: 5px 8px; font-size: var(--fs-xs); }
-.dashboard-filters input { width: 140px; min-width: 110px; padding: 5px 8px; font-size: var(--fs-xs); }
+.dashboard-filters select { width: auto; min-width: 112px; padding: 5px 30px 5px 10px; font-size: var(--fs-xs); }
+.dashboard-filters input[type=search] { width: 170px; min-width: 130px; padding: 5px 10px; font-size: var(--fs-xs); }
 .column-menu { position: relative; }
 .column-menu summary { list-style: none; }
 .column-menu summary::-webkit-details-marker { display: none; }
@@ -597,7 +597,7 @@ svg.sparkline[data-spark] { cursor: crosshair; }
 .instance-meta .icon-action { width: 28px; height: 28px; }
 .token-actions { display: inline-flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; margin: 0; }
 .token-actions label { margin: 0; }
-.token-actions select { width: auto; min-width: 110px; padding: 6px 8px; }
+.token-actions select { width: auto; min-width: 110px; padding: 6px 30px 6px 10px; }
 .token-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: 9px 0; border-top: 1px solid var(--line); }
 .form-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .test-success { color: var(--success); }
@@ -908,6 +908,8 @@ td.num, th.num { text-align: right; }
 .btn {
 	display: inline-flex;
 	align-items: center;
+	justify-content: center;
+	white-space: nowrap;
 	gap: 6px;
 	padding: 8px 14px;
 	border-radius: var(--radius-control);
@@ -973,7 +975,8 @@ td.num, th.num { text-align: right; }
 /* ---------- forms ---------- */
 /* number is in the list deliberately: without it, every AS number and route
    limit renders in a browser-default box a third the width of its neighbour. */
-input[type=text], input[type=password], input[type=number], select {
+input[type=text], input[type=password], input[type=number], input[type=search],
+input[type=email], input[type=url], input[type=tel], select {
 	width: 100%;
 	padding: 8px 10px;
 	border-radius: var(--radius-control);
@@ -983,7 +986,23 @@ input[type=text], input[type=password], input[type=number], select {
 	font-size: var(--fs-sm);
 	font-family: var(--font-sans);
 }
-input[type=text]:focus, input[type=password]:focus, input[type=number]:focus, select:focus, textarea:focus {
+/* One consistent dropdown chevron with room to breathe — the native arrow crowds
+   the text and differs per browser and OS. */
+select {
+	appearance: none; -webkit-appearance: none;
+	padding-right: 34px;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a847e' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 12px center;
+	background-size: 12px;
+}
+/* Normalise the search input: drop the native magnifier / clear affordances. */
+input[type=search] { -webkit-appearance: none; appearance: none; }
+input[type=search]::-webkit-search-cancel-button,
+input[type=search]::-webkit-search-decoration { -webkit-appearance: none; display: none; }
+input[type=text]:focus, input[type=password]:focus, input[type=number]:focus,
+input[type=search]:focus, input[type=email]:focus, input[type=url]:focus, input[type=tel]:focus,
+select:focus, textarea:focus {
 	border-color: var(--primary-deep);
 	box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
 	outline: none;
@@ -1339,6 +1358,10 @@ body.sidebar-collapsed .sidebar-nav > a { justify-content: center; padding-left:
 [data-theme-style="modern"] input[type=text],
 [data-theme-style="modern"] input[type=password],
 [data-theme-style="modern"] input[type=number],
+[data-theme-style="modern"] input[type=search],
+[data-theme-style="modern"] input[type=email],
+[data-theme-style="modern"] input[type=url],
+[data-theme-style="modern"] input[type=tel],
 [data-theme-style="modern"] select,
 [data-theme-style="modern"] textarea {
 	background: var(--surface);
@@ -1349,7 +1372,7 @@ body.sidebar-collapsed .sidebar-nav > a { justify-content: center; padding-left:
 	color: color-mix(in srgb, var(--text-muted) 78%, transparent);
 }
 [data-theme-style="modern"] .btn {
-	min-height: 36px;
+	min-height: 38px;
 }
 [data-theme-style="modern"] .btn-primary,
 [data-theme-style="modern"] .btn-success {
