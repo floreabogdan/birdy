@@ -302,8 +302,16 @@ func (p *Poller) poll(ctx context.Context) {
 		}
 
 		if proto.Proto == "BGP" && up {
-			p.updateImportLimits(ctx, proto, &state)
-			p.checkPrefixDrop(proto, prior, seen, first, &state)
+			if p.updateImportLimits(ctx, proto, &state) {
+				p.checkPrefixDrop(proto, prior, seen, first, &state)
+			} else if seen {
+				// The per-session detail fetch failed this poll (a transient socket
+				// or per-command timeout on a busy router). Carry the last known
+				// counts forward so the dashboard does not flicker to zero and the
+				// drop check is not fooled into paging for a session that is fine.
+				state.Imported = prior.Imported
+				state.Channels = prior.Channels
+			}
 		}
 
 		next[proto.Name] = state
@@ -392,11 +400,13 @@ func (p *Poller) recordTransition(proto birdc.ProtocolSummary, prior ProtoState,
 // updateImportLimits fetches protocol detail for one BGP session, keeps the
 // per-channel route counts for the dashboard, and logs an event the first
 // time a channel's imported route count reaches its import limit, mutating
-// state in place.
-func (p *Poller) updateImportLimits(ctx context.Context, proto birdc.ProtocolSummary, state *ProtoState) {
+// state in place. It reports whether the detail fetch succeeded: on a transient
+// failure the caller must not treat the (unpopulated) counts as real, or a
+// session that is actually fine looks like it dropped every route.
+func (p *Poller) updateImportLimits(ctx context.Context, proto birdc.ProtocolSummary, state *ProtoState) bool {
 	detail, err := p.client.ProtocolDetail(ctx, proto.Name)
 	if err != nil {
-		return
+		return false
 	}
 	state.Channels = detail.Channels
 	for _, ch := range detail.Channels {
@@ -412,4 +422,5 @@ func (p *Poller) updateImportLimits(ctx context.Context, proto birdc.ProtocolSum
 		}
 		state.LimitHit[ch.AFI] = hit
 	}
+	return true
 }

@@ -962,3 +962,73 @@ func TestAcceptBlackholeRenders(t *testing.T) {
 		t.Error("the blackhole accept must come before the prefix-length reject")
 	}
 }
+
+// A drained peer deprefers on import with local_pref=0. If an import policy sets
+// local-pref, the drain must still win — so it has to run AFTER the policy call,
+// or the policy silently overwrites it and the drain does nothing.
+func TestDrainSurvivesImportLocalPref(t *testing.T) {
+	in := baseInput()
+	pol := store.Policy{ID: 1, Name: "CUST_IN", Direction: store.DirImport,
+		DefaultRoute: store.DefaultAccept, SetLocalPref: 200}
+	in.Policies = []store.Policy{pol}
+	p := ebgpPeer()
+	p.Drained = true
+	p.ImportPolicies = []store.Policy{pol}
+	in.Peers = []store.Peer{p}
+
+	f := block(t, mustRender(t, in), "filter ebgp_in_edge_v4")
+	call := strings.Index(f, "imp_CUST_IN_v4();")
+	drain := strings.Index(f, "bgp_local_pref = 0;")
+	if call < 0 || drain < 0 {
+		t.Fatalf("expected both the policy call and the drain:\n%s", f)
+	}
+	if drain < call {
+		t.Errorf("drain local_pref=0 must come AFTER the policy call (a policy setting local-pref would defeat it otherwise):\n%s", f)
+	}
+}
+
+// RFC 7999 §3.2: a blackhole is honoured only for a host route covered by the
+// peer's allow-list, so a peer cannot null-route an address it does not hold.
+func TestBlackholeRequiresAllowListCoverage(t *testing.T) {
+	in := baseInput()
+	in.PrefixSets = append(bogonSets(), store.PrefixSet{
+		ID: 30, Name: "CUST_PFX", Family: store.FamilyV4,
+		Entries: []store.PrefixEntry{{Prefix: "203.0.113.0/24"}},
+	})
+	pol := store.Policy{ID: 1, Name: "CUST_IN", Direction: store.DirImport,
+		DefaultRoute: store.DefaultReject, AcceptBlackhole: true,
+		AcceptOnlySetID: sql.NullInt64{Int64: 30, Valid: true}}
+	in.Policies = []store.Policy{pol}
+	p := ebgpPeer()
+	p.ImportPolicies = []store.Policy{pol}
+	in.Peers = []store.Peer{p}
+
+	fn := block(t, mustRender(t, in), "function imp_CUST_IN_v4")
+	if !strings.Contains(fn, "(65535, 666) ~ bgp_community && net.len = 32 && net ~ [ 203.0.113.0/24+ ]") {
+		t.Errorf("blackhole accept should be gated on allow-list coverage:\n%s", fn)
+	}
+}
+
+// A blackhole accepted inside a policy still carries the origin tag: the tag is
+// added before the policy chain, so an accept mid-chain cannot skip it (which
+// would leave the route untagged and unselectable by every export policy).
+func TestBlackholeKeepsOriginTag(t *testing.T) {
+	in := baseInput()
+	pol := store.Policy{ID: 1, Name: "CUST_IN", Direction: store.DirImport,
+		DefaultRoute: store.DefaultReject, AcceptBlackhole: true}
+	in.Policies = []store.Policy{pol}
+	p := ebgpPeer()
+	p.Role = store.RoleCustomer
+	p.ImportPolicies = []store.Policy{pol}
+	in.Peers = []store.Peer{p}
+
+	f := block(t, mustRender(t, in), "filter ebgp_in_edge_v4")
+	tag := strings.Index(f, "bgp_large_community.add(FROM_CUSTOMER);")
+	call := strings.Index(f, "imp_CUST_IN_v4();")
+	if tag < 0 || call < 0 {
+		t.Fatalf("expected the origin tag and the policy call:\n%s", f)
+	}
+	if tag > call {
+		t.Errorf("origin tag must be added BEFORE the policy call so a blackhole accept keeps it:\n%s", f)
+	}
+}

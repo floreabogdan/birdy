@@ -6,6 +6,76 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Choose what an iBGP session announces with no export policy.** A plain iBGP
+  session with no export chain has always rendered `export all` — right for a full
+  mesh, but the peer form described it as "receive-only", which was true only for
+  eBGP. The export section now carries an explicit per-peer fallback for iBGP:
+  **announce everything (`export all`)** — the full-mesh default, unchanged — or
+  **announce nothing (`export none`)**, the same default-deny posture eBGP has
+  under RFC 8212, without having to invent a reject-all policy. Existing iBGP
+  sessions default to "announce everything", so an upgrade renders byte-for-byte
+  as before; the choice only governs the empty-chain fallback and is ignored the
+  moment an export policy is attached.
+
+### Security
+- **A blackhole is honoured only for a host route the peer is authorised to
+  hold.** With RFC 7999 blackhole acceptance enabled on an import policy, the
+  blackhole `accept` was emitted before the allow-list check — so a peer could
+  install a discard for *any* `/32` or `/128`, including addresses it does not
+  originate (a resolver, a competitor's host). The accept is now gated on coverage
+  by the policy's allow-list (each authorised prefix as a supernet), per RFC 7999
+  §3.2; an uncovered blackhole falls through to the ordinary allow-list reject.
+
+### Fixed
+- **Draining a peer that has an import policy setting local-pref now actually
+  deprefers it.** The drain wrote `bgp_local_pref = 0` *before* the import-policy
+  call, and any policy that set local-pref (the normal customer/peer/upstream
+  pattern) overwrote it — so the session was never deprefered, and traffic that was
+  meant to move away before maintenance stayed put. The drain now runs after the
+  policy chain, so it is the final word. (The export-side graceful-shutdown signal
+  was always correct; only the import direction was defeated.)
+- **A blackhole route keeps its origin tag.** The `FROM_CUSTOMER`/`FROM_IX`/
+  `FROM_UPSTREAM` tag and per-peer import communities were added *after* the policy
+  chain, but a blackhole `accept` inside a policy terminates the filter first — so
+  blackhole routes arrived untagged, invisible to every tag-based export policy and
+  to the looking glass. Tags are now stamped before the policy chain.
+- **A failed per-session detail fetch no longer pages a false "prefix drop".** If
+  BIRD's `show protocols all <peer>` timed out for one established session on a busy
+  poll, its imported count read as zero and the drop check fired "routes dropped
+  from N to 0" for a healthy session. The poller now skips the drop check when the
+  detail fetch failed and carries the last known count forward.
+- **The live config preview refreshes when you add, remove or reorder a policy.**
+  Policy-chain edits change the DOM directly and fire no input/change event, so the
+  preview only updated when you next touched another field — most visibly, a
+  *removed* policy lingered in the rendered config. The chain now emits a change
+  after every structural edit, so the preview (and the readiness checks) always
+  reflect the current chain.
+- **The peer form no longer calls an iBGP session "receive-only" when it isn't.**
+  The export-chain hint was written for eBGP's RFC 8212 default-deny and shown
+  verbatim on iBGP peers, where an empty chain actually announces the full table.
+  The hint is now role-aware and points at the new fallback choice above.
+- **The dashboard's sort, search and filters work immediately.** They used to no-op
+  or, when sorting, blank the table to "No BGP sessions are running" for the first
+  few seconds, because the live data (and the rows carrying the filter attributes)
+  did not arrive until the first poll. The dashboard now fetches once on load.
+- **Trend sparkline tooltips survive a poll.** The client-rendered chart put its
+  JSON series into a `data-` attribute without escaping the double quote, so after
+  the first refresh the attribute truncated and hovering drew nothing. It is now
+  attribute-escaped like the server-rendered charts.
+- **`/changes` no longer offers "Ready to apply" after `bird -p` has failed.** The
+  apply panel checked only that the config rendered, not that the syntax check
+  passed, so it showed a green apply button that contradicted its own "Syntax:
+  Failed" indicator and that the server would refuse. It now blocks apply until the
+  check passes (or is unavailable).
+- **A soft apply's filter reload is detached from the browser connection.** Like
+  the rest of the armed window, it now uses the request-independent context, so
+  losing the browser right after arming no longer cancels the reload that makes the
+  filter change visible while the config is still revertible.
+- **The dashboard poll ignores a superseded response.** Overlapping polls on a slow
+  link could resolve out of order and repaint the table with stale data; the poll
+  now aborts the previous request, matching the live preview.
+
 ## [0.4.1] - 2026-07-20
 
 ### Fixed

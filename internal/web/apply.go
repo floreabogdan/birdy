@@ -571,7 +571,10 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 	// already, so it needs no reload.
 	var reloadNote string
 	if soft {
-		if ok, msg := s.reloadFilters(r.Context(), "apply"); !ok && msg != "" {
+		// Detached like the rest of the armed window (ConfigureCheck/ConfigureTimeout
+		// above, and the rollback path): a dropped browser must not cancel the reload
+		// that makes the filter change visible while the config is still revertible.
+		if ok, msg := s.reloadFilters(applyCtx, "apply"); !ok && msg != "" {
 			reloadNote = " Heads up — a peer could not be refreshed, so an import-policy" +
 				" change to it may need a session restart to fully apply: " + msg
 		}

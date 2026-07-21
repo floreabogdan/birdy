@@ -752,8 +752,22 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 	// null-route a single address under attack. It must come before the length
 	// reject that would otherwise drop the /32 or /128.
 	if pol.AcceptBlackhole {
-		fmt.Fprintf(b, "\tif (65535, 666) ~ bgp_community && net.len = %d then {\n"+
-			"\t\tdest = RTD_BLACKHOLE;\n\t\taccept;\n\t}\n", fam.bits)
+		cond := fmt.Sprintf("(65535, 666) ~ bgp_community && net.len = %d", fam.bits)
+		// RFC 7999 §3.2: only honour a blackhole for a host route that falls within
+		// one of the peer's authorised prefixes, so a peer cannot null-route an
+		// address it does not hold. Coverage is tested against the allow-list's base
+		// prefixes as supernets (each "+"), independent of how they match for normal
+		// routes. Reachable only with a usable, this-family allow-list — the checks
+		// above return before here otherwise.
+		if pol.AcceptOnlySetID.Valid {
+			ps := sets[pol.AcceptOnlySetID.Int64]
+			covers := make([]string, 0, len(ps.Entries))
+			for _, e := range ps.Entries {
+				covers = append(covers, e.Prefix+"+")
+			}
+			cond += fmt.Sprintf(" && net ~ [ %s ]", strings.Join(covers, ", "))
+		}
+		fmt.Fprintf(b, "\tif %s then {\n\t\tdest = RTD_BLACKHOLE;\n\t\taccept;\n\t}\n", cond)
 	}
 
 	switch pol.DefaultRoute {
@@ -1052,7 +1066,13 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 		}
 		if hasExport {
 			fmt.Fprintf(b, "\t\texport filter ibgp_out_%s;\n", p.Name)
+		} else if p.IBGPExportDefault == store.IBGPExportNone {
+			// The operator chose receive-only for this internal session with no
+			// export policy — the same default-deny posture eBGP has under RFC 8212.
+			b.WriteString("\t\texport none;\n")
 		} else {
+			// Full-mesh default: carry everything to our internal peers, byte-for-byte
+			// what birdy rendered before this became a choice.
 			b.WriteString("\t\texport all;\n")
 		}
 		if p.NextHopSelf {
@@ -1116,18 +1136,14 @@ func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 		fmt.Fprintf(b, "\tbgp_large_community.delete([(%d, *, *)]);\n", in.LocalASN)
 	}
 
-	// Draining: deprefer everything this peer sends, so we route around it while
-	// its own traffic bleeds off. Part of RFC 8326 graceful shutdown.
-	if p.Drained {
-		b.WriteString("\tbgp_local_pref = 0;\t# draining: deprefer this peer (RFC 8326)\n")
-	}
-
-	for _, pol := range p.ImportPolicies {
-		fmt.Fprintf(b, "\t%s;\n", policyFunc(pol, fam))
-	}
-	// Operator-defined ingress tags identify this specific neighbor (for
-	// example, an IX route server or downstream) in addition to the broader
-	// automatic relationship tag below.
+	// Tag where the route came from BEFORE the policy calls. A policy can accept a
+	// route — an RFC 7999 blackhole does — and an accept terminates the whole
+	// filter, so a tag added after the policy chain would never reach an accepted
+	// route, leaving it without the origin metadata every export policy selects on.
+	//
+	// Operator-defined ingress tags identify this specific neighbor (for example,
+	// an IX route server or downstream) in addition to the broader automatic
+	// relationship tag below.
 	refs, _ := store.ParseCommunityRefs(p.ImportCommunities)
 	comms := in.communityByName()
 	for _, ref := range refs {
@@ -1138,6 +1154,18 @@ func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 	// given at the edge, and roleTag has no entry for iBGP.
 	if tag, ok := roleTag[p.Role]; ok {
 		fmt.Fprintf(b, "\tbgp_large_community.add(%s);\n", tag.name)
+	}
+
+	for _, pol := range p.ImportPolicies {
+		fmt.Fprintf(b, "\t%s;\n", policyFunc(pol, fam))
+	}
+
+	// Draining: deprefer everything this peer sends, so we route around it while
+	// its own traffic bleeds off (RFC 8326). This runs AFTER the policy chain on
+	// purpose: an import policy that sets local-pref would otherwise overwrite the
+	// drain, silently defeating it so traffic never moves off the session.
+	if p.Drained {
+		b.WriteString("\tbgp_local_pref = 0;\t# draining: deprefer this peer (RFC 8326)\n")
 	}
 	b.WriteString("\taccept;\n}\n\n")
 }

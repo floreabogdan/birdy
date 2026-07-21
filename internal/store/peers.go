@@ -39,6 +39,19 @@ const (
 
 var gracefulRestartModes = map[string]bool{GROff: true, GRAware: true, GROn: true}
 
+// What a plain iBGP session announces when no export policy is attached. The
+// full-mesh convention — and everything birdy rendered before this was a choice
+// — is to carry everything (IBGPExportAll). IBGPExportNone makes such a session
+// receive-only instead, the same default-deny posture eBGP has under RFC 8212,
+// without having to invent a reject-all policy. Only consulted for an iBGP peer
+// whose export chain is empty; eBGP is always default-deny regardless.
+const (
+	IBGPExportAll  = "all"
+	IBGPExportNone = "none"
+)
+
+var ibgpExportDefaults = map[string]bool{IBGPExportAll: true, IBGPExportNone: true}
+
 // birdIdent is deliberately strict. Every peer name is interpolated straight
 // into bird.conf as a protocol name and into generated filter names, so it is
 // the one field that could smuggle syntax into the config. Anything that is
@@ -112,6 +125,11 @@ type Peer struct {
 	// BGP's loop rule stops us readvertising an iBGP route to another iBGP peer,
 	// which is why a plain iBGP mesh has to be full.
 	RRClient bool
+	// IBGPExportDefault decides what an iBGP session announces when no export
+	// policy is attached: IBGPExportAll (the full-mesh default birdy has always
+	// rendered) or IBGPExportNone (receive-only). Ignored once an export chain is
+	// attached, and ignored for eBGP, which is always default-deny (RFC 8212).
+	IBGPExportDefault string
 
 	// PrependCount prepends our own AS this many times to everything we announce
 	// to this peer — a longer path is less preferred, so this steers inbound
@@ -197,6 +215,14 @@ func (p *Peer) Validate() map[string]string {
 	if !gracefulRestartModes[p.GracefulRestart] {
 		errs["gracefulRestart"] = "Choose off, aware or on."
 	}
+	// Only affects an iBGP session with no export policy, but validate it for
+	// every peer so a malformed value never reaches the renderer.
+	if p.IBGPExportDefault == "" {
+		p.IBGPExportDefault = IBGPExportAll
+	}
+	if !ibgpExportDefaults[p.IBGPExportDefault] {
+		errs["ibgpExportDefault"] = "Choose announce everything or announce nothing."
+	}
 	if p.PrependCount < 0 || p.PrependCount > 10 {
 		errs["prependCount"] = "Prepend between 0 and 10 times."
 	}
@@ -271,7 +297,8 @@ func (p *Peer) Validate() map[string]string {
 const peerCols = `id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 	interface, multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
 	origin_peer_only, next_hop_self, rr_client,
-	prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart`
+	prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart,
+	ibgp_export_default`
 
 func (s *Store) ListPeers() ([]Peer, error) {
 	rows, err := s.db.Query(`SELECT ` + peerCols + ` FROM peers ORDER BY name`)
@@ -319,7 +346,8 @@ func scanPeer(sc scanner) (Peer, error) {
 		&p.RemoteASN, &p.LocalIP, &p.Interface, &p.Multihop, &p.Passive, &p.Password,
 		&p.ImportLimit, &p.ImportLimitAction, &p.EnforceFirstAS, &p.OriginPeerOnly,
 		&p.NextHopSelf, &p.RRClient,
-		&p.PrependCount, &p.ImportCommunities, &p.ExportCommunities, &p.Drained, &p.BFD, &p.BGPRole, &p.GTSM, &p.GracefulRestart)
+		&p.PrependCount, &p.ImportCommunities, &p.ExportCommunities, &p.Drained, &p.BFD, &p.BGPRole, &p.GTSM, &p.GracefulRestart,
+		&p.IBGPExportDefault)
 	return p, err
 }
 
@@ -329,12 +357,12 @@ func (s *Store) CreatePeer(p Peer) (int64, error) {
 		INSERT INTO peers (name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		                   interface, multihop, passive, password, import_limit, import_limit_action,
 		                   enforce_first_as, origin_peer_only, next_hop_self, rr_client,
-		                   prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart, ibgp_export_default, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Interface, p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
-		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, ts, ts)
+		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, p.IBGPExportDefault, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create peer: %w", err)
 	}
@@ -348,12 +376,12 @@ func (s *Store) UpdatePeer(p Peer) error {
 		                 password = ?, import_limit = ?, import_limit_action = ?, enforce_first_as = ?,
 		                 origin_peer_only = ?, next_hop_self = ?, rr_client = ?,
 		                 prepend_count = ?, import_communities = ?, export_communities = ?, drained = ?, bfd = ?, bgp_role = ?,
-			                 gtsm = ?, graceful_restart = ?, updated_at = ?
+			                 gtsm = ?, graceful_restart = ?, ibgp_export_default = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Interface, p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
-		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, now(), p.ID)
+		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, p.IBGPExportDefault, now(), p.ID)
 	if err != nil {
 		return fmt.Errorf("store: update peer: %w", err)
 	}

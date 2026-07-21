@@ -111,6 +111,9 @@ CREATE TABLE IF NOT EXISTS peers (
 	-- Off for IXP route servers: they do not prepend themselves, so the first
 	-- AS in the path is the peer behind them, not the session's own ASN.
 	enforce_first_as     INTEGER NOT NULL DEFAULT 1,
+	-- What an iBGP session with no export policy announces: 'all' (the full-mesh
+	-- default) or 'none' (receive-only). Ignored for eBGP and once a chain is set.
+	ibgp_export_default  TEXT NOT NULL DEFAULT 'all',
 	created_at           TEXT NOT NULL,
 	updated_at           TEXT NOT NULL
 );

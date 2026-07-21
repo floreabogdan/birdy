@@ -13,13 +13,14 @@ import (
 // fakeClient lets tests script a sequence of "show protocols" results without
 // a live BIRD socket.
 type fakeClient struct {
-	polls    [][]birdc.ProtocolSummary
-	detail   map[string]birdc.ProtocolDetail
-	counts   []birdc.RouteCountEntry // optional; RouteCount returns a default when nil
-	countErr error
-	i        int
-	step     int
-	errAt    map[int]error // poll (call) number -> error, to script BIRD-unreachable
+	polls     [][]birdc.ProtocolSummary
+	detail    map[string]birdc.ProtocolDetail
+	counts    []birdc.RouteCountEntry // optional; RouteCount returns a default when nil
+	countErr  error
+	detailErr map[string]error // per-protocol ProtocolDetail error, to script a detail hiccup
+	i         int
+	step      int
+	errAt     map[int]error // poll (call) number -> error, to script BIRD-unreachable
 }
 
 func (f *fakeClient) Status(_ context.Context) (birdc.Status, error) { return birdc.Status{}, nil }
@@ -39,10 +40,46 @@ func (f *fakeClient) Protocols(_ context.Context) ([]birdc.ProtocolSummary, erro
 }
 
 func (f *fakeClient) ProtocolDetail(_ context.Context, name string) (birdc.ProtocolDetail, error) {
+	if err, ok := f.detailErr[name]; ok {
+		return birdc.ProtocolDetail{}, err
+	}
 	if d, ok := f.detail[name]; ok {
 		return d, nil
 	}
 	return birdc.ProtocolDetail{}, nil
+}
+
+// A per-session detail-fetch failure must not look like a route drop: the session
+// is still up, only the expensive per-session detail call hiccuped. No prefix-drop
+// alert should fire, and the last known imported count is carried forward.
+func TestDetailFailureDoesNotFakePrefixDrop(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{
+		polls: [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+		detail: map[string]birdc.ProtocolDetail{
+			"edge_v4": {Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 500000}}},
+		},
+	}
+	p := New(fc, st, time.Second, nil)
+	p.SetDropRatio(0.5)
+	p.poll(context.Background()) // baseline (first poll, no drop check)
+	p.poll(context.Background()) // detail still 500k — nothing to alert on
+
+	fc.detailErr = map[string]error{"edge_v4": context.DeadlineExceeded}
+	p.poll(context.Background()) // detail fails: must NOT fabricate a drop to zero
+
+	events, err := st.ListEvents(10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Kind == store.EventPrefixDrop {
+			t.Fatalf("a detail-fetch failure fabricated a prefix-drop alert: %+v", events)
+		}
+	}
+	if got := p.Snapshot().States["edge_v4"].Imported; got != 500000 {
+		t.Errorf("imported = %d after a failed detail fetch, want 500000 carried forward", got)
+	}
 }
 
 func (f *fakeClient) RouteCount(_ context.Context) ([]birdc.RouteCountEntry, error) {

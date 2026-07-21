@@ -33,6 +33,28 @@ func TestIBGPWithoutPoliciesStillCarriesEverything(t *testing.T) {
 	}
 }
 
+// An operator can make an unpoliced iBGP session receive-only, the same
+// default-deny posture eBGP has, instead of the full-mesh "carry everything".
+func TestIBGPExportNoneWithoutPolicies(t *testing.T) {
+	in := baseInput()
+	in.PrefixSets = bogonSets()
+	p := internalPeer()
+	p.IBGPExportDefault = store.IBGPExportNone
+	in.Peers = []store.Peer{p}
+
+	cfg := mustRender(t, in)
+	if !strings.Contains(cfg, "export none;") {
+		t.Error("an iBGP session set to announce nothing should render export none")
+	}
+	if strings.Contains(cfg, "export all;") {
+		t.Error("export none was chosen, so export all must not appear")
+	}
+	// The choice only governs the empty-chain fallback; import is untouched.
+	if !strings.Contains(cfg, "import all;") {
+		t.Error("import is unaffected by the export-default choice")
+	}
+}
+
 // The point of the feature: an internal session that carries only what you meant
 // it to. The far router must not inherit an upstream's default route just because
 // it is inside the same AS.

@@ -23,6 +23,13 @@
 		return d.innerHTML;
 	}
 
+	// esc() escapes for element text (& < >) but not the double quote, so it is
+	// unsafe for a "-delimited attribute value — a JSON payload's first quote would
+	// close the attribute early. escAttr() closes that gap for attribute context.
+	function escAttr(s) {
+		return esc(s).replace(/"/g, "&quot;");
+	}
+
 	function fmtTime(iso) {
 		var d = new Date(iso);
 		if (isNaN(d.getTime())) return "-";
@@ -101,7 +108,7 @@
 			pts.push(x.toFixed(1) + "," + y.toFixed(1));
 		}
 		return '<svg class="sparkline" viewBox="0 0 ' + w + " " + h + '" preserveAspectRatio="none" role="img" aria-label="route-count history"' +
-			' data-spark="' + esc(JSON.stringify(series)) + '" data-spark-w="' + w + '" data-spark-h="' + h + '" data-spark-pad="' + pad + '">' +
+			' data-spark="' + escAttr(JSON.stringify(series)) + '" data-spark-w="' + w + '" data-spark-h="' + h + '" data-spark-pad="' + pad + '">' +
 			'<polyline fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" points="' + pts.join(" ") + '"/></svg>';
 	}
 
@@ -226,8 +233,14 @@
 		}).join("");
 	}
 
+	var pollInflight = null;
 	function poll() {
-		fetch("/api/dashboard", { credentials: "same-origin" })
+		// Cancel any still-running poll so a slow earlier response can't resolve
+		// after a newer one and repaint the table with stale data.
+		if (pollInflight) pollInflight.abort();
+		var ctrl = new AbortController();
+		pollInflight = ctrl;
+		fetch("/api/dashboard", { credentials: "same-origin", signal: ctrl.signal })
 			.then(function (r) {
 				if (r.status === 401 || r.redirected) { window.location.reload(); return null; }
 				return r.json();
@@ -268,12 +281,15 @@
 				if (window.birdyRefreshTimes) window.birdyRefreshTimes();
 				if (window.birdyApplyFilter) window.birdyApplyFilter();
 			})
-			.catch(function () { /* transient network hiccup, next poll will retry */ });
+			.catch(function (e) {
+				if (e && e.name === "AbortError") return; // superseded by a newer poll
+				/* transient network hiccup, next poll will retry */
+			});
 	}
 	var search = document.getElementById("session-search");
 	if (search) search.addEventListener("input", function () { sessionFilters.search = search.value.trim().toLowerCase(); applySessionFilters(); });
 	var sort = document.getElementById("session-sort");
-	if (sort) sort.addEventListener("change", function () { sessionFilters.sort = sort.value; renderRows(lastProtocols, lastHistory); });
+	if (sort) sort.addEventListener("change", function () { sessionFilters.sort = sort.value; if (lastProtocols.length) renderRows(lastProtocols, lastHistory); });
 
 	["session-state-filter", "session-family-filter", "session-model-filter"].forEach(function (id) {
 		var select = document.getElementById(id);
@@ -286,6 +302,10 @@
 		});
 	});
 
+	// Fetch immediately so the JS-built rows (which carry the sort/filter data
+	// attributes) replace the server render before the operator can sort or filter;
+	// otherwise the first ~5s of interaction acts on rows that have no attributes.
+	poll();
 	setInterval(poll, POLL_MS);
 	if (window.birdyRefreshTimes) window.birdyRefreshTimes();
 })();

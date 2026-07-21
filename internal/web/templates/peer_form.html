@@ -183,7 +183,17 @@
 							<hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
 
 							<label>Export chain — what we announce to this peer</label>
-							<div class="hint" style="margin-bottom:8px">A route is announced if any policy permits it. With no export policy the session is receive-only.</div>
+							<div class="hint" data-role-only="ebgp"{{if eq .Peer.Role "ibgp"}} hidden{{end}} style="margin-bottom:8px">A route is announced if any policy permits it. With no export policy the session is receive-only (RFC 8212 default-deny).</div>
+							<div class="hint" data-role-only="ibgp"{{if ne .Peer.Role "ibgp"}} hidden{{end}} style="margin-bottom:8px">A route is announced if any policy permits it. With no export policy, this iBGP session uses the fallback you choose below.</div>
+							<div class="field" data-role-only="ibgp"{{if ne .Peer.Role "ibgp"}} hidden{{end}} style="margin-bottom:12px">
+								<label for="ibgpExportDefault">With no export policy attached</label>
+								<select id="ibgpExportDefault" name="ibgpExportDefault">
+									<option value="all"{{if ne .Peer.IBGPExportDefault "none"}} selected{{end}}>Announce everything (export all) — the full-mesh default</option>
+									<option value="none"{{if eq .Peer.IBGPExportDefault "none"}} selected{{end}}>Announce nothing (export none) — receive-only</option>
+								</select>
+								<div class="hint">Applies only while this session has no export policy. Attach one above to filter precisely what it announces.</div>
+								{{with index .Errs "ibgpExportDefault"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
 							<div class="chain" data-name="exportPolicyIds">
 								<div class="chain-rows">
 									{{range .Peer.ExportPolicies}}
@@ -199,7 +209,7 @@
 									</div>
 									{{end}}
 								</div>
-								<div class="chain-empty{{if .Peer.ExportPolicies}} is-hidden{{end}}">No export policy: this session is receive-only.</div>
+								<div class="chain-empty{{if .Peer.ExportPolicies}} is-hidden{{end}}"><span data-role-only="ebgp"{{if eq .Peer.Role "ibgp"}} hidden{{end}}>No export policy: this session is receive-only.</span><span data-role-only="ibgp"{{if ne .Peer.Role "ibgp"}} hidden{{end}}>No export policy: this session uses the fallback selected above.</span></div>
 								<button type="button" class="btn btn-sm" data-add>{{template "icon-plus"}}Add export policy</button>
 								<template>
 									<div class="chain-row">

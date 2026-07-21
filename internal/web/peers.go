@@ -150,6 +150,7 @@ func peerFromForm(r *http.Request) store.Peer {
 		BGPRole:           r.FormValue("bgpRole") == "on",
 		NextHopSelf:       r.FormValue("nextHopSelf") == "on",
 		RRClient:          r.FormValue("rrClient") == "on",
+		IBGPExportDefault: r.FormValue("ibgpExportDefault"),
 		PrependCount:      formInt(r, "prependCount"),
 		ExportCommunities: strings.TrimSpace(r.FormValue("exportCommunities")),
 		Drained:           r.FormValue("drained") == "on",

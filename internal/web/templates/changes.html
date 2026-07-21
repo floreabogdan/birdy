@@ -134,6 +134,11 @@
 				<div class="panel-head">{{template "icon-check"}}In sync</div>
 				<div class="card-body">The running config already matches what birdy would write. Nothing to apply.</div>
 			</div>
+			{{else if and (not .RenderErr) (not .Check.OK) (not .Check.Skipped)}}
+			<div class="card panel-danger">
+				<div class="panel-head">{{template "icon-alert"}}Fix the syntax error before applying</div>
+				<div class="card-body"><span class="mono">bird -p</span> rejected the rendered config, so applying is blocked &mdash; BIRD would refuse it. The error is in the syntax check below.</div>
+			</div>
 			{{else if not .RenderErr}}
 			<div class="card panel-info">
 				<div class="panel-head">{{template "icon-bolt"}}Ready to apply</div>

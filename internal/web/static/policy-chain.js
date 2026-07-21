@@ -20,6 +20,14 @@
 		if (empty) empty.classList.toggle("is-hidden", rows.length > 0);
 	}
 
+	// Adding, removing or reordering a row mutates the DOM directly, which fires
+	// no input or change event of its own. Emit a bubbling change so everything
+	// listening on the form reacts — most importantly the live preview, which
+	// would otherwise keep showing the pre-edit chain (a removed policy lingers).
+	function notify(chain) {
+		chain.dispatchEvent(new Event("change", { bubbles: true }));
+	}
+
 	chains.forEach(function (chain) {
 		var rowsBox = chain.querySelector(".chain-rows");
 		var tmpl = chain.querySelector("template");
@@ -28,6 +36,7 @@
 			if (!tmpl || !tmpl.content.firstElementChild) return;
 			rowsBox.appendChild(tmpl.content.firstElementChild.cloneNode(true));
 			refresh(chain);
+			notify(chain);
 		});
 
 		chain.addEventListener("click", function (e) {
@@ -45,8 +54,11 @@
 				return;
 			}
 			refresh(chain);
+			notify(chain);
 		});
 
+		// Initial refresh only — no notify: the server-rendered preview already
+		// matches the chain on load, so firing here would just cost a fetch.
 		refresh(chain);
 	});
 })();
