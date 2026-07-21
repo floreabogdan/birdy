@@ -58,11 +58,20 @@ func (s *Store) GetUserByID(id int64) (User, bool, error) {
 	return u, true, nil
 }
 
-// SaveUserTheme persists an operator's theme preference (validated by the web
-// layer). Applied on every subsequent page, so it follows them across browsers.
-func (s *Store) SaveUserTheme(userID int64, mode, accent string) error {
-	if _, err := s.db.Exec(`UPDATE users SET theme_mode = ?, theme_accent = ? WHERE id = ?`, mode, accent, userID); err != nil {
-		return fmt.Errorf("store: save user theme: %w", err)
+// SaveUserThemeMode and SaveUserThemeAccent each update a SINGLE column. The
+// mode toggle and the accent picker are independent controls that can fire close
+// together; writing the whole (mode, accent) pair from either would let a
+// concurrent request read a stale value of the other field and clobber it.
+func (s *Store) SaveUserThemeMode(userID int64, mode string) error {
+	if _, err := s.db.Exec(`UPDATE users SET theme_mode = ? WHERE id = ?`, mode, userID); err != nil {
+		return fmt.Errorf("store: save user theme mode: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) SaveUserThemeAccent(userID int64, accent string) error {
+	if _, err := s.db.Exec(`UPDATE users SET theme_accent = ? WHERE id = ?`, accent, userID); err != nil {
+		return fmt.Errorf("store: save user theme accent: %w", err)
 	}
 	return nil
 }

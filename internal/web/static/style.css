@@ -487,7 +487,7 @@ h1, h2, h3 { font-weight: 700; color: var(--text); margin: 0; line-height: var(-
 .profile-panel button { color: var(--danger-deep); }
 .profile-panel a:hover, .profile-panel button:hover { background: var(--surface-alt); text-decoration: none; }
 
-.page { padding: 26px 32px 64px; width: 100%; max-width: 1600px; margin: 0 auto; }
+.page { padding: 26px 32px 64px; width: 100%; max-width: none; }
 
 /* ---------- eyebrow strip: page name left, trail right ---------- */
 .page-top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: 12px; }
@@ -1292,7 +1292,7 @@ body.sidebar-collapsed .sidebar-nav > a { justify-content: center; padding-left:
 	background: var(--bg);
 }
 [data-theme-style="modern"] .page {
-	max-width: 1560px;
+	max-width: none;
 	padding: 26px 34px 68px;
 }
 [data-theme-style="modern"] .page-header h1 {
@@ -1487,7 +1487,7 @@ body.sidebar-collapsed .sidebar-nav > a { justify-content: center; padding-left:
    can be bookmarked, and works with JavaScript off. tabs.js upgrades them into
    instant, history-aware swaps. */
 .page-tabs {
-	display: flex; gap: var(--space-1); margin-bottom: 18px; overflow-x: auto;
+	display: flex; flex-wrap: wrap; gap: var(--space-1); margin-bottom: 18px;
 	border-bottom: 1px solid var(--border);
 }
 .page-tabs a {

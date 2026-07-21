@@ -18,7 +18,11 @@ func TestSaveUserThemeRoundTrip(t *testing.T) {
 		t.Errorf("defaults = %q/%q, want system/green", u.ThemeMode, u.ThemeAccent)
 	}
 
-	if err := s.SaveUserTheme(id, "dark", "violet"); err != nil {
+	// Each setter writes a single column, so setting one never clobbers the other.
+	if err := s.SaveUserThemeAccent(id, "violet"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveUserThemeMode(id, "dark"); err != nil {
 		t.Fatal(err)
 	}
 	u, _, _ = s.GetUserByID(id)

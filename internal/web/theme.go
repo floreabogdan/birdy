@@ -1,9 +1,6 @@
 package web
 
-import (
-	"fmt"
-	"net/http"
-)
+import "net/http"
 
 // The theme lives on the user (in the DB), not in the browser, so it follows an
 // operator across machines. It is transported to the page through a small,
@@ -50,17 +47,15 @@ func (s *Server) setThemeCookie(w http.ResponseWriter, r *http.Request, mode, ac
 	})
 }
 
-func (s *Server) saveTheme(r *http.Request, mode, accent string) error {
+func (s *Server) currentUserID(r *http.Request) (int64, bool) {
 	uid, ok := r.Context().Value(ctxUserID).(int64)
-	if !ok {
-		return fmt.Errorf("theme: no user in context")
-	}
-	return s.store.SaveUserTheme(uid, mode, accent)
+	return uid, ok
 }
 
-// handleThemeMode persists the light/dark/system mode, leaving the accent alone.
-// The top-bar toggle calls it with fetch and flips the attribute itself, so it
-// answers 204 rather than redirecting.
+// handleThemeMode persists ONLY the light/dark/system mode. The top-bar toggle
+// calls it with fetch and flips the attribute (and writes the cookie) itself, so
+// it just records the choice and answers 204 — it does not touch the cookie,
+// which would risk overwriting a concurrent accent change's value.
 func (s *Server) handleThemeMode(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
@@ -71,18 +66,21 @@ func (s *Server) handleThemeMode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid mode", http.StatusBadRequest)
 		return
 	}
-	_, accent := s.userTheme(r)
-	if err := s.saveTheme(r, mode, accent); err != nil {
+	uid, ok := s.currentUserID(r)
+	if !ok {
+		http.Error(w, "no user", http.StatusUnauthorized)
+		return
+	}
+	if err := s.store.SaveUserThemeMode(uid, mode); err != nil {
 		s.serverError(w, "save theme mode", err)
 		return
 	}
-	s.setThemeCookie(w, r, mode, accent)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleThemeSave persists the accent (and mode, if the form carried one). The
-// accent picker calls it with fetch too; a plain form post without JS still
-// works and lands back on the Theme tab.
+// handleThemeSave persists ONLY the accent. The picker calls it with fetch and
+// manages the attribute + cookie itself (204, no cookie touched here). A plain
+// form post without JS still works: it sets the cookie from the DB and redirects.
 func (s *Server) handleThemeSave(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
@@ -92,18 +90,20 @@ func (s *Server) handleThemeSave(w http.ResponseWriter, r *http.Request) {
 	if !themeAccents[accent] {
 		accent = "green"
 	}
-	mode, _ := s.userTheme(r)
-	if m := r.FormValue("mode"); themeModes[m] {
-		mode = m
+	uid, ok := s.currentUserID(r)
+	if !ok {
+		http.Error(w, "no user", http.StatusUnauthorized)
+		return
 	}
-	if err := s.saveTheme(r, mode, accent); err != nil {
+	if err := s.store.SaveUserThemeAccent(uid, accent); err != nil {
 		s.serverError(w, "save theme", err)
 		return
 	}
-	s.setThemeCookie(w, r, mode, accent)
 	if r.Header.Get("X-Requested-With") == "fetch" {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	mode, savedAccent := s.userTheme(r)
+	s.setThemeCookie(w, r, mode, savedAccent)
 	http.Redirect(w, r, "/settings?tab=theme", http.StatusSeeOther)
 }

@@ -23,6 +23,11 @@
 	function persist(url, params) {
 		fetch(url, {
 			method: "POST", credentials: "same-origin",
+			// keepalive lets the save complete even if the operator changes the theme
+			// and immediately navigates to another page — otherwise the in-flight
+			// request is cancelled and the preference never reaches the DB, so it
+			// would not follow them to another browser.
+			keepalive: true,
 			headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Requested-With": "fetch" },
 			body: new URLSearchParams(params).toString(),
 		}).catch(function () { /* the attribute + cookie already applied; persistence retries next change */ });
