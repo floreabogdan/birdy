@@ -228,10 +228,21 @@ func TestLoginFlow(t *testing.T) {
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/" {
 		t.Fatalf("correct password: code=%d location=%q", rec.Code, rec.Header().Get("Location"))
 	}
-	cookies := rec.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != sessionCookieName || cookies[0].Value == "" {
-		t.Fatalf("expected a session cookie, got %+v", cookies)
+	if sess := findCookie(rec.Result().Cookies(), sessionCookieName); sess == nil || sess.Value == "" {
+		t.Fatalf("expected a session cookie, got %+v", rec.Result().Cookies())
 	}
+}
+
+// findCookie returns the named cookie from a response, or nil. Responses now
+// carry the birdy_theme cookie alongside the session, so tests can no longer
+// assume the session is the only Set-Cookie.
+func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
+	for _, c := range cookies {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
 }
 
 func TestPasswordChangeRevokesOtherSessions(t *testing.T) {
@@ -248,16 +259,16 @@ func TestPasswordChangeRevokesOtherSessions(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("password change: code=%d body=%s", rec.Code, rec.Body.String())
 	}
-	cookies := rec.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Value == "" || cookies[0].Value == env.cookie.Value {
-		t.Fatalf("expected a rotated session cookie, got %+v", cookies)
+	sess := findCookie(rec.Result().Cookies(), sessionCookieName)
+	if sess == nil || sess.Value == "" || sess.Value == env.cookie.Value {
+		t.Fatalf("expected a rotated session cookie, got %+v", rec.Result().Cookies())
 	}
 	for _, token := range []string{env.cookie.Value, "other-browser"} {
 		if _, ok, err := env.store.GetSession(token); err != nil || ok {
 			t.Fatalf("old session %q survived: ok=%v err=%v", token, ok, err)
 		}
 	}
-	if _, ok, err := env.store.GetSession(cookies[0].Value); err != nil || !ok {
+	if _, ok, err := env.store.GetSession(sess.Value); err != nil || !ok {
 		t.Fatalf("replacement session missing: ok=%v err=%v", ok, err)
 	}
 }

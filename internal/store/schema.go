@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS users (
 	id            INTEGER PRIMARY KEY AUTOINCREMENT,
 	username      TEXT NOT NULL UNIQUE,
 	password_hash TEXT NOT NULL,
+	-- Per-user theme, applied server-side. 'system' follows the OS light/dark
+	-- preference; 'green' is the default Modern palette.
+	theme_mode    TEXT NOT NULL DEFAULT 'system',
+	theme_accent  TEXT NOT NULL DEFAULT 'green',
 	created_at    TEXT NOT NULL
 );
 

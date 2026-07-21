@@ -452,6 +452,8 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /instances/local/rename", s.requireAuth(s.handleLocalInstanceRename))
 	s.mux.Handle("POST /instances/{id}/delete", s.requireAuth(s.handleInstanceDelete))
 	s.mux.Handle("GET /instances/select", s.requireAuth(s.handleInstanceSelect))
+	s.mux.Handle("POST /settings/theme", s.requireAuth(s.handleThemeSave))
+	s.mux.Handle("POST /settings/theme/mode", s.requireAuth(s.handleThemeMode))
 	s.mux.Handle("POST /settings/identity", s.requireAuth(s.handleSettingsIdentity))
 	s.mux.Handle("POST /settings/bogons", s.requireAuth(s.handleSettingsBogons))
 	s.mux.Handle("POST /settings/raw", s.requireAuth(s.handleSettingsRaw))

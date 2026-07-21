@@ -73,6 +73,16 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setSessionCookie(w, token, s.cookieSecure(r))
+	// Seed the theme cookie from this user's saved preference so their theme is
+	// applied on the very first page, and follows them onto a new browser.
+	mode, accent := user.ThemeMode, user.ThemeAccent
+	if !themeModes[mode] {
+		mode = "system"
+	}
+	if !themeAccents[accent] {
+		accent = "green"
+	}
+	s.setThemeCookie(w, r, mode, accent)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 

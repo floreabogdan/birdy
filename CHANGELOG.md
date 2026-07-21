@@ -19,6 +19,18 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   moment an export policy is attached.
 
 ### Changed
+- **Theming system, typography and spacing rebuilt — Modern colours preserved.**
+  The stylesheet set a sub-1rem font-size on both `html` and `body`, compounding
+  to ~12px body text and shrinking every `rem` in the sheet; the root is fixed and
+  all type now sits on a modular scale (body is 15px) with line-height and 8pt
+  spacing tokens. **Colours, shadows and borders are unchanged** — the Modern look
+  is preserved. The browser-local Modern/Original toggle is replaced by a per-user,
+  server-side preference under Settings → Theme: a **light / dark / system** mode
+  and an **accent colour** — Green (the default Modern palette) plus Ocean, Violet
+  and Amber, which recolour only the accents and leave the neutral surfaces alone.
+  The preference is stored on your account and follows you across browsers instead
+  of living in one browser's localStorage. The Original style is retired; its blue
+  is now the Ocean accent.
 - **The top-bar bell is an unread-alerts counter, not a live down-gauge.** It used
   to show the number of currently-down sessions — which counted a peer you
   *disabled on purpose*, so the badge stuck at "1" and reappeared on every poll.

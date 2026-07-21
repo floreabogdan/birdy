@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 35
+const schemaVersion = 36
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -445,6 +445,16 @@ func migrate(db *sql.DB) error {
 		// Existing iBGP sessions default to 'all' so an upgrade renders their
 		// export byte-for-byte as before — a full mesh keeps carrying everything.
 		if err := ensureColumn(tx, "peers", "ibgp_export_default", `ALTER TABLE peers ADD COLUMN ibgp_export_default TEXT NOT NULL DEFAULT 'all'`); err != nil {
+			return err
+		}
+	}
+	if version < 36 {
+		// Per-user theme preference (was browser-local). Existing users default to
+		// the system light/dark preference and the green (Modern) accent.
+		if err := ensureColumn(tx, "users", "theme_mode", `ALTER TABLE users ADD COLUMN theme_mode TEXT NOT NULL DEFAULT 'system'`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "users", "theme_accent", `ALTER TABLE users ADD COLUMN theme_accent TEXT NOT NULL DEFAULT 'green'`); err != nil {
 			return err
 		}
 	}

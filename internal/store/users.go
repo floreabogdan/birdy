@@ -11,6 +11,12 @@ type User struct {
 	ID           int64
 	Username     string
 	PasswordHash string
+	// Per-user theme preference, applied server-side on every page (via a cookie
+	// the bootstrap reads) so it follows the operator across browsers rather than
+	// living in one browser's localStorage. Mode is system/light/dark; accent is
+	// the colour palette (green is the default Modern look).
+	ThemeMode   string
+	ThemeAccent string
 }
 
 // CreateUser inserts a new local user (there is normally exactly one: the admin).
@@ -26,8 +32,8 @@ func (s *Store) CreateUser(username, passwordHash string) (int64, error) {
 // GetUserByUsername returns (User{}, false, nil) if no such user exists.
 func (s *Store) GetUserByUsername(username string) (User, bool, error) {
 	var u User
-	row := s.db.QueryRow(`SELECT id, username, password_hash FROM users WHERE username = ?`, username)
-	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash)
+	row := s.db.QueryRow(`SELECT id, username, password_hash, theme_mode, theme_accent FROM users WHERE username = ?`, username)
+	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.ThemeMode, &u.ThemeAccent)
 	if err == sql.ErrNoRows {
 		return User{}, false, nil
 	}
@@ -41,8 +47,8 @@ func (s *Store) GetUserByUsername(username string) (User, bool, error) {
 // profile page, which knows the logged-in user by the id carried in the session.
 func (s *Store) GetUserByID(id int64) (User, bool, error) {
 	var u User
-	row := s.db.QueryRow(`SELECT id, username, password_hash FROM users WHERE id = ?`, id)
-	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash)
+	row := s.db.QueryRow(`SELECT id, username, password_hash, theme_mode, theme_accent FROM users WHERE id = ?`, id)
+	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.ThemeMode, &u.ThemeAccent)
 	if err == sql.ErrNoRows {
 		return User{}, false, nil
 	}
@@ -50,6 +56,15 @@ func (s *Store) GetUserByID(id int64) (User, bool, error) {
 		return User{}, false, fmt.Errorf("store: get user by id: %w", err)
 	}
 	return u, true, nil
+}
+
+// SaveUserTheme persists an operator's theme preference (validated by the web
+// layer). Applied on every subsequent page, so it follows them across browsers.
+func (s *Store) SaveUserTheme(userID int64, mode, accent string) error {
+	if _, err := s.db.Exec(`UPDATE users SET theme_mode = ?, theme_accent = ? WHERE id = ?`, mode, accent, userID); err != nil {
+		return fmt.Errorf("store: save user theme: %w", err)
+	}
+	return nil
 }
 
 // SetUsername renames an existing user. The username column is UNIQUE, so a

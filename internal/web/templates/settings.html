@@ -137,20 +137,27 @@
 
 			<section data-tab-panel="theme" {{if ne .Tab "theme"}}hidden{{end}} class="tab-panel">
 				<div class="card">
-					<div class="card-header"><span class="card-title">{{template "icon-sun"}}Panel theme</span></div>
+					<div class="card-header"><span class="card-title">{{template "icon-sun"}}Accent colour</span></div>
 					<div class="card-body">
-						<p class="text-muted" style="margin-top:0">Choose the visual style used by this browser. The original style remains available for compatibility with the project’s original interface; the modern style is the current Birdy refresh.</p>
-						<div class="theme-choice-grid">
-							<label class="theme-choice"><input id="theme-style-modern" type="radio" name="themeStylePreview" value="modern" data-theme-choice="modern"><span><strong>Modern Birdy</strong><small>Current restrained layout, updated spacing, and refreshed colors.</small></span></label>
-							<label class="theme-choice"><input id="theme-style-original" type="radio" name="themeStylePreview" value="original" data-theme-choice="original"><span><strong>Original Birdy</strong><small>Preserves the original owner’s visual language and palette.</small></span></label>
+						<p class="text-muted" style="margin-top:0">The accent used for links, primary buttons and highlights. Green is Birdy’s default; the neutral surfaces stay the same. Saved to your account, so it follows you across browsers.</p>
+						<div class="accent-grid">
+							<label class="accent-choice"><input type="radio" name="accent" value="green" data-accent-choice="green"><span class="accent-swatch" data-accent="green"></span>Green</label>
+							<label class="accent-choice"><input type="radio" name="accent" value="ocean" data-accent-choice="ocean"><span class="accent-swatch" data-accent="ocean"></span>Ocean</label>
+							<label class="accent-choice"><input type="radio" name="accent" value="violet" data-accent-choice="violet"><span class="accent-swatch" data-accent="violet"></span>Violet</label>
+							<label class="accent-choice"><input type="radio" name="accent" value="amber" data-accent-choice="amber"><span class="accent-swatch" data-accent="amber"></span>Amber</label>
 						</div>
-						<select id="theme-style-select" class="theme-style-select" aria-label="Panel visual style" hidden><option value="modern">Modern Birdy</option><option value="original">Original Birdy</option></select>
-						<div class="hint">This preference is stored in this browser only. Light and dark mode remain independently selectable from the top bar.</div>
 					</div>
 				</div>
 				<div class="card">
-					<div class="card-header">Color mode</div>
-					<div class="card-body"><p class="text-muted" style="margin-top:0">Use the sun button in the top bar to switch between light and dark mode. The selected style works with both modes.</p><button type="button" class="btn" id="theme-tab-toggle">Switch light/dark mode</button></div>
+					<div class="card-header">Light &amp; dark</div>
+					<div class="card-body">
+						<p class="text-muted" style="margin-top:0">Follow your system, or pin light or dark. The sun button in the top bar toggles light/dark too.</p>
+						<div class="mode-grid">
+							<label class="mode-choice"><input type="radio" name="mode" value="system" data-mode-choice="system"> System</label>
+							<label class="mode-choice"><input type="radio" name="mode" value="light" data-mode-choice="light"> Light</label>
+							<label class="mode-choice"><input type="radio" name="mode" value="dark" data-mode-choice="dark"> Dark</label>
+						</div>
+					</div>
 				</div>
 			</section>
 
