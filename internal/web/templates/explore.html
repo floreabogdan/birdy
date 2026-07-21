@@ -45,12 +45,9 @@
 								<label for="target" id="target-label">Target</label>
 								<input type="text" id="target" name="target" value="{{.Target}}" placeholder="e.g. 192.0.2.0/24 or edge_v4" required>
 							</div>
-							<div class="field" style="margin:0">
-								<label style="visibility:hidden">all</label>
-								<label style="font-weight:400;display:flex;align-items:center;gap:6px;color:var(--text)">
-									<input type="checkbox" name="all" value="1" style="width:auto" {{if .All}}checked{{end}}> show all + attributes (communities, local-pref)
-								</label>
-							</div>
+							<label class="check" style="min-height:38px">
+								<input type="checkbox" name="all" value="1" {{if .All}}checked{{end}}> show all + attributes (communities, local-pref)
+							</label>
 							<button class="btn btn-primary" type="submit">{{template "icon-search"}}Query</button>
 						</form>
 					</div>
