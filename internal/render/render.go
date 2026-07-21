@@ -587,6 +587,7 @@ func kernelProtectedAddrs(in Input, v4 bool) []netip.Addr {
 	for _, peer := range in.Peers {
 		add(peer.NeighborIP)
 		add(peer.LocalIP)
+		add(peer.TransportEndpoint)
 	}
 	out := make([]netip.Addr, 0, len(seen))
 	for addr := range seen {

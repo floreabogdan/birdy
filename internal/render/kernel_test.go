@@ -144,6 +144,7 @@ func TestKernelExportProtectsControlPlaneAddresses(t *testing.T) {
 	in.KernelPrefSrcV6 = "2001:db8::100"
 	v4 := ebgpPeer()
 	v4.LocalIP = "192.0.2.1"
+	v4.TransportEndpoint = "198.51.100.200"
 	v6 := ebgpPeer()
 	v6.Name = "edge_v6"
 	v6.NeighborIP = "2001:db8::10"
@@ -152,7 +153,7 @@ func TestKernelExportProtectsControlPlaneAddresses(t *testing.T) {
 
 	cfg := mustRender(t, in)
 	k4 := block(t, cfg, "protocol kernel kernel4 {")
-	for _, addr := range []string{in.RouterID, v4.NeighborIP, v4.LocalIP} {
+	for _, addr := range []string{in.RouterID, v4.NeighborIP, v4.LocalIP, v4.TransportEndpoint} {
 		if !strings.Contains(k4, "if "+addr+" ~ net then reject;") {
 			t.Errorf("kernel4 does not protect %s:\n%s", addr, k4)
 		}

@@ -127,6 +127,12 @@
 									<div class="hint">Required when using link-local addresses (e.g. eth0).</div>
 									{{with index .Errs "interface"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
+								<div class="field">
+									<label for="transportEndpoint">Tunnel endpoint</label>
+									<input type="text" id="transportEndpoint" name="transportEndpoint" class="mono" value="{{.Peer.TransportEndpoint}}" placeholder="optional outer IP" autocomplete="off">
+									<div class="hint">For GRE, WireGuard or IPsec, enter the remote outer IP. Birdy keeps routes covering it out of the kernel FIB.</div>
+									{{with index .Errs "transportEndpoint"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
 							</div>
 						</div>
 					</div>

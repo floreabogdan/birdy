@@ -363,6 +363,10 @@ h1, h2, h3 { font-weight: 700; color: var(--text); margin: 0; }
 .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sidebar-text); display: inline-block; flex-shrink: 0; }
 .conn-dot.ok { background: var(--success); }
 .conn-dot.bad { background: var(--danger); }
+.nav-status-dot { width:8px; height:8px; margin-left:auto; flex:0 0 8px; border-radius:50%; background:var(--warning); box-shadow:0 0 0 2px color-mix(in srgb, var(--warning) 20%, transparent); }
+.nav-status-dot.is-pending { background:var(--info); box-shadow:0 0 0 2px color-mix(in srgb, var(--info) 20%, transparent); }
+.nav-status-dot.is-blocked { background:var(--danger); box-shadow:0 0 0 2px color-mix(in srgb, var(--danger) 20%, transparent); }
+body.sidebar-collapsed .nav-status-dot { position:absolute; right:7px; top:7px; }
 
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
@@ -811,6 +815,16 @@ td.num, th.num { text-align: right; }
 .hero-status.ok { color: var(--success-deep); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
 .hero-status.bad { color: var(--danger-deep); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
 .hero-updated { font-size: 0.75rem; color: var(--text-muted); }
+
+.update-status { display:flex; align-items:center; gap:12px; min-height:68px; padding:14px 16px; margin-bottom:16px; border:1px solid var(--border); border-left-width:4px; background:var(--surface); }
+.update-status > svg { width:22px; height:22px; flex:0 0 auto; }
+.update-status > div { display:flex; flex:1; min-width:0; flex-direction:column; gap:3px; }
+.update-status strong { font-size:0.95rem; }
+.update-status span { color:var(--text-muted); font-size:0.84rem; }
+.update-status.is-available { border-left-color:var(--warning); }
+.update-status.is-current { border-left-color:var(--success); }
+.update-status.is-error { border-left-color:var(--danger); }
+@media (max-width: 640px) { .update-status { align-items:flex-start; flex-wrap:wrap; } .update-status .btn { width:100%; } }
 
 /* ---------- section headings that sit on the page canvas, not in a card ---------- */
 .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 26px 0 12px; }

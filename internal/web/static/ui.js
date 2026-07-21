@@ -1,4 +1,20 @@
 (function () {
+	var changesIndicator = document.getElementById("changes-nav-indicator");
+	if (changesIndicator) {
+		fetch("/api/changes/status", { headers: { "Accept": "application/json" } })
+			.then(function (response) { if (!response.ok) throw new Error("status"); return response.json(); })
+			.then(function (status) {
+				if (!status.changed && !status.pending) return;
+				var label = status.pending ? "Configuration awaiting confirmation" :
+					(status.blocked ? "Configuration changes need attention" : "Configuration changes ready to apply");
+				changesIndicator.hidden = false;
+				changesIndicator.classList.toggle("is-pending", !!status.pending);
+				changesIndicator.classList.toggle("is-blocked", !!status.blocked);
+				changesIndicator.setAttribute("aria-label", label);
+				changesIndicator.title = label;
+			});
+	}
+
 	var sidebarCollapse = document.getElementById("sidebar-collapse");
 	if (sidebarCollapse) {
 		var collapsed = false;

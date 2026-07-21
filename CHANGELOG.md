@@ -6,6 +6,20 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Tunnel underlay protection.** Peers can record an outer GRE, WireGuard, or
+  IPsec endpoint. When BGP-to-kernel export is enabled, generated kernel filters
+  reject every learned prefix covering that endpoint so a full table cannot
+  recursively route the tunnel through itself.
+- **Unapplied-change navigation status.** The Changes menu item now displays a
+  status marker when the model differs from the confirmed config, an apply is
+  awaiting confirmation, or the candidate needs attention.
+
+### Changed
+- **Clear update status.** The Updates page now presents update available, up to
+  date, and check failed states as prominent status panels with direct release
+  or commit actions instead of relying on a small card badge.
+
 ## [0.4.1] - 2026-07-20
 
 ### Fixed
