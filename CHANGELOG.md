@@ -30,7 +30,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and Amber, which recolour only the accents and leave the neutral surfaces alone.
   The preference is stored on your account and follows you across browsers instead
   of living in one browser's localStorage. The Original style is retired; its blue
-  is now the Ocean accent.
+  is now the Ocean accent. Pages are now full-width, and the settings/detail tab
+  bars no longer show a stray scrollbar.
 - **The top-bar bell is an unread-alerts counter, not a live down-gauge.** It used
   to show the number of currently-down sessions — which counted a peer you
   *disabled on purpose*, so the badge stuck at "1" and reappeared on every poll.
