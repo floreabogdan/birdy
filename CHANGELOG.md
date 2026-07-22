@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-22
+
 ### Added
 - **Tunnel underlay protection.** Peers can record an outer GRE, WireGuard, or
   IPsec endpoint. When BGP-to-kernel export is enabled, generated kernel filters
@@ -606,7 +608,8 @@ router and gives you:
 - Multi-arch release binaries (Linux amd64/arm64/arm, FreeBSD, macOS) and a
   multi-arch container image on GHCR.
 
-[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/floreabogdan/birdy/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/floreabogdan/birdy/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/floreabogdan/birdy/compare/v0.3.8...v0.4.0
 [0.3.8]: https://github.com/floreabogdan/birdy/compare/v0.3.7...v0.3.8
