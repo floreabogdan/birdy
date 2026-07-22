@@ -98,6 +98,14 @@ func (m *Manager) RunNightly(ctx context.Context, db DB, interval time.Duration,
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			// select picks a ready case at random, so a hot ticker can win over
+			// a fresh cancel; re-check before the slow snapshot so shutdown is
+			// honoured promptly instead of after another full backup.
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 			if path, err := m.CreateSnapshot(db); err != nil {
 				log.Warn("nightly snapshot failed", "error", err)
 			} else {
