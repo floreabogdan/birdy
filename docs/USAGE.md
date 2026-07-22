@@ -462,6 +462,7 @@ apply to the role you pick.
 | **Next-hop-self** | iBGP | Readvertise routes with your own address as the next hop. On by default: without it, an eBGP route carries the *external* peer's address, which the far end of the iBGP session usually cannot reach. Leave it on unless your IGP carries the peering subnets. |
 | **Route reflector client** | iBGP | Reflect iBGP routes to this peer, lifting the rule that stops readvertising iBGP routes to other iBGP peers. Set a cluster ID under Settings if you run more than one reflector. |
 | **Policy chains** | all | An **iBGP** session with no chains carries everything in both directions (`import all; export all;`) — the conventional full-mesh config. That includes any default route the far router learned from *its* upstream, which is a trap when the session runs over a **tunnel**: the far end installs your default, then tries to reach the tunnel's own endpoint *through the tunnel*, and the tunnel dies (the kernel calls this a dead loop and counts it under `collisions`). Attach chains and the internal session filters like any other — e.g. an import policy that rejects the default and accepts only your internal prefix set. Unlike eBGP, an internal import filter **never strips your own large communities**: on that session they are the origin tags the route was stamped with at the edge, and every export policy downstream reads them. (The other half of the tunnel fix lives in the OS, not in BIRD: pin the tunnel endpoint with a host route through the underlay, `ip route add <peer>/32 via <underlay-gw>`.) |
+| **iBGP export fallback** | iBGP | With no export chain attached, choose whether the session announces **everything** (`export all`, the full-mesh default) or **nothing** (`export none`) — the same default-deny posture eBGP has under RFC 8212, without inventing a reject-all policy. It governs only the empty-chain case and is ignored the moment you attach an export policy. |
 | **BFD** | all | Bidirectional Forwarding Detection — tear the session down within a second of a link failure instead of waiting out the hold timer. Needs a BFD-capable path. |
 | **GTSM** | eBGP | Generalized TTL Security Mechanism (RFC 5082): send with a maximal TTL and drop received packets whose TTL is lower than expected, so an off-path attacker cannot spoof the session. For a multihop peer, set **Multihop TTL** correctly so BIRD computes the right expected TTL. |
 | **Graceful restart** | all | Negotiate BGP graceful restart so forwarding continues across a control-plane restart on either end: **aware** (help a restarting neighbour — BIRD's default), **on** (negotiate in both directions), or **off** (drop routes immediately). |
@@ -708,8 +709,9 @@ button.
 ### Navigating and editing safely
 
 - The sidebar can be collapsed on wide screens and shows contextual links for
-  the section you are working in. Its state, compact table density, selected
-  theme, and dashboard columns are stored in the browser.
+  the section you are working in. Its state, compact table density, and
+  dashboard columns are stored in the browser; your theme is saved on your
+  account instead (see below).
 - Press **Ctrl/Cmd+K** to open the command palette. It searches pages and common
   creation actions; arrow keys select a result and Enter opens it.
 - The top bar always identifies the selected router. A banner appears while a
@@ -723,8 +725,10 @@ button.
   readiness. The Changes page separately summarizes render, syntax, policy, and
   apply readiness; these indicators explain state but never bypass the existing
   lint acknowledgement or BIRD auto-revert.
-- Settings → Theme selects the refreshed Modern style or the original Birdy
-  visual style. Light and dark mode are independent of that selection.
+- Settings → Theme sets a **light / dark / system** mode and an **accent
+  colour** — Green (the default), Ocean, Violet, or Amber. The preference is
+  saved on your account rather than in the browser, so it follows you to any
+  machine you log in from.
 
 ---
 

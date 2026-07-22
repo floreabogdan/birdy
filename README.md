@@ -233,7 +233,8 @@ things follow from that, and both are one setting away:
   dedicated dashboard token; configuration actions stay on the local router
 - A collapsible, contextual navigation shell; keyboard command palette; saved dashboard filters and
   columns; and an explicit local/remote router indicator
-- Selectable Modern and Original panel styles, each with complete light and dark modes
+- A per-user theme saved on your account, not the browser, so it follows you across machines:
+  **light / dark / system** mode plus an accent colour — Green, Ocean, Violet, or Amber
 
 **Model**
 - Peers with roles (upstream, IX peer, customer, iBGP), which drive automatic origin tagging

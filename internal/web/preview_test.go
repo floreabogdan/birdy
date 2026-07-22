@@ -105,18 +105,25 @@ func TestPreview(t *testing.T) {
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	// ?dark stamps data-theme on <html> the way theme.js does at runtime, so
-	// the dark palette can be screenshotted without driving devtools.
+	// ?dark and ?accent seed the birdy_theme cookie the bootstrap reads before
+	// first paint, exactly as a logged-in user's saved preference would. Stamping
+	// data-theme directly no longer works: theme-bootstrap.js clears any theme it
+	// did not set from the cookie itself, falling back to prefers-color-scheme.
 	page := func(name string, data any) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			var buf bytes.Buffer
 			render(&nopHeaderWriter{&buf}, log, name, data)
 			html := buf.String()
+			mode, accent := "", ""
 			if r.URL.Query().Has("dark") {
-				html = strings.Replace(html, "<html>", `<html data-theme="dark">`, 1)
+				mode = "dark"
 			}
-			if r.URL.Query().Has("original") {
-				html = strings.Replace(html, "<html>", `<html data-theme-style="original">`, 1)
+			if a := r.URL.Query().Get("accent"); a != "" {
+				accent = a
+			}
+			if mode != "" || accent != "" {
+				inject := `<script>document.cookie = "birdy_theme=` + mode + "." + accent + `";</script>`
+				html = strings.Replace(html, "<head>", "<head>"+inject, 1)
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = io.WriteString(w, html)
@@ -343,7 +350,7 @@ func TestPreview(t *testing.T) {
 		{"dashboard-narrow", "/", "820,1500"},
 		{"peer", "/peer", "1600,1400"},
 		{"dashboard-dark", "/?dark", "1600,1500"},
-		{"dashboard-original", "/?original", "1600,1500"},
+		{"dashboard-ocean", "/?accent=ocean", "1600,1500"},
 		{"peers", "/peers", "1600,900"},
 		{"peer-form", "/peer-form", "1600,1500"},
 		{"prefix-sets", "/prefix-sets", "1600,900"},
