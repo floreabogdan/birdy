@@ -178,9 +178,6 @@ func (c *Client) getJSON(ctx context.Context, path string, dst any) error {
 }
 
 func stableAvailable(current, latest string) bool {
-	if strings.Contains(current, "-dev") {
-		return true
-	}
 	cur, okCur := semverTuple(current)
 	next, okNext := semverTuple(latest)
 	if !okCur || !okNext {
@@ -191,7 +188,17 @@ func stableAvailable(current, latest string) bool {
 			return next[i] > cur[i]
 		}
 	}
-	return false
+	// Identical release numbers: a pre-release build (e.g. 0.4.2-dev) sits just
+	// before its own stable tag, so offer that tag once it ships. A -dev build
+	// whose number is already ahead of the latest stable (0.4.2-dev vs 0.4.1)
+	// returned false from the comparison above — it is ahead, not behind.
+	return isPrerelease(current) && !isPrerelease(latest)
+}
+
+// isPrerelease reports whether a version string carries a pre-release suffix,
+// such as the "-dev" birdy stamps on builds past the last release tag.
+func isPrerelease(version string) bool {
+	return strings.Contains(strings.TrimSpace(version), "-")
 }
 
 func semverTuple(version string) ([3]int, bool) {

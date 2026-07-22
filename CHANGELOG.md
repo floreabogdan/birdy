@@ -68,6 +68,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   §3.2; an uncovered blackhole falls through to the ordinary allow-list reject.
 
 ### Fixed
+- **The update check no longer claims a released version is newer than your
+  in-development build.** A `-dev` build always reported "update available", so the
+  Updates page told a `0.4.2-dev` install that the older `0.4.1` release was newer
+  than it. The comparison now reads the release numbers: a pre-release that is ahead
+  of the latest stable is up to date, and one whose stable tag has since shipped is
+  offered that tag.
 - **Draining a peer that has an import policy setting local-pref now actually
   deprefers it.** The drain wrote `bgp_local_pref = 0` *before* the import-policy
   call, and any policy that set local-pref (the normal customer/peer/upstream

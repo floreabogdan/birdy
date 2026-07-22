@@ -71,7 +71,13 @@ func TestStableAvailable(t *testing.T) {
 		{"0.3.7", "0.3.8", true},
 		{"0.3.8", "0.3.8", false},
 		{"0.4.0", "0.3.8", false},
-		{"0.3.9-dev", "0.3.8", true},
+		// A -dev build ahead of the latest stable is NOT behind it: 0.4.2-dev is
+		// a pre-release of 0.4.2, which is newer than 0.4.1 — offer nothing.
+		{"0.3.9-dev", "0.3.8", false},
+		{"0.4.2-dev", "0.4.1", false},
+		// A -dev build whose stable tag has since shipped should offer it.
+		{"0.4.2-dev", "0.4.2", true},
+		{"0.4.2-dev", "0.4.3", true},
 		{"unknown", "0.3.8", true},
 	} {
 		if got := stableAvailable(tc.current, tc.latest); got != tc.want {
