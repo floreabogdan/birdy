@@ -7,6 +7,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Tunnel underlay protection.** Peers can record an outer GRE, WireGuard, or
+  IPsec endpoint. When BGP-to-kernel export is enabled, generated kernel filters
+  reject every learned prefix covering that endpoint so a full table cannot
+  recursively route the tunnel through itself.
+- **Unapplied-change navigation status.** The Changes menu item now displays a
+  status marker when the model differs from the confirmed config, an apply is
+  awaiting confirmation, or the candidate needs attention.
 - **Choose what an iBGP session announces with no export policy.** A plain iBGP
   session with no export chain has always rendered `export all` — right for a full
   mesh, but the peer form described it as "receive-only", which was true only for
@@ -47,6 +54,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   events that are new since your last visit. A disabled peer records no event, so
   it can never light the bell. "Seen" is tracked per browser; your own config
   applies and model edits, and a session coming back up, do not count.
+- **Clear update status.** The Updates page now presents update available, up to
+  date, and check failed states as prominent status panels with direct release
+  or commit actions instead of relying on a small card badge.
 
 ### Security
 - **A blackhole is honoured only for a host route the peer is authorised to

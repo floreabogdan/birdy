@@ -106,6 +106,7 @@ CREATE TABLE IF NOT EXISTS peers (
 	remote_asn           INTEGER NOT NULL,
 	local_ip             TEXT NOT NULL DEFAULT '',
 	interface            TEXT NOT NULL DEFAULT '',
+	transport_endpoint   TEXT NOT NULL DEFAULT '',
 	multihop             INTEGER NOT NULL DEFAULT 0,
 	passive              INTEGER NOT NULL DEFAULT 0,
 	password             TEXT NOT NULL DEFAULT '',

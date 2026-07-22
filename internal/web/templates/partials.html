@@ -1,10 +1,10 @@
 {{define "head"}}
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/static/style.css?v=dev-ui20">
+<link rel="stylesheet" href="/static/style.css?v=dev-ui21">
 <script src="/static/theme-bootstrap.js?v=dev-ui13"></script>
 <script src="/static/theme.js?v=dev-ui14" defer></script>
-<script src="/static/ui.js?v=dev-ui12" defer></script>
+<script src="/static/ui.js?v=dev-ui13" defer></script>
 <script src="/static/command-palette.js?v=dev-ui12" defer></script>
 {{end}}
 
@@ -94,7 +94,7 @@
 		{{if eq .Active "policies"}}<div class="sidebar-subnav"><a href="/policies">All policies</a><a href="/policies/new">Add policy</a></div>{{end}}
 		<a href="/library/prefix-sets" title="Library" class="{{if eq .Active "library"}}active{{end}}">{{template "icon-library"}}<span class="nav-copy">Library</span></a>
 		{{if eq .Active "library"}}<div class="sidebar-subnav"><a href="/library/prefix-sets">Prefix sets</a><a href="/library/as-sets">AS sets</a><a href="/library/communities">Communities</a><a href="/library/static-routes">Static routes</a></div>{{end}}
-		<a href="/changes" title="Changes" class="{{if eq .Active "changes"}}active{{end}}">{{template "icon-changes"}}<span class="nav-copy">Changes</span></a>
+		<a href="/changes" title="Changes" class="{{if eq .Active "changes"}}active{{end}}">{{template "icon-changes"}}<span class="nav-copy">Changes</span><span id="changes-nav-indicator" class="nav-status-dot" hidden aria-label=""></span></a>
 		{{if eq .Active "changes"}}<div class="sidebar-subnav"><a href="/changes">Candidate</a><a href="/changes/history">Apply history</a></div>{{end}}
 
 		<div class="nav-label">Protect</div>

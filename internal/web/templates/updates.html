@@ -23,6 +23,21 @@
 
 			{{if .Flash}}<div class="flash flash-success">{{.Flash}}</div>{{end}}
 
+			{{if .CheckErr}}
+			<div class="update-status is-error" role="alert">
+				{{template "icon-alert"}}<div><strong>Unable to check for updates</strong><span>{{.CheckErr}}</span></div>
+			</div>
+			{{else if .Result.Available}}
+			<div class="update-status is-available" role="status">
+				{{template "icon-download"}}<div><strong>Update available</strong><span>{{if eq .Channel "development"}}A newer development commit is ready.{{else}}Birdy {{.Result.LatestVersion}} is newer than the installed {{.BuildVersion}} build.{{end}}</span></div>
+				<a class="btn btn-primary" href="{{.Result.URL}}" target="_blank" rel="noopener">View {{if eq .Channel "development"}}commit{{else}}release{{end}}</a>
+			</div>
+			{{else}}
+			<div class="update-status is-current" role="status">
+				{{template "icon-check"}}<div><strong>Birdy is up to date</strong><span>The installed build matches the latest {{if eq .Channel "development"}}development commit{{else}}stable release{{end}}.</span></div>
+			</div>
+			{{end}}
+
 			<div class="grid-2">
 				<div class="card">
 					<div class="card-header"><span class="card-title">Tracking channel</span></div>

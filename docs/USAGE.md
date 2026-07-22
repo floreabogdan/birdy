@@ -655,10 +655,15 @@ button.
     only: Linux forwarding, firewall policy, underlay host routes, and capacity
     monitoring remain operator responsibilities. Birdy excludes any imported
     prefix covering the router ID, configured peer addresses, local session
-    addresses, or preferred source so a full table cannot override the routes
+    addresses, configured tunnel endpoints, or preferred source so a full table cannot override the routes
     that keep the BGP control plane reachable. The default route (0.0.0.0/0,
     ::/0) is exempt from these guards — it covers every address by definition
     and is not a targeted control-plane hijack.
+  - For a BGP session carried over GRE, WireGuard, or IPsec, set **Tunnel
+    endpoint** on the peer to the remote outer address. Birdy then rejects every
+    imported BGP route covering that address from kernel export. Keep an OS-level
+    host route through the underlay as defense in depth, because Birdy manages
+    BIRD configuration rather than the host's tunnel or network configuration.
 - **Bogons** — the bogon prefix lists (v4/v6) and bogon ASN list. Generated filters
   name these directly, which is why they live here rather than in the Library and
   cannot be deleted or announced. "Restore defaults" resets them to what birdy
@@ -689,6 +694,9 @@ button.
   own executable or run code fetched by the web process. Development builds must
   embed their source revision with the documented build `-ldflags` for an exact
   comparison.
+  The page displays a prominent **Update available**, **Up to date**, or
+  **Unable to check** result, with the installed and latest build details and a
+  direct link to the applicable release or commit.
 - **Remote dashboard access** — Settings → General can generate a token that
   grants dashboard data only. On a central Birdy panel, open System → Instances
   and add the remote URL and token. The top-bar selector changes the dashboard

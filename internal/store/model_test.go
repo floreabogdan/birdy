@@ -102,6 +102,19 @@ func TestPeerIsV6(t *testing.T) {
 	}
 }
 
+func TestPeerValidatesTransportEndpoint(t *testing.T) {
+	p := validPeer()
+	p.TransportEndpoint = "not-an-address"
+	if _, ok := p.Validate()["transportEndpoint"]; !ok {
+		t.Fatal("invalid tunnel endpoint was accepted")
+	}
+	p = validPeer()
+	p.TransportEndpoint = "2001:db8::200"
+	if errs := p.Validate(); len(errs) != 0 {
+		t.Fatalf("valid tunnel endpoint rejected: %v", errs)
+	}
+}
+
 func TestPeerCRUD(t *testing.T) {
 	s := openTest(t)
 
@@ -118,12 +131,13 @@ func TestPeerCRUD(t *testing.T) {
 	}
 
 	got.Description = "transit"
+	got.TransportEndpoint = "198.51.100.200"
 	got.Enabled = false
 	if err := s.UpdatePeer(got); err != nil {
 		t.Fatalf("UpdatePeer: %v", err)
 	}
 	again, _ := s.GetPeer(id)
-	if again.Description != "transit" || again.Enabled {
+	if again.Description != "transit" || again.Enabled || again.TransportEndpoint != "198.51.100.200" {
 		t.Errorf("update did not stick: %+v", again)
 	}
 

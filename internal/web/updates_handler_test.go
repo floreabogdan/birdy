@@ -41,13 +41,25 @@ func TestUpdatesPageShowsAvailableDevelopmentCommit(t *testing.T) {
 		t.Fatalf("GET /updates: status %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Development branch", "update available", "abcdef1", "checked"} {
+	for _, want := range []string{"Development branch", "Update available", "A newer development commit is ready", "abcdef1", "checked"} {
 		if !strings.Contains(strings.ToLower(body), strings.ToLower(want)) {
 			t.Errorf("GET /updates body missing %q", want)
 		}
 	}
 	if checker.channel != updatecheck.ChannelDevelopment {
 		t.Fatalf("checked channel %q, want development", checker.channel)
+	}
+}
+
+func TestUpdatesPageClearlyShowsCurrentBuild(t *testing.T) {
+	checker := &fakeUpdateChecker{result: updatecheck.Result{
+		Channel: updatecheck.ChannelStable, LatestVersion: "0.4.0",
+		URL: "https://github.com/floreabogdan/birdy/releases/tag/v0.4.0", CheckedAt: time.Now(),
+	}}
+	env := newTestEnv(t, false, func(c *Config) { c.UpdateChecker = checker })
+	body := env.do(t, http.MethodGet, "/updates", nil).Body.String()
+	if !strings.Contains(body, "Birdy is up to date") {
+		t.Fatalf("current update state is not prominent: %q", body)
 	}
 }
 

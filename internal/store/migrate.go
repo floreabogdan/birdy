@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 36
+const schemaVersion = 37
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -455,6 +455,15 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 		if err := ensureColumn(tx, "users", "theme_accent", `ALTER TABLE users ADD COLUMN theme_accent TEXT NOT NULL DEFAULT 'green'`); err != nil {
+			return err
+		}
+	}
+	if version < 37 {
+		// A tunneled BGP neighbor's inner address is not enough to protect the
+		// session when full routes are exported to the host FIB. Record the outer
+		// GRE/WireGuard/IPsec endpoint so every covering BGP route is rejected by
+		// the generated kernel filter and the tunnel cannot route through itself.
+		if err := ensureColumn(tx, "peers", "transport_endpoint", `ALTER TABLE peers ADD COLUMN transport_endpoint TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
 	}

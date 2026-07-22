@@ -91,6 +91,7 @@ type Peer struct {
 	RemoteASN         int64
 	LocalIP           string
 	Interface         string // required when local or neighbor is link-local
+	TransportEndpoint string // outer endpoint for a GRE/WireGuard/IPsec session
 	Multihop          int    // 0 = direct
 	Passive           bool
 	Password          string
@@ -262,6 +263,15 @@ func (p *Peer) Validate() map[string]string {
 			errs["interface"] = "Enter a valid Linux interface name (up to 15 characters, no spaces or quotes)."
 		}
 	}
+	p.TransportEndpoint = strings.TrimSpace(p.TransportEndpoint)
+	if p.TransportEndpoint != "" {
+		endpoint, endpointErr := netip.ParseAddr(p.TransportEndpoint)
+		if endpointErr != nil || !endpoint.IsValid() || endpoint.IsUnspecified() {
+			errs["transportEndpoint"] = "Enter the tunnel's outer IPv4 or IPv6 endpoint."
+		} else {
+			p.TransportEndpoint = endpoint.String()
+		}
+	}
 
 	// BGP AS numbers are 32-bit. AS0 (RFC 7607), AS65535 and AS4294967295
 	// (RFC 7300) are reserved and never valid on the wire; AS23456 is AS_TRANS
@@ -295,7 +305,7 @@ func (p *Peer) Validate() map[string]string {
 // Kept in one place because it is read by three queries and must stay aligned
 // with the scan, INSERT and UPDATE — the widest such surface in the store.
 const peerCols = `id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
-	interface, multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
+	interface, transport_endpoint, multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
 	origin_peer_only, next_hop_self, rr_client,
 	prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart,
 	ibgp_export_default`
@@ -343,7 +353,7 @@ type scanner interface{ Scan(...any) error }
 func scanPeer(sc scanner) (Peer, error) {
 	var p Peer
 	err := sc.Scan(&p.ID, &p.Name, &p.Description, &p.Role, &p.Enabled, &p.NeighborIP,
-		&p.RemoteASN, &p.LocalIP, &p.Interface, &p.Multihop, &p.Passive, &p.Password,
+		&p.RemoteASN, &p.LocalIP, &p.Interface, &p.TransportEndpoint, &p.Multihop, &p.Passive, &p.Password,
 		&p.ImportLimit, &p.ImportLimitAction, &p.EnforceFirstAS, &p.OriginPeerOnly,
 		&p.NextHopSelf, &p.RRClient,
 		&p.PrependCount, &p.ImportCommunities, &p.ExportCommunities, &p.Drained, &p.BFD, &p.BGPRole, &p.GTSM, &p.GracefulRestart,
@@ -355,12 +365,12 @@ func (s *Store) CreatePeer(p Peer) (int64, error) {
 	ts := now()
 	res, err := s.db.Exec(`
 		INSERT INTO peers (name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
-		                   interface, multihop, passive, password, import_limit, import_limit_action,
+		                   interface, transport_endpoint, multihop, passive, password, import_limit, import_limit_action,
 		                   enforce_first_as, origin_peer_only, next_hop_self, rr_client,
 		                   prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart, ibgp_export_default, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
-		p.Interface, p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
+		p.Interface, p.TransportEndpoint, p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
 		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, p.IBGPExportDefault, ts, ts)
 	if err != nil {
@@ -372,14 +382,14 @@ func (s *Store) CreatePeer(p Peer) (int64, error) {
 func (s *Store) UpdatePeer(p Peer) error {
 	res, err := s.db.Exec(`
 		UPDATE peers SET name = ?, description = ?, role = ?, enabled = ?, neighbor_ip = ?,
-		                 remote_asn = ?, local_ip = ?, interface = ?, multihop = ?, passive = ?,
+		                 remote_asn = ?, local_ip = ?, interface = ?, transport_endpoint = ?, multihop = ?, passive = ?,
 		                 password = ?, import_limit = ?, import_limit_action = ?, enforce_first_as = ?,
 		                 origin_peer_only = ?, next_hop_self = ?, rr_client = ?,
 		                 prepend_count = ?, import_communities = ?, export_communities = ?, drained = ?, bfd = ?, bgp_role = ?,
 			                 gtsm = ?, graceful_restart = ?, ibgp_export_default = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
-		p.Interface, p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
+		p.Interface, p.TransportEndpoint, p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
 		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, p.IBGPExportDefault, now(), p.ID)
 	if err != nil {

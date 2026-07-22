@@ -502,4 +502,5 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/backup/download", s.requireAuth(s.handleBackupDownload))
 	s.mux.Handle("POST /api/snapshot/restore", s.requireAuth(s.apiSnapshotRestore))
 	s.mux.Handle("GET /api/alerts/summary", s.requireAuth(s.apiAlertsSummary))
+	s.mux.Handle("GET /api/changes/status", s.requireAuth(s.apiChangeStatus))
 }
