@@ -579,6 +579,9 @@ svg.sparkline[data-spark] { cursor: crosshair; }
 .tabs { display: flex; gap: var(--space-1); }
 .tab-btn { font-weight: 500; }
 .tab-btn.active { background: var(--btn-primary-bg); border-color: var(--btn-primary-bg); color: #fff; }
+/* Keep the filled tab readable on hover: the generic .btn:hover only swaps the
+   background to a light surface, which left the white label invisible. */
+.tab-btn.active:hover { background: var(--btn-primary-hover); border-color: var(--btn-primary-hover); color: #fff; }
 .card-body { padding: 18px; }
 .instances-layout { align-items: start; }
 .instances-list { display: grid; gap: var(--space-1); }
