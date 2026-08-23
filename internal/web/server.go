@@ -362,6 +362,7 @@ func (s *Server) routes() {
 	// Peer templates live under /peers/templates. Every one of these is a
 	// literal path, which the mux ranks above the /peers/{name} wildcard below;
 	// store.Peer refuses "templates" as a name so the two can never collide.
+	s.mux.Handle("POST /peers/attach", s.requireAuth(s.handlePeersAttach))
 	s.mux.Handle("GET /peers/templates", s.requireAuth(s.handlePeerTemplatesList))
 	s.mux.Handle("GET /peers/templates/new", s.requireAuth(s.handlePeerTemplateNew))
 	s.mux.Handle("POST /peers/templates/new", s.requireAuth(s.handlePeerTemplateSave))

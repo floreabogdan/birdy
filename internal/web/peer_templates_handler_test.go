@@ -167,7 +167,7 @@ func TestLinkedPeerTakesItsShapeFromTheTemplate(t *testing.T) {
 	for _, want := range []string{
 		`<option value="` + strconv.FormatInt(tmpl.ID, 10) + `" selected>IX_PEERS`,
 		`data-locked`,
-		`id="importLimit" name="importLimit" class="mono" value="50000" min="0" data-governed disabled`,
+		`id="importLimit" name="importLimit" class="mono" value="50000" min="0" data-governed data-override-key="importLimit" disabled`,
 		`Inherited from template <a href="/peers/templates/IX_PEERS/edit"`,
 		`Edit template IX_PEERS`,
 		`Shape inherited from peer template IX_PEERS`,

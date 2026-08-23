@@ -311,6 +311,18 @@ func (s *Store) LinkPeerToTemplate(peerID, templateID int64) error {
 	return tx.Commit()
 }
 
+// DetachPeer clears a peer's link and its overrides, leaving every value it
+// inherited in place: the peer now owns the shape it had. The bulk "detach"
+// on the peers list and nothing else goes through here; the form detaches by
+// saving the peer with no template.
+func (s *Store) DetachPeer(peerID int64) error {
+	res, err := s.db.Exec(`UPDATE peers SET template_id = NULL, template_overrides = '', updated_at = ? WHERE id = ?`, now(), peerID)
+	if err != nil {
+		return fmt.Errorf("store: detach peer: %w", err)
+	}
+	return affectedOne(res)
+}
+
 // PolicyIDs lists a chain's ids in order, for the chain writers.
 func PolicyIDs(chain []Policy) []int64 {
 	out := make([]int64, 0, len(chain))

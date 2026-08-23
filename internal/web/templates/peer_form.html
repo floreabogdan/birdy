@@ -95,7 +95,6 @@
 			{{end}}
 
 			<form method="post" action="{{if .IsTemplate}}{{if .IsNew}}/peers/templates/new{{else}}/peers/templates/{{.Template.Name}}/edit{{end}}{{else if .IsNew}}/peers/new{{else}}/peers/{{.Peer.Name}}/edit{{end}}" data-preview-url="{{if .IsTemplate}}/peers/templates/preview{{else}}/peers/preview{{end}}" data-editor data-peer-form{{if .IsTemplate}} data-template-form{{end}}>
-			{{if not .IsTemplate}}<input type="hidden" name="templateOverrides" value="{{.Peer.TemplateOverrides}}">{{end}}
 			{{if and .IsTemplate .LinkSource}}<input type="hidden" name="from" value="{{.LinkSource}}">{{end}}
 			<div class="split">
 				<div>
@@ -332,16 +331,26 @@
 								</div>
 								{{end}}
 							</div>
+							{{if not .IsTemplate}}
+							{{/* One oversized IX peer can keep its own limit without a template of its own. */}}
+							<div data-inherit-only {{if not $inh}}hidden{{end}}>
+								<div class="checks">
+									<label class="check"><input type="checkbox" name="overrideImportLimit" data-override="importLimit" {{if .Peer.HasOverride "importLimit"}}checked{{end}}> Use this peer's own import limit instead of the template's</label>
+								</div>
+								<div class="hint" style="margin-bottom:12px">For the one peer at an exchange that sends far more routes than the rest. The template's other settings still apply, and its limit returns the moment this is unticked.</div>
+							</div>
+							{{end}}
+							{{$limitLocked := and $inh (not (.Peer.HasOverride "importLimit"))}}
 							<div class="field-row">
 								<div class="field">
 									<label for="importLimit">Import limit</label>
-									<input type="number" id="importLimit" name="importLimit" class="mono" value="{{.Peer.ImportLimit}}" min="0" data-governed {{if $inh}}disabled{{end}}>
+									<input type="number" id="importLimit" name="importLimit" class="mono" value="{{.Peer.ImportLimit}}" min="0" data-governed data-override-key="importLimit" {{if $limitLocked}}disabled{{end}}>
 									<div class="hint">0 for no limit.</div>
 									{{with index .Errs "importLimit"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
 								<div class="field">
 									<label for="importLimitAction">When exceeded</label>
-									<select id="importLimitAction" name="importLimitAction" data-governed {{if $inh}}disabled{{end}}>
+									<select id="importLimitAction" name="importLimitAction" data-governed data-override-key="importLimit" {{if $limitLocked}}disabled{{end}}>
 										{{$a := .Peer.ImportLimitAction}}
 										<option value="restart" {{if eq $a "restart"}}selected{{end}}>restart the session</option>
 										<option value="block" {{if eq $a "block"}}selected{{end}}>block further routes</option>
@@ -460,7 +469,7 @@
 </div>
 {{if not .IsTemplate}}<script type="application/json" id="peer-templates-data">{{.TemplateData}}</script>{{end}}
 <script src="/static/policy-chain.js?v=dev-ui13"></script>
-<script src="/static/peer-form.js?v=dev-ui13"></script>
+<script src="/static/peer-form.js?v=dev-ui14"></script>
 <script src="/static/live-preview.js"></script>
 <script src="/static/peeringdb.js"></script>
 </body>

@@ -492,15 +492,31 @@ until you have looked.
   controls fill with the template's values and grey out; the live preview shows the
   result. Whatever the form posts for a governed field is ignored on save — the
   template wins.
+- **Keep one peer's own import limit.** The one thing that genuinely differs between
+  thirty otherwise identical IX peers is how much the big one sends. Tick *Use this
+  peer's own import limit* on a linked peer and its limit and action stay its own
+  through every template save; untick it and the template's limit returns. Nothing
+  else can be overridden — a peer that needs a different chain needs a different
+  template.
 - **Detach** by choosing *None*. The peer keeps the values it inherited and stops
   following the template — the same result as a clone, in place.
 - **Capture an existing peer** with *Save as template* on its edit page: the new
   template starts from that peer's shape, and the peer can be linked to it in the
   same step. From a template's row, *Add peer* starts a new session already linked,
   so only the identity is left to type.
+- **Attach many at once.** Tick peers on the peers list and use the bar under the
+  table to attach them all to one template (or detach them). Attaching replaces each
+  peer's chains, limit and safeguards with the template's — it is how a router whose
+  peers were configured one by one moves onto templates.
+- **Import from BIRD already linked.** The *Import from BIRD* page offers a template
+  per row (and one control to set every checked row); an imported session linked to a
+  template arrives with its role, chains, limit and safeguards, which a plain import
+  cannot know from the socket.
 - A template **cannot be deleted while peers link to it**, and a policy cannot be
   deleted while a template chains it. A linked peer's protocol block in the rendered
-  config carries a comment naming its template.
+  config carries a comment naming its template. On the Changes page, identical lint
+  findings about peers of one template fold into a single line attributed to the
+  template — thirty peers missing an import limit is one thing to fix, once.
 
 A template is not a BIRD `template bgp`: birdy's filters embed per-peer values (the
 remote ASN, prepends, the drain flag), so each linked peer still renders its own

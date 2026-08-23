@@ -1044,10 +1044,17 @@ label { display: block; font-size: var(--fs-xs); color: var(--text-muted); margi
 /* A card whose controls come from a peer template says so, once, at the top. */
 .inherit-note { padding: 8px 12px; border-left: 3px solid var(--primary); background: var(--surface-alt); border-radius: 0 6px 6px 0; }
 .inherit-note[hidden] { display: none; }
+/* The peers list's bulk "attach to template" bar, under the table. */
+.bulk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border); }
+.bulk-bar select { width: auto; min-width: 16rem; }
+.bulk-bar [data-selected-count] { min-width: 7rem; font-size: var(--fs-xs); }
+.bulk-bar .hint { flex-basis: 100%; margin-top: 0; }
 .inherit-note a { font-weight: 600; }
 .field-error { font-size: var(--fs-xs); color: var(--danger-deep); margin-top: 4px; font-weight: 500; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 .checks { display: flex; flex-direction: column; gap: var(--space-2); margin-top: 4px; }
+/* The peer form hides the other role's checkbox group with the hidden attribute. */
+.checks[hidden] { display: none; }
 .check { display: flex; align-items: center; gap: var(--space-2); font-size: var(--fs-sm); color: var(--text); font-weight: 400; text-transform: none; margin: 0; }
 .check input { width: auto; margin: 0; }
 .form-actions { display: flex; gap: var(--space-2); margin-bottom: 20px; }

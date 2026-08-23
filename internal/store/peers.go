@@ -62,7 +62,7 @@ var birdIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 // the {name} wildcard gets a look in, so a peer called "new" could be created
 // but never opened. Refuse them at the model boundary rather than let the URL
 // space silently swallow a session.
-var reservedPeerNames = map[string]bool{"new": true, "seed": true, "preview": true, "templates": true}
+var reservedPeerNames = map[string]bool{"new": true, "seed": true, "preview": true, "templates": true, "attach": true}
 
 // validateNameDesc checks the name (a BIRD identifier interpolated into the
 // config) and description shared by every named model object, returning the
@@ -191,6 +191,10 @@ const OverrideImportLimit = "importLimit"
 
 var knownOverrides = map[string]bool{OverrideImportLimit: true}
 
+// HasOverride reports whether this peer keeps its own value for one governed
+// field while linked — the form uses it to decide which controls stay live.
+func (p Peer) HasOverride(key string) bool { return p.Overrides()[key] }
+
 // Overrides returns the governed fields this peer keeps its own value for.
 func (p Peer) Overrides() map[string]bool {
 	out := map[string]bool{}
@@ -223,6 +227,9 @@ func (p *Peer) Validate() map[string]string {
 	}
 	p.validateShape(errs)
 
+	// An override only means something against a template; an unlinked peer
+	// owns every field, so the list is kept empty rather than left as a stale
+	// hint about a link that no longer exists.
 	var keys []string
 	for key := range strings.SplitSeq(p.TemplateOverrides, ",") {
 		if key = strings.TrimSpace(key); key == "" {
@@ -234,6 +241,9 @@ func (p *Peer) Validate() map[string]string {
 		keys = append(keys, key)
 	}
 	p.TemplateOverrides = strings.Join(keys, ",")
+	if !p.TemplateID.Valid {
+		p.TemplateOverrides = ""
+	}
 
 	neighbor, err := netip.ParseAddr(strings.TrimSpace(p.NeighborIP))
 	if err != nil || !neighbor.IsValid() {

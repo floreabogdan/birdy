@@ -2,6 +2,7 @@ package web
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,6 +21,8 @@ type peersView struct {
 	// can say whether it is actually up — and link to its live session.
 	Live  map[string]protoRow
 	Flash string
+	// Templates feeds the bulk "attach selected peers to" control.
+	Templates []store.PeerTemplate
 }
 
 type peerFormView struct {
@@ -95,12 +98,17 @@ func (s *Server) handlePeersList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	templates, err := s.store.ListPeerTemplates()
+	if err != nil {
+		s.serverError(w, "list peer templates", err)
+		return
+	}
 	offset, limit := parsePageParams(r)
 	page := pageSlice(peers, offset, limit)
 	render(w, s.log, "peers.html", peersView{
 		Active: "peers", ReadOnly: s.readOnly, Peers: page, Live: s.liveStates(),
 		Pager: pagerFor(r, offset, limit, len(page), len(peers)),
-		Flash: s.flashMsg(w, r),
+		Flash: s.flashMsg(w, r), Templates: templates,
 	})
 }
 
@@ -199,8 +207,18 @@ func peerFromForm(r *http.Request) store.Peer {
 		GTSM:              r.FormValue("gtsm") == "on",
 		GracefulRestart:   r.FormValue("gracefulRestart"),
 		TemplateID:        formNullInt(r, "templateId"),
-		TemplateOverrides: strings.TrimSpace(r.FormValue("templateOverrides")),
+		TemplateOverrides: overridesFromForm(r),
 	}
+}
+
+// overridesFromForm reads the per-peer override switches a linked peer's form
+// offers. One for now: the import limit, so one oversized IX peer can carry a
+// higher limit than the rest of its template without a template of its own.
+func overridesFromForm(r *http.Request) string {
+	if r.FormValue("overrideImportLimit") == "on" {
+		return store.OverrideImportLimit
+	}
+	return ""
 }
 
 // formNullInt reads an optional positive integer — a foreign key picker whose
@@ -255,11 +273,6 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 		// edit form never renders the stored secret back to the browser.
 		if p.Password == "" {
 			p.Password = existing.Password
-		}
-		// A peer that changes template takes the new template's word for
-		// everything; overrides were decided against the old one.
-		if p.TemplateID != existing.TemplateID {
-			p.TemplateOverrides = ""
 		}
 	}
 
@@ -322,6 +335,73 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 		p.ImportPolicies, p.ExportPolicies = s.resolvePolicies(all, importIDs), s.resolvePolicies(all, exportIDs)
 	}
 	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: isNew, Peer: p, Errs: errs})
+}
+
+// handlePeersAttach links every selected peer to one template — or, with no
+// template chosen, detaches them — straight from the peers list. It is the
+// migration path for a router whose thirty IX peers were configured one by one
+// before templates existed: capture one as a template, then attach the rest.
+// Attaching overwrites each peer's shape with the template's; like every model
+// edit, nothing reaches the router until the result is applied.
+func (s *Server) handlePeersAttach(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	names := r.Form["peer"]
+	if len(names) == 0 {
+		s.flashRedirect(w, r, "/peers", "Select at least one peer first.", true)
+		return
+	}
+	var tmpl store.PeerTemplate
+	if id := formNullInt(r, "templateId"); id.Valid {
+		t, err := s.store.GetPeerTemplate(id.Int64)
+		if err == store.ErrNotFound {
+			s.flashRedirect(w, r, "/peers", "That template no longer exists.", true)
+			return
+		}
+		if err != nil {
+			s.serverError(w, "get peer template", err)
+			return
+		}
+		tmpl = t
+	}
+
+	var done, missing []string
+	for _, name := range names {
+		p, err := s.store.GetPeerByName(name)
+		if err == store.ErrNotFound {
+			missing = append(missing, name)
+			continue
+		}
+		if err != nil {
+			s.serverError(w, "get peer", err)
+			return
+		}
+		if tmpl.ID != 0 {
+			err = s.store.LinkPeerToTemplate(p.ID, tmpl.ID)
+		} else {
+			err = s.store.DetachPeer(p.ID)
+		}
+		if err != nil {
+			s.serverError(w, "attach peer to template", err)
+			return
+		}
+		done = append(done, name)
+	}
+
+	var msg string
+	if tmpl.ID != 0 {
+		s.audit(r, fmt.Sprintf("attached %d peer(s) to template %s: %s", len(done), tmpl.Name, strings.Join(done, ", ")))
+		msg = fmt.Sprintf("Attached %d %s to %s — their chains, limits and safeguards now come from the template. Review them under Changes and apply to take effect on the router.", len(done), plural(len(done), "peer"), tmpl.Name)
+	} else {
+		s.audit(r, fmt.Sprintf("detached %d peer(s) from their templates: %s", len(done), strings.Join(done, ", ")))
+		msg = fmt.Sprintf("Detached %d %s — each keeps the settings it had and owns them from now on.", len(done), plural(len(done), "peer"))
+	}
+	if len(missing) > 0 {
+		msg += " Not found: " + strings.Join(missing, ", ") + "."
+	}
+	s.flashRedirect(w, r, "/peers", msg, false)
 }
 
 // checkChains rejects a chain that names a policy of the wrong direction, or a

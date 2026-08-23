@@ -29,7 +29,14 @@
 		if (el.matches("input, select, textarea, button")) return [el];
 		return Array.prototype.slice.call(el.querySelectorAll("input, select, textarea, button"));
 	}
-	function isGoverned(f) { return f.hasAttribute("data-governed") || !!f.closest("[data-governed]"); }
+	// An override switch (data-override="importLimit") keeps the controls that
+	// name it (data-override-key) live on a linked peer, and keeps fill() off them.
+	function overrideOn(key) {
+		var box = form.querySelector('[data-override="' + key + '"]');
+		return !!(box && box.checked);
+	}
+	function overridden(f) { return !!(f.dataset && f.dataset.overrideKey && overrideOn(f.dataset.overrideKey)); }
+	function isGoverned(f) { return (f.hasAttribute("data-governed") || !!f.closest("[data-governed]")) && !overridden(f); }
 	function dispatch(el) {
 		if (!el) return;
 		el.dispatchEvent(new Event("change", { bubbles: true }));
@@ -54,9 +61,10 @@
 				el.dispatchEvent(new CustomEvent("chain:set"));
 				return;
 			}
-			el.disabled = inh;
+			el.disabled = inh && !overridden(el);
 		});
 		form.querySelectorAll("[data-inherit-note]").forEach(function (n) { n.hidden = !inh; });
+		form.querySelectorAll("[data-inherit-only]").forEach(function (n) { n.hidden = !inh; });
 		var assistant = document.getElementById("peer-setup-assistant");
 		if (assistant) assistant.hidden = inh;
 	}
@@ -67,7 +75,7 @@
 		Object.keys(tpl).forEach(function (key) {
 			if (key === "name" || key === "importPolicyIds" || key === "exportPolicyIds") return;
 			var f = field(key);
-			if (!f || typeof f.type !== "string") return;
+			if (!f || typeof f.type !== "string" || overridden(f)) return;
 			if (f.type === "checkbox") f.checked = !!tpl[key]; else f.value = String(tpl[key]);
 		});
 		["importPolicyIds", "exportPolicyIds"].forEach(function (name) {
@@ -92,6 +100,15 @@
 			refresh();
 		});
 	}
+	// Unticking an override hands the field back to the template: refill it
+	// from the template's values, then lock it again.
+	form.querySelectorAll("[data-override]").forEach(function (box) {
+		box.addEventListener("change", function () {
+			var tpl = templateSelect && templates[templateSelect.value];
+			if (!box.checked && tpl) fill(tpl);
+			refresh();
+		});
+	});
 	role.addEventListener("change", refresh);
 	refresh();
 

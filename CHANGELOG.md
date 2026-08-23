@@ -22,11 +22,25 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   comment naming its template; unlinked peers render byte-for-byte as before.
   (Schema version 38: two new tables and two nullable/defaulted columns on
   `peers`; existing peers are untouched.)
+  - A linked peer can keep **its own import limit** (*Use this peer's own import
+    limit*), for the one IX peer that sends far more than the rest; everything else
+    still follows the template.
+  - **Attach or detach many peers at once** from the peers list, the migration path
+    for peers configured one by one before templates existed.
+  - **Import from BIRD** offers a template per row, so adopted sessions arrive with
+    the template's role, chains, limit and safeguards instead of bare identities.
+  - Lint findings that are identical across peers of one template **fold into one
+    line** attributed to the template.
 
 ### Changed
-- The peer names `new`, `seed`, `preview` and `templates` are refused: each is a
-  page under `/peers/` that the router serves before the peer-name wildcard, so a
-  peer so named could be created but never opened.
+- The peer names `new`, `seed`, `preview`, `templates` and `attach` are refused:
+  each is a page under `/peers/` that the router serves before the peer-name
+  wildcard, so a peer so named could be created but never opened.
+
+### Fixed
+- The peer form's role-specific checkbox group for the *other* role (the iBGP
+  switches on an eBGP peer, and vice versa) was visible, greyed out, instead of
+  hidden: the group's flex layout overrode the `hidden` attribute.
 
 ## [0.5.0] - 2026-07-22
 
