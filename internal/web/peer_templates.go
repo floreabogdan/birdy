@@ -1,10 +1,12 @@
 package web
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"strings"
 
+	birdconf "github.com/floreabogdan/birdy/internal/render"
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
@@ -264,22 +266,39 @@ func (s *Server) handlePeerTemplatePreview(w http.ResponseWriter, r *http.Reques
 	t := templateFromForm(r)
 	t.ImportPolicies = s.resolvePolicies(policiesAll, idList(r.Form["importPolicyIds"]))
 	t.ExportPolicies = s.resolvePolicies(policiesAll, idList(r.Form["exportPolicyIds"]))
-	preview, previewErr, warnings, err := s.previewWithLibrary(samplePeer(t), policiesAll)
+	sample := samplePeer(t)
+	preview, previewErr, warnings, err := s.previewWithLibrary(sample, policiesAll, []store.PeerTemplate{t})
 	if err != nil {
 		writeJSON(w, previewResp{Err: "could not load the library"})
 		return
 	}
-	writeJSON(w, previewResp{Preview: preview, Err: previewErr, Warnings: warnings})
+	writeJSON(w, previewResp{Preview: preview, Err: previewErr, Warnings: attributeToTemplate(warnings, sample.Name, t.Name)})
+}
+
+// attributeToTemplate relabels lint findings about the sample peer as findings
+// about the template: the shape is what is being edited, and "IX_PEERS" on the
+// chip tells the operator where the fix goes.
+func attributeToTemplate(ws []birdconf.Warning, sampleName, templateName string) []birdconf.Warning {
+	for i := range ws {
+		if ws[i].Peer == sampleName {
+			ws[i].Peer = templateName
+		}
+	}
+	return ws
 }
 
 // samplePeer is the template's shape on the documentation-range neighbor the
-// preview renders. The template name doubles as the protocol name, so the
-// preview reads "protocol bgp IX_PEERS" — recognisably the template, not a peer.
+// preview renders, declared "from" the template so the preview shows exactly
+// what a linked peer's block will look like. It is named after the template
+// with an _example suffix: a protocol cannot share the template's own name.
 func samplePeer(t store.PeerTemplate) store.Peer {
+	if t.Name == "" {
+		t.Name = "template"
+	}
 	p := displayPeer(t)
 	p.NeighborIP, p.RemoteASN = sampleNeighborIP, sampleRemoteASN
-	if p.Name == "" {
-		p.Name = "template"
-	}
+	p.Name = t.Name + "_example"
+	// A template being created has no id yet; the preview links to it by name.
+	p.TemplateID, p.TemplateName = sql.NullInt64{Int64: max(t.ID, 1), Valid: true}, t.Name
 	return p
 }

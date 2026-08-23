@@ -70,6 +70,12 @@ type Input struct {
 	ASSets     []store.ASSet
 	Policies   []store.Policy
 	Peers      []store.Peer
+	// Templates are the peer templates linked peers inherit from. A template
+	// that at least one peer in Peers names renders as a BIRD `template bgp`
+	// block carrying the session options its peers share, and those peers
+	// render `protocol bgp X from TEMPLATE`. A linked peer whose template is
+	// missing here renders in full, as an unlinked peer would.
+	Templates []store.PeerTemplate
 	// Communities are named community definitions from the library; each renders
 	// to a BIRD `define`, available as a symbol in the raw block.
 	Communities []store.CommunityDef
@@ -241,9 +247,22 @@ func Sections(in Input) ([]Section, error) {
 			return nil
 		})
 	}
+	// A template block must precede the protocols that say "from" it, and only
+	// templates some peer actually uses are written: a template nobody links to
+	// yet changes nothing on the router, so it should change nothing in the
+	// file either.
+	templates := usedTemplates(in.Templates, peers)
+	for _, t := range templates {
+		add("templates/"+t.Name, "Peer template "+t.Name, func(b *strings.Builder) error { writeTemplate(b, in, t); return nil })
+	}
+	templatesByName := make(map[string]store.PeerTemplate, len(templates))
+	for _, t := range templates {
+		templatesByName[t.Name] = t
+	}
 	for _, p := range peers {
 		add("peers/"+p.Name, "Peer "+p.Name, func(b *strings.Builder) error {
-			if err := writePeer(b, in, p); err != nil {
+			_, inherits := templatesByName[p.TemplateName]
+			if err := writePeer(b, in, p, inherits); err != nil {
 				return fmt.Errorf("peer %q: %w", p.Name, err)
 			}
 			return nil
@@ -954,7 +973,99 @@ func familyOf(ps store.PrefixSet) string {
 	return "v4"
 }
 
-func writePeer(b *strings.Builder, in Input, p store.Peer) error {
+// usedTemplates is the subset of templates at least one peer names, by name.
+func usedTemplates(templates []store.PeerTemplate, peers []store.Peer) []store.PeerTemplate {
+	used := map[string]bool{}
+	for _, p := range peers {
+		if p.TemplateName != "" {
+			used[p.TemplateName] = true
+		}
+	}
+	var out []store.PeerTemplate
+	for _, t := range templates {
+		if used[t.Name] {
+			out = append(out, t)
+		}
+	}
+	slices.SortFunc(out, func(a, b store.PeerTemplate) int { return strings.Compare(a.Name, b.Name) })
+	return out
+}
+
+// writeTemplate renders a peer template as BIRD's own `template bgp`: the
+// session options every linked peer shares, stated once. What it cannot carry
+// is anything the peers differ in — the neighbor and password, obviously, but
+// also the whole channel: its filters embed the peer's own ASN and transforms,
+// its address family follows the neighbor, and its import limit is the one
+// thing a linked peer may override. Those stay in each protocol block.
+func writeTemplate(b *strings.Builder, in Input, t store.PeerTemplate) {
+	fmt.Fprintf(b, "# Peer template %s", t.Name)
+	if t.Description != "" {
+		fmt.Fprintf(b, ": %s", t.Description)
+	}
+	b.WriteString("\n# Every protocol declared \"from\" it inherits these session options; each\n" +
+		"# keeps its own neighbor, password, filters and channel.\n")
+	fmt.Fprintf(b, "template bgp %s {\n", t.Name)
+	b.WriteString("\tlocal as LOCAL_ASN;\n")
+	writeSessionOptions(b, t)
+	writeReflectorOptions(b, in, t)
+	b.WriteString("}\n\n")
+}
+
+// writeSessionOptions writes the protocol-level options a template governs,
+// in the order an unlinked peer's block has always carried them.
+func writeSessionOptions(b *strings.Builder, t store.PeerTemplate) {
+	if t.BGPRole {
+		if role, ok := bgpRoleName[t.Role]; ok {
+			// RFC 9234: BIRD tags exported routes with the Only-To-Customer
+			// attribute and rejects imports that carry it in a way that would be a
+			// route leak — leak prevention negotiated in the protocol itself.
+			fmt.Fprintf(b, "\tlocal role %s;\n", role)
+		}
+	}
+	if t.Multihop > 0 {
+		fmt.Fprintf(b, "\tmultihop %d;\n", t.Multihop)
+	}
+	if t.GTSM {
+		// GTSM (RFC 5082): send with a maximal TTL and drop received packets whose
+		// TTL is lower than expected, so an off-path attacker cannot spoof the
+		// session. For a multihop peer the hop count above sets the expected TTL.
+		b.WriteString("\tttl security on;\n")
+	}
+	if t.Passive {
+		b.WriteString("\tpassive;\n")
+	}
+	if t.BFD {
+		// Sub-second failure detection: BIRD tears the session down the moment BFD
+		// stops hearing the neighbour, rather than waiting out the hold timer.
+		b.WriteString("\tbfd;\n")
+	}
+	// graceful restart "aware" is BIRD's own default, so only the explicit
+	// on/off choices are written.
+	switch t.GracefulRestart {
+	case store.GROn:
+		b.WriteString("\tgraceful restart on;\n")
+	case store.GROff:
+		b.WriteString("\tgraceful restart off;\n")
+	}
+}
+
+// writeReflectorOptions makes us a route reflector for an iBGP session. Plain
+// iBGP never readvertises an iBGP route to another iBGP peer, so a mesh has
+// to be full; a reflector is the alternative.
+func writeReflectorOptions(b *strings.Builder, in Input, t store.PeerTemplate) {
+	if t.IsIBGP() && t.RRClient {
+		b.WriteString("\trr client;\n")
+		if in.RRClusterID != "" {
+			fmt.Fprintf(b, "\trr cluster id %s;\n", in.RRClusterID)
+		}
+	}
+}
+
+// writePeer renders one session: its filters, then its protocol block. With
+// inherits set, the peer's template is in the file and the block is declared
+// "from" it, so the shared session options are left to the template; an
+// unlinked peer states every option itself, exactly as it always has.
+func writePeer(b *strings.Builder, in Input, p store.Peer, inherits bool) error {
 	fam := familyV4
 	if p.IsV6() {
 		fam = familyV6
@@ -982,13 +1093,15 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 		}
 	}
 
-	fmt.Fprintf(b, "protocol bgp %s {\n", p.Name)
+	if inherits {
+		fmt.Fprintf(b, "protocol bgp %s from %s {\n", p.Name, p.TemplateName)
+	} else {
+		fmt.Fprintf(b, "protocol bgp %s {\n", p.Name)
+	}
 	if p.TemplateName != "" {
 		// The shape of this session is a copy its template keeps current; say so
 		// where someone reading the file would otherwise change it in birdy and
-		// wonder why the next template save undid the edit. Inside the block so
-		// the form's per-peer preview, which slices from the first filter or
-		// protocol marker, still carries it.
+		// wonder why the next template save undid the edit.
 		fmt.Fprintf(b, "\t# Shape inherited from peer template %s; edit the template to change it.\n", p.TemplateName)
 	}
 	if !p.Enabled {
@@ -997,47 +1110,19 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 	if p.Description != "" {
 		fmt.Fprintf(b, "\tdescription \"%s\";\n", p.Description)
 	}
+	// The template block says "local as LOCAL_ASN"; a linked peer only repeats
+	// the line when it pins a source address, which overrides the inherited one.
 	if p.LocalIP != "" {
 		fmt.Fprintf(b, "\tlocal %s as LOCAL_ASN;\n", p.LocalIP)
-	} else {
+	} else if !inherits {
 		b.WriteString("\tlocal as LOCAL_ASN;\n")
 	}
 	fmt.Fprintf(b, "\tneighbor %s as %d;\n", p.NeighborIP, p.RemoteASN)
 	if p.Interface != "" {
 		fmt.Fprintf(b, "\tinterface \"%s\";\n", p.Interface)
 	}
-	if p.BGPRole {
-		if role, ok := bgpRoleName[p.Role]; ok {
-			// RFC 9234: BIRD tags exported routes with the Only-To-Customer
-			// attribute and rejects imports that carry it in a way that would be a
-			// route leak — leak prevention negotiated in the protocol itself.
-			fmt.Fprintf(b, "\tlocal role %s;\n", role)
-		}
-	}
-	if p.Multihop > 0 {
-		fmt.Fprintf(b, "\tmultihop %d;\n", p.Multihop)
-	}
-	if p.GTSM {
-		// GTSM (RFC 5082): send with a maximal TTL and drop received packets whose
-		// TTL is lower than expected, so an off-path attacker cannot spoof the
-		// session. For a multihop peer the hop count above sets the expected TTL.
-		b.WriteString("\tttl security on;\n")
-	}
-	if p.Passive {
-		b.WriteString("\tpassive;\n")
-	}
-	if p.BFD {
-		// Sub-second failure detection: BIRD tears the session down the moment BFD
-		// stops hearing the neighbour, rather than waiting out the hold timer.
-		b.WriteString("\tbfd;\n")
-	}
-	// graceful restart "aware" is BIRD's own default, so only the explicit
-	// on/off choices are written.
-	switch p.GracefulRestart {
-	case store.GROn:
-		b.WriteString("\tgraceful restart on;\n")
-	case store.GROff:
-		b.WriteString("\tgraceful restart off;\n")
+	if !inherits {
+		writeSessionOptions(b, store.TemplateFromPeer(p))
 	}
 	if p.Password != "" {
 		pw := p.Password
@@ -1050,14 +1135,8 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 		// that a future BIRD release is free to change.
 		b.WriteString("\tauthentication md5;\n")
 	}
-
-	if p.IsIBGP() && p.RRClient {
-		// Plain iBGP never readvertises an iBGP route to another iBGP peer, so a
-		// mesh has to be full. A reflector is the alternative.
-		b.WriteString("\trr client;\n")
-		if in.RRClusterID != "" {
-			fmt.Fprintf(b, "\trr cluster id %s;\n", in.RRClusterID)
-		}
+	if !inherits {
+		writeReflectorOptions(b, in, store.TemplateFromPeer(p))
 	}
 
 	fmt.Fprintf(b, "\t%s {\n", fam.channel)

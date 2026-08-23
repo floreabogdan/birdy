@@ -207,7 +207,7 @@ func TestPreview(t *testing.T) {
 			formV.Exports = append(formV.Exports, p)
 		}
 	}
-	formV.Preview, formV.PreviewErr, formV.Warnings = previewPeer(formV.Peer, sets, nil, allPolicies, nil, nil, 65551, "")
+	formV.Preview, formV.PreviewErr, formV.Warnings = previewPeer(formV.Peer, previewLibrary{sets: sets, policies: allPolicies, localASN: 65551})
 
 	// A peer whose configuration parses but misbehaves, to show the lint panel.
 	leaky := customer
@@ -216,10 +216,41 @@ func TestPreview(t *testing.T) {
 	leaky.ExportPolicies = []store.Policy{expFull}
 	leakyV := peerFormView{Active: "peers", Peer: leaky, Imports: formV.Imports,
 		Exports: append(append([]store.Policy{}, formV.Exports...), expFull)}
-	leakyV.Preview, leakyV.PreviewErr, leakyV.Warnings = previewPeer(leaky, sets, nil, append(allPolicies, expFull), nil, nil, 65551, "")
+	leakyV.Preview, leakyV.PreviewErr, leakyV.Warnings = previewPeer(leaky, previewLibrary{sets: sets, policies: append(allPolicies, expFull), localASN: 65551})
 
 	policiesV := policiesView{Active: "policies", Imports: formV.Imports, Exports: formV.Exports,
 		InUse: map[int64]int{100: 2, 110: 1}, SetNames: map[int64]string{3: "ANNOUNCE_V4", 1: "BOGONS_V4"}}
+
+	// Peer templates: the list, a peer linked to one, and the template editor.
+	ixTemplate := store.PeerTemplate{ID: 1, Name: "IX_PEERS", Description: "Route servers at the exchange", Role: store.RoleIXPeer,
+		ImportLimit: 100000, ImportLimitAction: "restart", GTSM: true, PrependCount: 0, GracefulRestart: store.GRAware,
+		ImportPolicies: []store.Policy{impSanity}, ExportPolicies: []store.Policy{expOwn}}
+	transitTemplate := store.PeerTemplate{ID: 2, Name: "TRANSIT", Description: "Upstream providers", Role: store.RoleUpstream,
+		ImportLimit: 1000000, ImportLimitAction: "restart", EnforceFirstAS: true, BGPRole: true, GTSM: true, GracefulRestart: store.GRAware,
+		ImportPolicies: []store.Policy{impSanity}, ExportPolicies: []store.Policy{expOwn}}
+	customersTemplate := store.PeerTemplate{ID: 3, Name: "CUSTOMERS", Description: "Downstream customers", Role: store.RoleCustomer,
+		ImportLimit: 10000, ImportLimitAction: "restart", EnforceFirstAS: true, OriginPeerOnly: true, BGPRole: true, GracefulRestart: store.GRAware,
+		ImportPolicies: []store.Policy{impSanity}, ExportPolicies: []store.Policy{expDownstream}}
+	templates := []store.PeerTemplate{customersTemplate, ixTemplate, transitTemplate}
+	templatesV := peerTemplatesView{Active: "peers", Templates: templates, Usage: map[int64]int{1: 31, 2: 2, 3: 4},
+		Flash: "Saved template IX_PEERS. Its 31 linked peers were updated — review them under Changes and apply to take effect on the router."}
+
+	linked := store.Peer{ID: 4, Name: "lonap_rs1", Description: "LONAP route server 1", Enabled: true,
+		NeighborIP: "198.51.100.20", RemoteASN: 64510, LocalIP: "198.51.100.2", Password: "hunter2",
+		ImportLimitAction: "restart"}
+	ixTemplate.ApplyTo(&linked)
+	linkedV := peerFormView{Active: "peers", Peer: linked, Imports: formV.Imports, Exports: formV.Exports,
+		Templates: templates, TemplateData: map[int64]templateFormData{}}
+	for _, t := range templates {
+		linkedV.TemplateData[t.ID] = formDataFor(t)
+	}
+	linkedV.Preview, linkedV.PreviewErr, linkedV.Warnings = previewPeer(linked, previewLibrary{sets: sets, policies: allPolicies, templates: templates, localASN: 65551})
+
+	templateFormV := peerFormView{Active: "peers", IsTemplate: true, Template: ixTemplate, Peer: displayPeer(ixTemplate),
+		Usage: 31, Imports: formV.Imports, Exports: formV.Exports}
+	templateSample := samplePeer(ixTemplate)
+	templateFormV.Preview, templateFormV.PreviewErr, templateFormV.Warnings = previewPeer(templateSample, previewLibrary{sets: sets, policies: allPolicies, templates: []store.PeerTemplate{ixTemplate}, localASN: 65551})
+	templateFormV.Warnings = attributeToTemplate(templateFormV.Warnings, templateSample.Name, ixTemplate.Name)
 
 	polFormV := policyFormView{Active: "policies", Policy: impSanity, Sets: []store.PrefixSet{announce}}
 	polFormV.Preview, polFormV.PreviewErr = previewPolicy(impSanity, sets, nil, nil, nil, 65551)
@@ -338,6 +369,9 @@ func TestPreview(t *testing.T) {
 	mux.HandleFunc("/policy-form", page("policy_form.html", polFormV))
 	mux.HandleFunc("/export-policy-form", page("policy_form.html", expFormV))
 	mux.HandleFunc("/peer-form-lint", page("peer_form.html", leakyV))
+	mux.HandleFunc("/peer-templates", page("peer_templates.html", templatesV))
+	mux.HandleFunc("/peer-form-linked", page("peer_form.html", linkedV))
+	mux.HandleFunc("/template-form", page("peer_form.html", templateFormV))
 	mux.HandleFunc("/lg", page("explore.html", exploreRoutesV))
 	mux.HandleFunc("/explore-diag", page("explore.html", exploreDiagV))
 	mux.HandleFunc("/settings-alerts", page("settings.html", settingsAlertsV))
@@ -362,6 +396,10 @@ func TestPreview(t *testing.T) {
 		{"policy-form", "/policy-form", "1600,1400"},
 		{"export-policy-form", "/export-policy-form", "1600,1200"},
 		{"peer-form-lint", "/peer-form-lint", "1600,1500"},
+		{"peer-templates", "/peer-templates", "1600,1000"},
+		{"peer-form-linked", "/peer-form-linked", "1600,1500"},
+		{"template-form", "/template-form", "1600,1500"},
+		{"template-form-dark", "/template-form?dark", "1600,1500"},
 		{"settings", "/settings", "1600,1100"},
 		{"settings-theme", "/settings-theme", "1600,800"},
 		{"settings-alerts", "/settings-alerts", "1600,700"},

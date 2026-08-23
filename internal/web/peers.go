@@ -502,19 +502,21 @@ func (s *Server) renderPeerForm(w http.ResponseWriter, v peerFormView) {
 	if defs, err := s.store.ListCommunityDefs(); err == nil {
 		v.Communities = defs
 	}
-	subject := v.Peer
+	subject, templates := v.Peer, v.Templates
 	if v.IsTemplate {
-		// A template has no neighbor; the preview shows its shape on a sample one.
-		subject = samplePeer(store.TemplateFromPeer(v.Peer))
-		subject.Name = v.Peer.Name
-		if subject.Name == "" {
-			subject.Name = "template"
-		}
+		// A template has no neighbor; the preview shows its shape on a sample one,
+		// declared "from" the template as it is on the form right now.
+		t := store.TemplateFromPeer(v.Peer)
+		t.Name, t.Description = v.Peer.Name, v.Peer.Description
+		subject, templates = samplePeer(t), []store.PeerTemplate{t}
 	}
 	var perr error
-	if v.Preview, v.PreviewErr, v.Warnings, perr = s.previewWithLibrary(subject, policies); perr != nil {
+	if v.Preview, v.PreviewErr, v.Warnings, perr = s.previewWithLibrary(subject, policies, templates); perr != nil {
 		s.serverError(w, "load library for preview", perr)
 		return
+	}
+	if v.IsTemplate {
+		v.Warnings = attributeToTemplate(v.Warnings, subject.Name, v.Peer.Name)
 	}
 	render(w, s.log, "peer_form.html", v)
 }
@@ -524,32 +526,30 @@ func (s *Server) renderPeerForm(w http.ResponseWriter, v peerFormView) {
 // preview (the form, the live endpoint, the template editor) needs in the same
 // way. The error is a failed library read; the form page surfaces it, the live
 // endpoint leaves the last good preview in place.
-func (s *Server) previewWithLibrary(p store.Peer, policies []store.Policy) (preview, previewErr string, warnings []birdconf.Warning, err error) {
-	sets, err := s.store.ListPrefixSets()
-	if err != nil {
+//
+// templates is what the preview may declare a peer "from": the stored ones for
+// a peer form, or the one being edited for the template editor.
+func (s *Server) previewWithLibrary(p store.Peer, policies []store.Policy, templates []store.PeerTemplate) (preview, previewErr string, warnings []birdconf.Warning, err error) {
+	lib := previewLibrary{policies: policies, templates: templates}
+	if lib.sets, err = s.store.ListPrefixSets(); err != nil {
 		return "", "", nil, err
 	}
-	asSets, err := s.store.ListASSets()
-	if err != nil {
+	if lib.asSets, err = s.store.ListASSets(); err != nil {
 		return "", "", nil, err
 	}
-	rpkiServers, err := s.store.ListRPKIServers()
-	if err != nil {
+	if lib.rpkiServers, err = s.store.ListRPKIServers(); err != nil {
 		return "", "", nil, err
 	}
-	bogonASNs, err := s.store.ListBogonASNs()
-	if err != nil {
+	if lib.bogonASNs, err = s.store.ListBogonASNs(); err != nil {
 		return "", "", nil, err
 	}
-	var localASN int64
-	var rrClusterID string
 	if settings, ok, err := s.store.GetSettings(); err == nil && ok {
 		if settings.LocalASN.Valid {
-			localASN = settings.LocalASN.Int64
+			lib.localASN = settings.LocalASN.Int64
 		}
-		rrClusterID = settings.RRClusterID
+		lib.rrClusterID = settings.RRClusterID
 	}
-	preview, previewErr, warnings = previewPeer(p, sets, asSets, policies, rpkiServers, bogonASNs, localASN, rrClusterID)
+	preview, previewErr, warnings = previewPeer(p, lib)
 	return preview, previewErr, warnings, nil
 }
 
@@ -559,8 +559,8 @@ func (s *Server) previewWithLibrary(p store.Peer, policies []store.Policy) (prev
 // The real local ASN is required, not a placeholder: it appears verbatim in the
 // AS-path loop guard and in the large communities, and showing the wrong number
 // there would teach the operator to distrust the preview.
-func previewPeer(p store.Peer, sets []store.PrefixSet, asSets []store.ASSet, policies []store.Policy, rpkiServers []store.RPKIServer, bogonASNs []store.BogonASN, localASN int64, rrClusterID string) (string, string, []birdconf.Warning) {
-	if localASN == 0 {
+func previewPeer(p store.Peer, lib previewLibrary) (string, string, []birdconf.Warning) {
+	if lib.localASN == 0 {
 		return "", "Set the local ASN under Settings to preview the generated BIRD code.", nil
 	}
 	// Validate on a copy: Validate normalises in place and we do not want the
@@ -570,30 +570,47 @@ func previewPeer(p store.Peer, sets []store.PrefixSet, asSets []store.ASSet, pol
 		return "", "Fix the errors above to see the generated BIRD code.", nil
 	}
 	in := birdconf.Input{
-		RouterID: "0.0.0.1", LocalASN: localASN, // the router id never appears in a peer block
-		PrefixSets: sets, ASSets: asSets, Policies: policies, Peers: []store.Peer{probe},
-		RPKIServers: rpkiServers, BogonASNs: bogonASNs, RRClusterID: rrClusterID, MaskSecrets: true,
+		RouterID: "0.0.0.1", LocalASN: lib.localASN, // the router id never appears in a peer block
+		PrefixSets: lib.sets, ASSets: lib.asSets, Policies: lib.policies, Peers: []store.Peer{probe},
+		Templates: lib.templates, RPKIServers: lib.rpkiServers, BogonASNs: lib.bogonASNs,
+		RRClusterID: lib.rrClusterID, MaskSecrets: true,
 	}
-	full, err := birdconf.Config(in)
+	secs, err := birdconf.Sections(in)
 	if err != nil {
 		return "", err.Error(), nil
 	}
-	return peerSection(full, probe.Name), "", birdconf.Lint(in)
+	return peerSection(secs, probe), "", birdconf.Lint(in)
 }
 
-// peerSection slices the generated config down to the filters and protocol
-// block belonging to one peer, so the form preview is not swamped by globals
-// and by every policy function in the library.
-func peerSection(cfg, name string) string {
-	markers := []string{"filter ebgp_in_" + name, "filter ebgp_out_" + name, "protocol bgp " + name + " {"}
-	start := -1
-	for _, m := range markers {
-		if i := strings.Index(cfg, m); i >= 0 && (start < 0 || i < start) {
-			start = i
+// previewLibrary is everything a peer-shaped preview renders against besides
+// the peer itself: the library, the identity, and — for a linked peer — its
+// template.
+type previewLibrary struct {
+	sets        []store.PrefixSet
+	asSets      []store.ASSet
+	policies    []store.Policy
+	templates   []store.PeerTemplate
+	rpkiServers []store.RPKIServer
+	bogonASNs   []store.BogonASN
+	localASN    int64
+	rrClusterID string
+}
+
+// peerSection is the form preview: just this peer's filters and protocol
+// block, so it is not swamped by globals and by every policy function in the
+// library — preceded, for a linked peer, by the template block it is declared
+// "from", since that is where half of its session options now live.
+func peerSection(secs []birdconf.Section, p store.Peer) string {
+	var out strings.Builder
+	for _, s := range secs {
+		if p.TemplateName != "" && s.Path == "templates/"+p.TemplateName {
+			out.WriteString(s.Body)
 		}
 	}
-	if start < 0 {
-		return ""
+	for _, s := range secs {
+		if s.Path == "peers/"+p.Name {
+			out.WriteString(s.Body)
+		}
 	}
-	return strings.TrimRight(cfg[start:], "\n")
+	return strings.TrimRight(out.String(), "\n")
 }

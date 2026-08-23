@@ -310,7 +310,7 @@ func TestTemplateEditorPreviewRendersSampleNeighbor(t *testing.T) {
 	if resp.Err != "" {
 		t.Fatalf("preview error: %s", resp.Err)
 	}
-	for _, want := range []string{"protocol bgp IX_PEERS {", "neighbor 192.0.2.1 as 64496;", "import limit 50000 action restart;", "ttl security on;"} {
+	for _, want := range []string{"template bgp IX_PEERS {", "\tttl security on;\n}", "protocol bgp IX_PEERS_example from IX_PEERS {", "neighbor 192.0.2.1 as 64496;", "import limit 50000 action restart;"} {
 		if !strings.Contains(resp.Preview, want) {
 			t.Errorf("template preview missing %q:\n%s", want, resp.Preview)
 		}

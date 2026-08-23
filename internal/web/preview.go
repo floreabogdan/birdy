@@ -45,7 +45,8 @@ func (s *Server) handlePeerPreview(w http.ResponseWriter, r *http.Request) {
 		p.ExportPolicies = s.resolvePolicies(policiesAll, idList(r.Form["exportPolicyIds"]))
 	}
 
-	preview, previewErr, warnings, err := s.previewWithLibrary(p, policiesAll)
+	templates, _ := s.store.ListPeerTemplates()
+	preview, previewErr, warnings, err := s.previewWithLibrary(p, policiesAll, templates)
 	if err != nil {
 		writeJSON(w, previewResp{Err: "could not load the library"})
 		return
