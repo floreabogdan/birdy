@@ -356,5 +356,61 @@ func Lint(in Input) []Warning {
 	if in.LocalASN == 0 || in.RouterID == "" {
 		add(SeverityWarn, "", "Set the router ID and local ASN before applying anything.")
 	}
+	return foldByTemplate(out, in.Peers)
+}
+
+// foldByTemplate collapses identical findings about peers linked to the same
+// template into one, attributed to the template. Thirty IX peers on a template
+// with no import limit is one problem, not thirty lines burying everything
+// else on the Changes page — and the fix is in one place, the template. A
+// finding that names something peer-specific (an ASN, a neighbor) differs
+// from peer to peer and stays where it is; so does a finding only one linked
+// peer has. Order is kept: a folded finding sits where its first member was.
+func foldByTemplate(ws []Warning, peers []store.Peer) []Warning {
+	templateOf := map[string]string{}
+	for _, p := range peers {
+		if p.TemplateName != "" {
+			templateOf[p.Name] = p.TemplateName
+		}
+	}
+	if len(templateOf) == 0 {
+		return ws
+	}
+	type key struct{ template, severity, message string }
+	members := map[key][]int{}
+	for i, w := range ws {
+		if t := templateOf[w.Peer]; t != "" {
+			k := key{t, w.Severity, w.Message}
+			members[k] = append(members[k], i)
+		}
+	}
+	folded := map[int]Warning{} // first member's index -> the one finding that replaces the group
+	drop := map[int]bool{}
+	for k, idx := range members {
+		if len(idx) < 2 {
+			continue
+		}
+		folded[idx[0]] = Warning{
+			Severity: k.severity,
+			Peer:     fmt.Sprintf("%s (%d peers)", k.template, len(idx)),
+			Message:  k.message,
+		}
+		for _, i := range idx[1:] {
+			drop[i] = true
+		}
+	}
+	if len(folded) == 0 {
+		return ws
+	}
+	out := make([]Warning, 0, len(ws))
+	for i, w := range ws {
+		if drop[i] {
+			continue
+		}
+		if f, ok := folded[i]; ok {
+			w = f
+		}
+		out = append(out, w)
+	}
 	return out
 }

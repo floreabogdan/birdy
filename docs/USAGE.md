@@ -468,9 +468,66 @@ apply to the role you pick.
 | **Graceful restart** | all | Negotiate BGP graceful restart so forwarding continues across a control-plane restart on either end: **aware** (help a restarting neighbour — BIRD's default), **on** (negotiate in both directions), or **off** (drop routes immediately). |
 | **Import / export policy chains** | eBGP | Ordered lists of policies. **Imports compose with AND** (a route must survive every import policy); **exports compose with OR** (a route is announced if any export policy permits it). With no export policy the session is receive-only (RFC 8212 default-deny). |
 
-**Clone a peer** to use one as a template: birdy copies the role, policy chains,
-limits and transforms, and drops only the identity (name, addresses, ASN) and the
-password.
+**Clone a peer** to make another of the same shape: birdy copies the role, policy
+chains, limits and transforms, and drops only the identity (name, addresses, ASN)
+and the password. A clone of a peer linked to a template is linked to the same
+template.
+
+### Peer templates
+
+Thirty peers at an exchange usually want the same thing: the same import and export
+chains, the same limit, the same safeguards. A **peer template** (Peers → Templates)
+is that shape kept once — a peer without an identity — and any number of peers can
+**link** to it. Save the template and **every linked peer is rewritten** in the same
+transaction; the Changes page then shows each of them as a changed section, behind
+the usual syntax check, lint and armed auto-revert, so nothing reaches the router
+until you have looked.
+
+| | |
+|---|---|
+| **The template owns** | Role, the import and export chains, import limit and action, import/export communities, AS-path prepend, require-first-AS, origin-peer-only, RFC 9234 role, GTSM, BFD, graceful restart, passive, multihop, next-hop-self, route-reflector client, iBGP export fallback. |
+| **Each peer keeps** | Name, description, neighbor address, remote AS, local address, interface, tunnel endpoint, MD5 password, and the **Enabled** and **Drain** switches. |
+
+- **Link a peer** from the *Template* field at the top of its form. The governed
+  controls fill with the template's values and grey out; the live preview shows the
+  result. Whatever the form posts for a governed field is ignored on save — the
+  template wins.
+- **Keep one peer's own import limit.** The one thing that genuinely differs between
+  thirty otherwise identical IX peers is how much the big one sends. Tick *Use this
+  peer's own import limit* on a linked peer and its limit and action stay its own
+  through every template save; untick it and the template's limit returns. Nothing
+  else can be overridden — a peer that needs a different chain needs a different
+  template.
+- **Detach** by choosing *None*. The peer keeps the values it inherited and stops
+  following the template — the same result as a clone, in place.
+- **Capture an existing peer** with *Save as template* on its edit page: the new
+  template starts from that peer's shape, and the peer can be linked to it in the
+  same step. From a template's row, *Add peer* starts a new session already linked,
+  so only the identity is left to type.
+- **Attach many at once.** Tick peers on the peers list and use the bar under the
+  table to attach them all to one template (or detach them). Attaching replaces each
+  peer's chains, limit and safeguards with the template's — it is how a router whose
+  peers were configured one by one moves onto templates.
+- **Import from BIRD already linked.** The *Import from BIRD* page offers a template
+  per row (and one control to set every checked row); an imported session linked to a
+  template arrives with its role, chains, limit and safeguards, which a plain import
+  cannot know from the socket.
+- A template **cannot be deleted while peers link to it**, and a policy cannot be
+  deleted while a template chains it. A linked peer's protocol block in the rendered
+  config carries a comment naming its template. On the Changes page, identical lint
+  findings about peers of one template fold into a single line attributed to the
+  template — thirty peers missing an import limit is one thing to fix, once.
+
+In the rendered config a template is BIRD's own `template bgp NAME { … }`, carrying the
+session options every linked peer shares — multihop, passive, BFD, GTSM, graceful restart,
+the RFC 9234 role, route reflection — and each linked peer is declared
+`protocol bgp NAME from TEMPLATE { … }`. What stays in the peer's own block is everything
+peers differ in: the neighbor and password, the filters (they embed the peer's own ASN and
+transforms), and the whole channel — its address family follows the neighbor, and its
+import limit is the one thing a linked peer may override. A template nobody links to is
+not written at all, so creating one changes nothing until a peer uses it. In the split
+`birdy.d/` layout the template blocks are filed with the policies (`08-templates-*.conf`),
+ahead of the peers that inherit them.
 
 ---
 

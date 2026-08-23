@@ -1,7 +1,10 @@
 package web
 
 import (
+	"database/sql"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	// Aliased: this package already has a render() helper for templates.
@@ -18,6 +21,8 @@ type peersView struct {
 	// can say whether it is actually up — and link to its live session.
 	Live  map[string]protoRow
 	Flash string
+	// Templates feeds the bulk "attach selected peers to" control.
+	Templates []store.PeerTemplate
 }
 
 type peerFormView struct {
@@ -42,6 +47,22 @@ type peerFormView struct {
 	// Communities are the library's named communities, shown as a hint so the
 	// operator knows which names the export field will resolve.
 	Communities []store.CommunityDef
+
+	// Templates is every peer template, for the link picker; TemplateData is
+	// the same list keyed by id in the shape the form script fills governed
+	// controls from when the picker changes.
+	Templates    []store.PeerTemplate
+	TemplateData map[int64]templateFormData
+	// IsTemplate renders the form as a template editor: the identity card,
+	// password and operational switches drop out, and the preview renders the
+	// shape on a sample neighbor. Template is the one being edited.
+	IsTemplate bool
+	Template   store.PeerTemplate
+	// Usage is how many linked peers a template save rewrites.
+	Usage int
+	// LinkSource names the peer a new template is being captured from, so the
+	// form can offer to link that peer to the template it creates.
+	LinkSource string
 }
 
 // loadPeerChains fills in a peer's ordered import and export policy lists.
@@ -60,26 +81,44 @@ func (s *Server) handlePeersList(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "list peers", err)
 		return
 	}
+	// ?template=NAME narrows the list to one template's peers — the link the
+	// templates page offers from its "used by N peers" count.
+	if want := r.URL.Query().Get("template"); want != "" {
+		kept := peers[:0]
+		for _, p := range peers {
+			if p.TemplateName == want {
+				kept = append(kept, p)
+			}
+		}
+		peers = kept
+	}
 	for i := range peers {
 		if err := s.loadPeerChains(&peers[i]); err != nil {
 			s.serverError(w, "peer policies", err)
 			return
 		}
 	}
+	templates, err := s.store.ListPeerTemplates()
+	if err != nil {
+		s.serverError(w, "list peer templates", err)
+		return
+	}
 	offset, limit := parsePageParams(r)
 	page := pageSlice(peers, offset, limit)
 	render(w, s.log, "peers.html", peersView{
 		Active: "peers", ReadOnly: s.readOnly, Peers: page, Live: s.liveStates(),
 		Pager: pagerFor(r, offset, limit, len(page), len(peers)),
-		Flash: s.flashMsg(w, r),
+		Flash: s.flashMsg(w, r), Templates: templates,
 	})
 }
 
 func (s *Server) handlePeerNew(w http.ResponseWriter, r *http.Request) {
-	// Clone an existing peer as a template: keep its role, policy chains, limits
-	// and export transforms; drop the identity (name, addresses, ASN) and never
-	// carry the password. This is birdy's "peer template" — the common shape of a
-	// customer or IX peer, captured from one you already made.
+	// Clone an existing peer: keep its role, policy chains, limits and export
+	// transforms; drop the identity (name, addresses, ASN) and never carry the
+	// password. A clone of a linked peer is linked to the same template — the
+	// shape came from there, and should keep following it. A clone of an
+	// unlinked peer is the one-off version of that: the shape is copied, and
+	// the copy is its own.
 	if from := r.URL.Query().Get("from"); from != "" {
 		src, err := s.store.GetPeerByName(from)
 		if err == nil {
@@ -103,6 +142,15 @@ func (s *Server) handlePeerNew(w http.ResponseWriter, r *http.Request) {
 	p := store.Peer{Role: store.RoleUpstream, Enabled: true, EnforceFirstAS: true,
 		BGPRole: true, NextHopSelf: true, ImportLimit: 1500000,
 		ImportLimitAction: "restart", GracefulRestart: store.GRAware}
+	// "Add peer" from a template's row: the new session starts linked, so only
+	// the identity is left to type.
+	if name := r.URL.Query().Get("template"); name != "" {
+		if t, err := s.store.GetPeerTemplateByName(name); err == nil {
+			t.ApplyTo(&p)
+			s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: true, Peer: p})
+			return
+		}
+	}
 	// A first-time operator should get a useful, fail-closed upstream by filling
 	// in identity fields and saving. These are ordinary selections in the form,
 	// so changing the relationship remains explicit and reversible.
@@ -158,7 +206,50 @@ func peerFromForm(r *http.Request) store.Peer {
 		BFD:               r.FormValue("bfd") == "on",
 		GTSM:              r.FormValue("gtsm") == "on",
 		GracefulRestart:   r.FormValue("gracefulRestart"),
+		TemplateID:        formNullInt(r, "templateId"),
+		TemplateOverrides: overridesFromForm(r),
 	}
+}
+
+// overridesFromForm reads the per-peer override switches a linked peer's form
+// offers. One for now: the import limit, so one oversized IX peer can carry a
+// higher limit than the rest of its template without a template of its own.
+func overridesFromForm(r *http.Request) string {
+	if r.FormValue("overrideImportLimit") == "on" {
+		return store.OverrideImportLimit
+	}
+	return ""
+}
+
+// formNullInt reads an optional positive integer — a foreign key picker whose
+// blank option means "none".
+func formNullInt(r *http.Request, key string) sql.NullInt64 {
+	n, err := strconv.ParseInt(strings.TrimSpace(r.FormValue(key)), 10, 64)
+	if err != nil || n <= 0 {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: n, Valid: true}
+}
+
+// applyTemplate makes a linked peer take its shape from its template, before
+// validation and regardless of what the form posted for the governed fields
+// (the form disables them, so it posts nothing; a hand-built request could post
+// anything, and is ignored the same way). It returns the template's chain ids,
+// which replace whatever chain was posted, and a message for the form when the
+// template no longer exists.
+func (s *Server) applyTemplate(p *store.Peer) (importIDs, exportIDs []int64, errMsg string, err error) {
+	if !p.TemplateID.Valid {
+		return nil, nil, "", nil
+	}
+	t, err := s.store.GetPeerTemplate(p.TemplateID.Int64)
+	if err == store.ErrNotFound {
+		return nil, nil, "That template no longer exists. Choose another, or none.", nil
+	}
+	if err != nil {
+		return nil, nil, "", err
+	}
+	t.ApplyTo(p)
+	return store.PolicyIDs(t.ImportPolicies), store.PolicyIDs(t.ExportPolicies), "", nil
 }
 
 func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
@@ -185,8 +276,22 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// The template wins over the posted governed fields and chain, and is
+	// applied before Validate so the effective peer is what gets checked.
+	tplImports, tplExports, tplMsg, err := s.applyTemplate(&p)
+	if err != nil {
+		s.serverError(w, "load peer template", err)
+		return
+	}
+	if p.TemplateID.Valid && tplMsg == "" {
+		importIDs, exportIDs = tplImports, tplExports
+	}
+
 	errs := p.Validate()
-	s.checkChains(p, importIDs, exportIDs, errs)
+	if tplMsg != "" {
+		errs["template"] = tplMsg
+	}
+	s.checkChains(importIDs, exportIDs, errs)
 	if msg := s.checkCommunityRefs(p.ExportCommunities); msg != "" {
 		errs["exportCommunities"] = msg
 	}
@@ -232,9 +337,76 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: isNew, Peer: p, Errs: errs})
 }
 
+// handlePeersAttach links every selected peer to one template — or, with no
+// template chosen, detaches them — straight from the peers list. It is the
+// migration path for a router whose thirty IX peers were configured one by one
+// before templates existed: capture one as a template, then attach the rest.
+// Attaching overwrites each peer's shape with the template's; like every model
+// edit, nothing reaches the router until the result is applied.
+func (s *Server) handlePeersAttach(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	names := r.Form["peer"]
+	if len(names) == 0 {
+		s.flashRedirect(w, r, "/peers", "Select at least one peer first.", true)
+		return
+	}
+	var tmpl store.PeerTemplate
+	if id := formNullInt(r, "templateId"); id.Valid {
+		t, err := s.store.GetPeerTemplate(id.Int64)
+		if err == store.ErrNotFound {
+			s.flashRedirect(w, r, "/peers", "That template no longer exists.", true)
+			return
+		}
+		if err != nil {
+			s.serverError(w, "get peer template", err)
+			return
+		}
+		tmpl = t
+	}
+
+	var done, missing []string
+	for _, name := range names {
+		p, err := s.store.GetPeerByName(name)
+		if err == store.ErrNotFound {
+			missing = append(missing, name)
+			continue
+		}
+		if err != nil {
+			s.serverError(w, "get peer", err)
+			return
+		}
+		if tmpl.ID != 0 {
+			err = s.store.LinkPeerToTemplate(p.ID, tmpl.ID)
+		} else {
+			err = s.store.DetachPeer(p.ID)
+		}
+		if err != nil {
+			s.serverError(w, "attach peer to template", err)
+			return
+		}
+		done = append(done, name)
+	}
+
+	var msg string
+	if tmpl.ID != 0 {
+		s.audit(r, fmt.Sprintf("attached %d peer(s) to template %s: %s", len(done), tmpl.Name, strings.Join(done, ", ")))
+		msg = fmt.Sprintf("Attached %d %s to %s — their chains, limits and safeguards now come from the template. Review them under Changes and apply to take effect on the router.", len(done), plural(len(done), "peer"), tmpl.Name)
+	} else {
+		s.audit(r, fmt.Sprintf("detached %d peer(s) from their templates: %s", len(done), strings.Join(done, ", ")))
+		msg = fmt.Sprintf("Detached %d %s — each keeps the settings it had and owns them from now on.", len(done), plural(len(done), "peer"))
+	}
+	if len(missing) > 0 {
+		msg += " Not found: " + strings.Join(missing, ", ") + "."
+	}
+	s.flashRedirect(w, r, "/peers", msg, false)
+}
+
 // checkChains rejects a chain that names a policy of the wrong direction, or a
-// policy that no longer exists. iBGP sessions take no policies yet.
-func (s *Server) checkChains(p store.Peer, importIDs, exportIDs []int64, errs map[string]string) {
+// policy that no longer exists.
+func (s *Server) checkChains(importIDs, exportIDs []int64, errs map[string]string) {
 	// Resolve every referenced policy from one table scan, not one per id.
 	all, err := s.store.ListPolicies()
 	if err != nil {
@@ -315,40 +487,70 @@ func (s *Server) renderPeerForm(w http.ResponseWriter, v peerFormView) {
 			v.Exports = append(v.Exports, p)
 		}
 	}
-	sets, err := s.store.ListPrefixSets()
-	if err != nil {
-		s.serverError(w, "list prefix sets", err)
-		return
-	}
-	asSets, err := s.store.ListASSets()
-	if err != nil {
-		s.serverError(w, "list AS sets", err)
-		return
-	}
-	rpkiServers, err := s.store.ListRPKIServers()
-	if err != nil {
-		s.serverError(w, "list RPKI servers", err)
-		return
-	}
-	bogonASNs, err := s.store.ListBogonASNs()
-	if err != nil {
-		s.serverError(w, "list bogon ASNs", err)
-		return
-	}
-
-	var localASN int64
-	var rrClusterID string
-	if settings, ok, err := s.store.GetSettings(); err == nil && ok {
-		if settings.LocalASN.Valid {
-			localASN = settings.LocalASN.Int64
+	if !v.IsTemplate {
+		templates, err := s.store.ListPeerTemplates()
+		if err != nil {
+			s.serverError(w, "list peer templates", err)
+			return
 		}
-		rrClusterID = settings.RRClusterID
+		v.Templates = templates
+		v.TemplateData = make(map[int64]templateFormData, len(templates))
+		for _, t := range templates {
+			v.TemplateData[t.ID] = formDataFor(t)
+		}
 	}
 	if defs, err := s.store.ListCommunityDefs(); err == nil {
 		v.Communities = defs
 	}
-	v.Preview, v.PreviewErr, v.Warnings = previewPeer(v.Peer, sets, asSets, policies, rpkiServers, bogonASNs, localASN, rrClusterID)
+	subject, templates := v.Peer, v.Templates
+	if v.IsTemplate {
+		// A template has no neighbor; the preview shows its shape on a sample one,
+		// declared "from" the template as it is on the form right now.
+		t := store.TemplateFromPeer(v.Peer)
+		t.Name, t.Description = v.Peer.Name, v.Peer.Description
+		subject, templates = samplePeer(t), []store.PeerTemplate{t}
+	}
+	var perr error
+	if v.Preview, v.PreviewErr, v.Warnings, perr = s.previewWithLibrary(subject, policies, templates); perr != nil {
+		s.serverError(w, "load library for preview", perr)
+		return
+	}
+	if v.IsTemplate {
+		v.Warnings = attributeToTemplate(v.Warnings, subject.Name, v.Peer.Name)
+	}
 	render(w, s.log, "peer_form.html", v)
+}
+
+// previewWithLibrary renders one peer's BIRD code against the current library
+// — sets, AS sets, RPKI servers, bogons, identity — which every peer-shaped
+// preview (the form, the live endpoint, the template editor) needs in the same
+// way. The error is a failed library read; the form page surfaces it, the live
+// endpoint leaves the last good preview in place.
+//
+// templates is what the preview may declare a peer "from": the stored ones for
+// a peer form, or the one being edited for the template editor.
+func (s *Server) previewWithLibrary(p store.Peer, policies []store.Policy, templates []store.PeerTemplate) (preview, previewErr string, warnings []birdconf.Warning, err error) {
+	lib := previewLibrary{policies: policies, templates: templates}
+	if lib.sets, err = s.store.ListPrefixSets(); err != nil {
+		return "", "", nil, err
+	}
+	if lib.asSets, err = s.store.ListASSets(); err != nil {
+		return "", "", nil, err
+	}
+	if lib.rpkiServers, err = s.store.ListRPKIServers(); err != nil {
+		return "", "", nil, err
+	}
+	if lib.bogonASNs, err = s.store.ListBogonASNs(); err != nil {
+		return "", "", nil, err
+	}
+	if settings, ok, err := s.store.GetSettings(); err == nil && ok {
+		if settings.LocalASN.Valid {
+			lib.localASN = settings.LocalASN.Int64
+		}
+		lib.rrClusterID = settings.RRClusterID
+	}
+	preview, previewErr, warnings = previewPeer(p, lib)
+	return preview, previewErr, warnings, nil
 }
 
 // previewPeer renders just this peer's contribution to bird.conf, plus any lint
@@ -357,8 +559,8 @@ func (s *Server) renderPeerForm(w http.ResponseWriter, v peerFormView) {
 // The real local ASN is required, not a placeholder: it appears verbatim in the
 // AS-path loop guard and in the large communities, and showing the wrong number
 // there would teach the operator to distrust the preview.
-func previewPeer(p store.Peer, sets []store.PrefixSet, asSets []store.ASSet, policies []store.Policy, rpkiServers []store.RPKIServer, bogonASNs []store.BogonASN, localASN int64, rrClusterID string) (string, string, []birdconf.Warning) {
-	if localASN == 0 {
+func previewPeer(p store.Peer, lib previewLibrary) (string, string, []birdconf.Warning) {
+	if lib.localASN == 0 {
 		return "", "Set the local ASN under Settings to preview the generated BIRD code.", nil
 	}
 	// Validate on a copy: Validate normalises in place and we do not want the
@@ -368,30 +570,47 @@ func previewPeer(p store.Peer, sets []store.PrefixSet, asSets []store.ASSet, pol
 		return "", "Fix the errors above to see the generated BIRD code.", nil
 	}
 	in := birdconf.Input{
-		RouterID: "0.0.0.1", LocalASN: localASN, // the router id never appears in a peer block
-		PrefixSets: sets, ASSets: asSets, Policies: policies, Peers: []store.Peer{probe},
-		RPKIServers: rpkiServers, BogonASNs: bogonASNs, RRClusterID: rrClusterID, MaskSecrets: true,
+		RouterID: "0.0.0.1", LocalASN: lib.localASN, // the router id never appears in a peer block
+		PrefixSets: lib.sets, ASSets: lib.asSets, Policies: lib.policies, Peers: []store.Peer{probe},
+		Templates: lib.templates, RPKIServers: lib.rpkiServers, BogonASNs: lib.bogonASNs,
+		RRClusterID: lib.rrClusterID, MaskSecrets: true,
 	}
-	full, err := birdconf.Config(in)
+	secs, err := birdconf.Sections(in)
 	if err != nil {
 		return "", err.Error(), nil
 	}
-	return peerSection(full, probe.Name), "", birdconf.Lint(in)
+	return peerSection(secs, probe), "", birdconf.Lint(in)
 }
 
-// peerSection slices the generated config down to the filters and protocol
-// block belonging to one peer, so the form preview is not swamped by globals
-// and by every policy function in the library.
-func peerSection(cfg, name string) string {
-	markers := []string{"filter ebgp_in_" + name, "filter ebgp_out_" + name, "protocol bgp " + name + " {"}
-	start := -1
-	for _, m := range markers {
-		if i := strings.Index(cfg, m); i >= 0 && (start < 0 || i < start) {
-			start = i
+// previewLibrary is everything a peer-shaped preview renders against besides
+// the peer itself: the library, the identity, and — for a linked peer — its
+// template.
+type previewLibrary struct {
+	sets        []store.PrefixSet
+	asSets      []store.ASSet
+	policies    []store.Policy
+	templates   []store.PeerTemplate
+	rpkiServers []store.RPKIServer
+	bogonASNs   []store.BogonASN
+	localASN    int64
+	rrClusterID string
+}
+
+// peerSection is the form preview: just this peer's filters and protocol
+// block, so it is not swamped by globals and by every policy function in the
+// library — preceded, for a linked peer, by the template block it is declared
+// "from", since that is where half of its session options now live.
+func peerSection(secs []birdconf.Section, p store.Peer) string {
+	var out strings.Builder
+	for _, s := range secs {
+		if p.TemplateName != "" && s.Path == "templates/"+p.TemplateName {
+			out.WriteString(s.Body)
 		}
 	}
-	if start < 0 {
-		return ""
+	for _, s := range secs {
+		if s.Path == "peers/"+p.Name {
+			out.WriteString(s.Body)
+		}
 	}
-	return strings.TrimRight(cfg[start:], "\n")
+	return strings.TrimRight(out.String(), "\n")
 }

@@ -13,9 +13,10 @@
 > - **Alerting** grew far past "one webhook, no SMTP": Slack, Discord, SMTP email and generic
 >   webhooks, multiple destinations with per-kind filtering and cooldown, plus BIRD-unreachable,
 >   config-drift and IRR-refresh alerts.
-> - The **data model** below lists `communities`, `functions` and `peer_templates` tables that
->   were never built as tables (communities became inline value parsing; peer templates became
->   "clone a peer"). Several shipped features — BMP, IRR/bgpq4 expansion and auto-refresh, RTBH,
+> - The **data model** below lists `communities` and `functions` tables that were never
+>   built as tables (communities became inline value parsing). `peer_templates` was
+>   first replaced by "clone a peer" and then built for real, though as a model-level
+>   link rather than BIRD `template bgp` blocks. Several shipped features — BMP, IRR/bgpq4 expansion and auto-refresh, RTBH,
 >   BFD, GTSM, graceful restart, route-history sampling, the split `birdy.d/` layout, and
 >   seed-from-BIRD — are not mentioned here at all.
 

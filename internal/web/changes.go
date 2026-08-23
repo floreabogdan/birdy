@@ -174,6 +174,10 @@ func (s *Server) renderInput(mask bool) (birdconf.Input, string, error) {
 	if err != nil {
 		return birdconf.Input{}, "", err
 	}
+	templates, err := s.store.ListPeerTemplates()
+	if err != nil {
+		return birdconf.Input{}, "", err
+	}
 
 	in := birdconf.Input{
 		RouterID:          settings.RouterID,
@@ -183,6 +187,7 @@ func (s *Server) renderInput(mask bool) (birdconf.Input, string, error) {
 		Policies:          policies,
 		RPKIServers:       rpkiServers,
 		Peers:             peers,
+		Templates:         templates,
 		BogonASNs:         bogonASNs,
 		StaticRoutes:      statics,
 		BMPStations:       bmpStations,

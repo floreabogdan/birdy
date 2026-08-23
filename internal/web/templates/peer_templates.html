@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+<head>
+	<title>birdy — peer templates</title>
+	{{template "head" .}}
+</head>
+<body>
+<div class="app-shell">
+	{{template "sidebar" .}}
+	<div class="main">
+		{{template "topbar" .}}
+		<div class="page">
+			<div class="page-top">
+				<span class="page-eyebrow">Peer templates</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/peers">Peers</a><span class="sep">/</span><span class="current">Templates</span></div>
+			</div>
+
+			{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+
+			<div class="card panel-info">
+				<div class="panel-head">{{template "icon-info"}}What a template owns</div>
+				<div class="card-body" style="font-size:0.8125rem">
+					A template is a peer without an identity: the <strong>role, policy chains, import limit, transport safeguards and export
+					transforms</strong> a kind of session should have, kept once. Link peers to it and they take that shape; <strong>save the
+					template and every linked peer is rewritten</strong> &mdash; thirty IX peers change in one edit. Each peer keeps its own name,
+					neighbor, AS, password and enabled/drain switches. Nothing reaches the router until you review the result under
+					<a href="/changes">Changes</a> and apply.
+				</div>
+			</div>
+
+			<div class="card">
+				<div class="card-header">
+					<span class="card-title">{{template "icon-peers"}}Templates</span>
+					<a class="btn btn-success" href="/peers/templates/new">{{template "icon-plus"}}Add template</a>
+				</div>
+				<p class="card-intro">
+					To capture the shape of a peer you already have, open that peer and choose <strong>Save as template</strong>.
+					To add a session of a template's kind, use <strong>Add peer</strong> on its row &mdash; only the identity is left to type.
+				</p>
+				<div class="table-scroll">
+				<table>
+					<thead><tr><th>Name</th><th>Role</th><th>Import chain</th><th>Export chain</th><th>Limit</th><th>Safeguards</th><th>Used by</th><th class="num">Actions</th></tr></thead>
+					<tbody data-search-target>
+						{{range .Templates}}
+						<tr>
+							<td class="mono">
+								<a href="/peers/templates/{{.Name}}/edit">{{.Name}}</a>
+								{{if .Description}}<div class="text-muted" style="font-size:0.75rem">{{.Description}}</div>{{end}}
+							</td>
+							<td>
+								{{if eq .Role "upstream"}}<span class="badge badge-secondary">upstream</span>
+								{{else if eq .Role "ix_peer"}}<span class="badge badge-primary">IX peer</span>
+								{{else if eq .Role "customer"}}<span class="badge badge-success">customer</span>
+								{{else}}<span class="badge badge-info">iBGP</span>{{end}}
+							</td>
+							<td>{{range .ImportPolicies}}<span class="chip mono">{{.Name}}</span> {{else}}<span class="text-muted">none</span>{{end}}</td>
+							<td>{{range .ExportPolicies}}<span class="chip mono">{{.Name}}</span> {{else}}<span class="text-muted">{{if .IsIBGP}}{{if eq .IBGPExportDefault "none"}}export none{{else}}export all{{end}}{{else}}receive-only{{end}}</span>{{end}}</td>
+							<td class="mono">{{if .ImportLimit}}{{comma .ImportLimit}} <span class="text-muted">{{.ImportLimitAction}}</span>{{else}}<span class="text-muted">none</span>{{end}}</td>
+							<td>
+								{{if .IsIBGP}}
+									{{if .NextHopSelf}}<span class="chip">next-hop-self</span>{{end}}
+									{{if .RRClient}}<span class="chip">RR client</span>{{end}}
+								{{else}}
+									{{if .EnforceFirstAS}}<span class="chip">first AS</span>{{end}}
+									{{if .OriginPeerOnly}}<span class="chip">origin only</span>{{end}}
+									{{if .BGPRole}}<span class="chip">RFC 9234</span>{{end}}
+									{{if .GTSM}}<span class="chip">GTSM</span>{{end}}
+									{{if .PrependCount}}<span class="chip chip-info">prepend &times;{{.PrependCount}}</span>{{end}}
+								{{end}}
+								{{if .BFD}}<span class="chip">BFD</span>{{end}}
+								{{if .Passive}}<span class="chip chip-secondary">passive</span>{{end}}
+								{{if .Multihop}}<span class="chip chip-secondary">multihop {{.Multihop}}</span>{{end}}
+							</td>
+							<td>{{$n := index $.Usage .ID}}{{if $n}}<a href="/peers?template={{.Name}}"><span class="badge badge-warning">{{$n}} peer{{if ne $n 1}}s{{end}}</span></a>{{else}}<span class="text-muted">nothing</span>{{end}}</td>
+							<td class="row-actions">
+								<a class="icon-action a-success" href="/peers/new?template={{.Name}}" title="Add a peer from {{.Name}}" aria-label="Add a peer from {{.Name}}">{{template "icon-plus"}}</a>
+								<a class="icon-action a-primary" href="/peers/templates/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
+								<form method="post" action="/peers/templates/{{.Name}}/delete" data-confirm="Delete template {{.Name}}? Linked peers keep their current settings but must be detached first.">
+									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
+								</form>
+							</td>
+						</tr>
+						{{else}}
+						<tr><td colspan="8" class="empty">
+							No templates yet. <a href="/peers/templates/new">Add one</a>, or open a peer whose shape you want to reuse and choose <strong>Save as template</strong>.
+						</td></tr>
+						{{end}}
+					</tbody>
+				</table>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+</body>
+</html>
