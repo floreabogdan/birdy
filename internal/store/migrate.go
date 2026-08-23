@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 37
+const schemaVersion = 38
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -464,6 +464,19 @@ func migrate(db *sql.DB) error {
 		// GRE/WireGuard/IPsec endpoint so every covering BGP route is rejected by
 		// the generated kernel filter and the tunnel cannot route through itself.
 		if err := ensureColumn(tx, "peers", "transport_endpoint", `ALTER TABLE peers ADD COLUMN transport_endpoint TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if version < 38 {
+		// Peer templates. The tables come from schema.go; an existing peers table
+		// gains the link and the override list. NULL is "owns its own shape", so
+		// every pre-existing peer is unlinked and renders byte-for-byte as before.
+		// SQLite only allows a REFERENCES column to be added with a NULL default,
+		// which is exactly the default we want.
+		if err := ensureColumn(tx, "peers", "template_id", `ALTER TABLE peers ADD COLUMN template_id INTEGER REFERENCES peer_templates(id) ON DELETE RESTRICT`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "peers", "template_overrides", `ALTER TABLE peers ADD COLUMN template_overrides TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
 		}
 	}

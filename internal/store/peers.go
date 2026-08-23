@@ -58,6 +58,12 @@ var ibgpExportDefaults = map[string]bool{IBGPExportAll: true, IBGPExportNone: tr
 // not a plain BIRD symbol is rejected at the model boundary, not escaped.
 var birdIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 
+// reservedPeerNames are path segments the router serves under /peers/ before
+// the {name} wildcard gets a look in, so a peer called "new" could be created
+// but never opened. Refuse them at the model boundary rather than let the URL
+// space silently swallow a session.
+var reservedPeerNames = map[string]bool{"new": true, "seed": true, "preview": true, "templates": true}
+
 // validateNameDesc checks the name (a BIRD identifier interpolated into the
 // config) and description shared by every named model object, returning the
 // trimmed name and a fresh error map keyed "name"/"description". Each Validate
@@ -161,9 +167,39 @@ type Peer struct {
 	// restart on either end instead of tearing routes down immediately.
 	GracefulRestart string
 
+	// TemplateID links this peer to the PeerTemplate that owns its shape. The
+	// governed columns on this row are a copy the template keeps current; the
+	// link records who rewrites them. Invalid means the peer owns its own shape.
+	TemplateID sql.NullInt64
+	// TemplateName is the linked template's name, read alongside the row for
+	// display. Never written: the link is TemplateID.
+	TemplateName string
+	// TemplateOverrides lists the governed fields this peer keeps its own value
+	// for while linked, as comma-separated keys (see OverrideImportLimit).
+	TemplateOverrides string
+
 	// Ordered policy chains, filled by the caller from SetPeerPolicies/PeerPolicies.
 	ImportPolicies []Policy
 	ExportPolicies []Policy
+}
+
+// Override keys a linked peer may carry in TemplateOverrides. One entry for
+// now: an IX template serves thirty peers of roughly the same size and one
+// that sends a full table's worth of routes, and that one needs its own limit
+// without needing its own template.
+const OverrideImportLimit = "importLimit"
+
+var knownOverrides = map[string]bool{OverrideImportLimit: true}
+
+// Overrides returns the governed fields this peer keeps its own value for.
+func (p Peer) Overrides() map[string]bool {
+	out := map[string]bool{}
+	for key := range strings.SplitSeq(p.TemplateOverrides, ",") {
+		if key = strings.TrimSpace(key); key != "" {
+			out[key] = true
+		}
+	}
+	return out
 }
 
 // IsV6 reports whether the session carries an IPv6 channel. Callers must only
@@ -182,58 +218,22 @@ func (p Peer) IsIBGP() bool { return p.Role == RoleIBGP }
 func (p *Peer) Validate() map[string]string {
 	var errs map[string]string
 	p.Name, errs = validateNameDesc(p.Name, p.Description)
+	if reservedPeerNames[p.Name] {
+		errs["name"] = "That name is a page under /peers and cannot be a peer. Choose another."
+	}
+	p.validateShape(errs)
 
-	if !peerRoles[p.Role] {
-		errs["role"] = "Choose a role: upstream, IX peer, customer or iBGP."
+	var keys []string
+	for key := range strings.SplitSeq(p.TemplateOverrides, ",") {
+		if key = strings.TrimSpace(key); key == "" {
+			continue
+		}
+		if !knownOverrides[key] {
+			errs["templateOverrides"] = "Unknown override " + key + "."
+		}
+		keys = append(keys, key)
 	}
-	// Both are iBGP concepts. Normalise rather than reject: the form always
-	// submits them, and an eBGP peer that carried them would render nonsense.
-	if !p.IsIBGP() {
-		p.NextHopSelf = false
-		p.RRClient = false
-	} else {
-		p.ImportCommunities = ""
-		// These are eBGP export transforms; they mean nothing inside our own AS.
-		p.PrependCount = 0
-		p.ExportCommunities = ""
-		p.Drained = false
-		// RFC 9234 roles are an eBGP concept; BIRD rejects `local role` on an
-		// internal session.
-		p.BGPRole = false
-		// GTSM is offered as eBGP protection; iBGP sessions are inside the trust
-		// boundary and often multihop to loopbacks where it does not fit.
-		p.GTSM = false
-		// Both of these test the AS path against the peer's ASN — which on an
-		// internal session is our own. "First AS must be our own AS" would reject
-		// every route with a path, and "origin must be our own AS" would reject
-		// everything we did not originate ourselves. Silently disastrous;
-		// normalise them off.
-		p.EnforceFirstAS = false
-		p.OriginPeerOnly = false
-	}
-	if p.GracefulRestart == "" {
-		p.GracefulRestart = GRAware
-	}
-	if !gracefulRestartModes[p.GracefulRestart] {
-		errs["gracefulRestart"] = "Choose off, aware or on."
-	}
-	// Only affects an iBGP session with no export policy, but validate it for
-	// every peer so a malformed value never reaches the renderer.
-	if p.IBGPExportDefault == "" {
-		p.IBGPExportDefault = IBGPExportAll
-	}
-	if !ibgpExportDefaults[p.IBGPExportDefault] {
-		errs["ibgpExportDefault"] = "Choose announce everything or announce nothing."
-	}
-	if p.PrependCount < 0 || p.PrependCount > 10 {
-		errs["prependCount"] = "Prepend between 0 and 10 times."
-	}
-	if _, cerrs := ParseCommunityRefs(p.ExportCommunities); len(cerrs) > 0 {
-		errs["exportCommunities"] = strings.Join(cerrs, "\n")
-	}
-	if _, cerrs := ParseCommunityRefs(p.ImportCommunities); len(cerrs) > 0 {
-		errs["importCommunities"] = strings.Join(cerrs, "\n")
-	}
+	p.TemplateOverrides = strings.Join(keys, ",")
 
 	neighbor, err := netip.ParseAddr(strings.TrimSpace(p.NeighborIP))
 	if err != nil || !neighbor.IsValid() {
@@ -286,6 +286,69 @@ func (p *Peer) Validate() map[string]string {
 		errs["remoteAsn"] = fmt.Sprintf("AS%d is reserved (RFC 7300).", p.RemoteASN)
 	}
 
+	// The password lands inside a double-quoted BIRD string.
+	if strings.ContainsAny(p.Password, "\"\n\r") {
+		errs["password"] = "Quotes and line breaks are not allowed."
+	}
+	return errs
+}
+
+// validateShape checks and normalises the governed fields — everything a peer
+// template can own. Peer.Validate and PeerTemplate.Validate both go through it,
+// so a template can never hold a combination a peer could not, and the
+// role-dependent normalisation below happens once, here, for both.
+func (p *Peer) validateShape(errs map[string]string) {
+	if !peerRoles[p.Role] {
+		errs["role"] = "Choose a role: upstream, IX peer, customer or iBGP."
+	}
+	// Both are iBGP concepts. Normalise rather than reject: the form always
+	// submits them, and an eBGP peer that carried them would render nonsense.
+	if !p.IsIBGP() {
+		p.NextHopSelf = false
+		p.RRClient = false
+	} else {
+		p.ImportCommunities = ""
+		// These are eBGP export transforms; they mean nothing inside our own AS.
+		p.PrependCount = 0
+		p.ExportCommunities = ""
+		p.Drained = false
+		// RFC 9234 roles are an eBGP concept; BIRD rejects `local role` on an
+		// internal session.
+		p.BGPRole = false
+		// GTSM is offered as eBGP protection; iBGP sessions are inside the trust
+		// boundary and often multihop to loopbacks where it does not fit.
+		p.GTSM = false
+		// Both of these test the AS path against the peer's ASN — which on an
+		// internal session is our own. "First AS must be our own AS" would reject
+		// every route with a path, and "origin must be our own AS" would reject
+		// everything we did not originate ourselves. Silently disastrous;
+		// normalise them off.
+		p.EnforceFirstAS = false
+		p.OriginPeerOnly = false
+	}
+	if p.GracefulRestart == "" {
+		p.GracefulRestart = GRAware
+	}
+	if !gracefulRestartModes[p.GracefulRestart] {
+		errs["gracefulRestart"] = "Choose off, aware or on."
+	}
+	// Only affects an iBGP session with no export policy, but validate it for
+	// every peer so a malformed value never reaches the renderer.
+	if p.IBGPExportDefault == "" {
+		p.IBGPExportDefault = IBGPExportAll
+	}
+	if !ibgpExportDefaults[p.IBGPExportDefault] {
+		errs["ibgpExportDefault"] = "Choose announce everything or announce nothing."
+	}
+	if p.PrependCount < 0 || p.PrependCount > 10 {
+		errs["prependCount"] = "Prepend between 0 and 10 times."
+	}
+	if _, cerrs := ParseCommunityRefs(p.ExportCommunities); len(cerrs) > 0 {
+		errs["exportCommunities"] = strings.Join(cerrs, "\n")
+	}
+	if _, cerrs := ParseCommunityRefs(p.ImportCommunities); len(cerrs) > 0 {
+		errs["importCommunities"] = strings.Join(cerrs, "\n")
+	}
 	if p.Multihop < 0 || p.Multihop > 255 {
 		errs["multihop"] = "Enter a TTL between 1 and 255, or 0 for a directly connected peer."
 	}
@@ -295,21 +358,20 @@ func (p *Peer) Validate() map[string]string {
 	if !limitActions[p.ImportLimitAction] {
 		errs["importLimitAction"] = "Choose warn, block, restart or disable."
 	}
-	// The password lands inside a double-quoted BIRD string.
-	if strings.ContainsAny(p.Password, "\"\n\r") {
-		errs["password"] = "Quotes and line breaks are not allowed."
-	}
-	return errs
 }
 
 // peerCols is the column list for a peer row, in the order scanPeer expects.
 // Kept in one place because it is read by three queries and must stay aligned
 // with the scan, INSERT and UPDATE — the widest such surface in the store.
+// The last column resolves the linked template's name for display; it is a
+// correlated subquery rather than a JOIN so every reader can keep saying
+// "FROM peers" and the name comes back empty for an unlinked peer.
 const peerCols = `id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 	interface, transport_endpoint, multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
 	origin_peer_only, next_hop_self, rr_client,
 	prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart,
-	ibgp_export_default`
+	ibgp_export_default, template_id, template_overrides,
+	COALESCE((SELECT t.name FROM peer_templates t WHERE t.id = peers.template_id), '')`
 
 func (s *Store) ListPeers() ([]Peer, error) {
 	rows, err := s.db.Query(`SELECT ` + peerCols + ` FROM peers ORDER BY name`)
@@ -358,7 +420,7 @@ func scanPeer(sc scanner) (Peer, error) {
 		&p.ImportLimit, &p.ImportLimitAction, &p.EnforceFirstAS, &p.OriginPeerOnly,
 		&p.NextHopSelf, &p.RRClient,
 		&p.PrependCount, &p.ImportCommunities, &p.ExportCommunities, &p.Drained, &p.BFD, &p.BGPRole, &p.GTSM, &p.GracefulRestart,
-		&p.IBGPExportDefault)
+		&p.IBGPExportDefault, &p.TemplateID, &p.TemplateOverrides, &p.TemplateName)
 	return p, err
 }
 
@@ -368,12 +430,14 @@ func (s *Store) CreatePeer(p Peer) (int64, error) {
 		INSERT INTO peers (name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		                   interface, transport_endpoint, multihop, passive, password, import_limit, import_limit_action,
 		                   enforce_first_as, origin_peer_only, next_hop_self, rr_client,
-		                   prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart, ibgp_export_default, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		                   prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart, ibgp_export_default,
+		                   template_id, template_overrides, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Interface, p.TransportEndpoint, p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
-		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, p.IBGPExportDefault, ts, ts)
+		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, p.IBGPExportDefault,
+		p.TemplateID, p.TemplateOverrides, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create peer: %w", err)
 	}
@@ -387,14 +451,38 @@ func (s *Store) UpdatePeer(p Peer) error {
 		                 password = ?, import_limit = ?, import_limit_action = ?, enforce_first_as = ?,
 		                 origin_peer_only = ?, next_hop_self = ?, rr_client = ?,
 		                 prepend_count = ?, import_communities = ?, export_communities = ?, drained = ?, bfd = ?, bgp_role = ?,
-			                 gtsm = ?, graceful_restart = ?, ibgp_export_default = ?, updated_at = ?
+		                 gtsm = ?, graceful_restart = ?, ibgp_export_default = ?, template_id = ?, template_overrides = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Interface, p.TransportEndpoint, p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
-		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, p.IBGPExportDefault, now(), p.ID)
+		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, p.IBGPExportDefault,
+		p.TemplateID, p.TemplateOverrides, now(), p.ID)
 	if err != nil {
 		return fmt.Errorf("store: update peer: %w", err)
+	}
+	return affectedOne(res)
+}
+
+// updatePeerShape writes only the governed columns — what a template owns —
+// and the link itself. It is how a template save and a link reach into a peer
+// without touching its identity, password or operational state, and it runs
+// inside the caller's transaction so thirty peers change together or not at all.
+func updatePeerShape(tx *sql.Tx, p Peer) error {
+	res, err := tx.Exec(`
+		UPDATE peers SET role = ?, multihop = ?, passive = ?, import_limit = ?, import_limit_action = ?,
+		                 import_communities = ?, export_communities = ?, prepend_count = ?,
+		                 enforce_first_as = ?, origin_peer_only = ?, bgp_role = ?, gtsm = ?, bfd = ?, graceful_restart = ?,
+		                 next_hop_self = ?, rr_client = ?, ibgp_export_default = ?,
+		                 template_id = ?, template_overrides = ?, updated_at = ?
+		WHERE id = ?`,
+		p.Role, p.Multihop, p.Passive, p.ImportLimit, p.ImportLimitAction,
+		p.ImportCommunities, p.ExportCommunities, p.PrependCount,
+		p.EnforceFirstAS, p.OriginPeerOnly, p.BGPRole, p.GTSM, p.BFD, p.GracefulRestart,
+		p.NextHopSelf, p.RRClient, p.IBGPExportDefault,
+		p.TemplateID, p.TemplateOverrides, now(), p.ID)
+	if err != nil {
+		return fmt.Errorf("store: update peer shape: %w", err)
 	}
 	return affectedOne(res)
 }
