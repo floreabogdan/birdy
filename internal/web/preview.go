@@ -25,28 +25,31 @@ func (s *Server) handlePeerPreview(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, previewResp{Err: "bad form"})
 		return
 	}
-	sets, _ := s.store.ListPrefixSets()
-	asSets, _ := s.store.ListASSets()
 	policiesAll, _ := s.store.ListPolicies()
-	rpki, _ := s.store.ListRPKIServers()
-	bogons, _ := s.store.ListBogonASNs()
-
-	var localASN int64
-	var rrClusterID string
-	if settings, ok, err := s.store.GetSettings(); err == nil && ok {
-		if settings.LocalASN.Valid {
-			localASN = settings.LocalASN.Int64
-		}
-		rrClusterID = settings.RRClusterID
-	}
 
 	p := peerFromForm(r)
-	// The chains come from the repeated selects, resolved to full policies so the
-	// preview reflects the exact filter code they generate.
-	p.ImportPolicies = s.resolvePolicies(policiesAll, idList(r.Form["importPolicyIds"]))
-	p.ExportPolicies = s.resolvePolicies(policiesAll, idList(r.Form["exportPolicyIds"]))
+	// A linked peer previews with its template's shape and chain, exactly as a
+	// save would store it; the form's governed controls are disabled and post
+	// nothing, so this is also the only way the preview sees them.
+	if _, _, msg, err := s.applyTemplate(&p); err != nil {
+		writeJSON(w, previewResp{Err: "could not load the template"})
+		return
+	} else if msg != "" {
+		writeJSON(w, previewResp{Err: msg})
+		return
+	}
+	if !p.TemplateID.Valid {
+		// The chains come from the repeated selects, resolved to full policies so
+		// the preview reflects the exact filter code they generate.
+		p.ImportPolicies = s.resolvePolicies(policiesAll, idList(r.Form["importPolicyIds"]))
+		p.ExportPolicies = s.resolvePolicies(policiesAll, idList(r.Form["exportPolicyIds"]))
+	}
 
-	preview, previewErr, warnings := previewPeer(p, sets, asSets, policiesAll, rpki, bogons, localASN, rrClusterID)
+	preview, previewErr, warnings, err := s.previewWithLibrary(p, policiesAll)
+	if err != nil {
+		writeJSON(w, previewResp{Err: "could not load the library"})
+		return
+	}
 	writeJSON(w, previewResp{Preview: preview, Err: previewErr, Warnings: warnings})
 }
 

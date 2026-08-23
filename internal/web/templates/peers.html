@@ -21,6 +21,7 @@
 				<div class="card-header">
 					<span class="card-title">{{template "icon-peers"}}Configured peers</span>
 					<div class="card-header-actions">
+						<a class="btn" href="/peers/templates" title="Shared policy chains, limits and safeguards that many peers link to">{{template "icon-copy"}}Templates</a>
 						<a class="btn" href="/peers/seed" title="Create peers from the sessions BIRD is already running">{{template "icon-download"}}Import from BIRD</a>
 						<a class="btn btn-success" href="/peers/new">{{template "icon-plus"}}Add peer</a>
 					</div>
@@ -52,6 +53,7 @@
 								{{else if eq .Role "customer"}}<span class="badge badge-success">customer</span>
 								{{else}}<span class="badge badge-info">iBGP</span>{{end}}
 								{{if .Drained}}<span class="badge badge-warning" title="Draining for maintenance (RFC 8326 graceful shutdown)">draining</span>{{end}}
+								{{if .TemplateName}}<div style="margin-top:4px"><a class="chip mono" href="/peers/templates/{{.TemplateName}}/edit" title="Policy chains, limits and safeguards come from this template">from {{.TemplateName}}</a></div>{{end}}
 							</td>
 							<td><span class="chip chip-primary">{{if .IsV6}}IPv6{{else}}IPv4{{end}}</span></td>
 							<td class="mono">{{.NeighborIP}}{{if .Multihop}}<div class="text-muted" style="font-size:0.75rem">multihop {{.Multihop}}</div>{{end}}</td>

@@ -6,6 +6,28 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Peer templates** (#20). A template is a peer without an identity: the role,
+  policy chains, import limit, transport safeguards and export transforms a kind
+  of session should have, kept once under Peers → Templates. Link any number of
+  peers to it and they take that shape; **save the template and every linked peer
+  is rewritten** in one transaction, then reviewed on the Changes page like any
+  other edit. Each peer keeps its own name, neighbor, AS, password and the
+  enabled/drain switches. The peer form shows inherited values greyed out with the
+  template named; choosing *None* detaches the peer and leaves its values in
+  place. *Save as template* on a peer captures its shape (and can link the peer in
+  the same step); *Add peer* on a template's row starts a session already linked.
+  A template cannot be deleted while peers link to it, and a policy cannot be
+  deleted while a template chains it. A linked peer's protocol block carries a
+  comment naming its template; unlinked peers render byte-for-byte as before.
+  (Schema version 38: two new tables and two nullable/defaulted columns on
+  `peers`; existing peers are untouched.)
+
+### Changed
+- The peer names `new`, `seed`, `preview` and `templates` are refused: each is a
+  page under `/peers/` that the router serves before the peer-name wildcard, so a
+  peer so named could be created but never opened.
+
 ## [0.5.0] - 2026-07-22
 
 ### Added

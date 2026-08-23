@@ -753,6 +753,9 @@ a.pager-page:hover { background: var(--surface-alt); color: var(--text); text-de
 .pager-gap { padding: 0 2px; color: var(--text-muted); }
 .pager-summary { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .btn.is-disabled { opacity: 0.45; pointer-events: none; }
+/* A real disabled attribute reads the same as the class: the peer form locks
+   the chain buttons of a template-linked peer this way. */
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 table {
 	width: 100%;
@@ -1038,6 +1041,10 @@ label { display: block; font-size: var(--fs-xs); color: var(--text-muted); margi
 /* ---------- forms ---------- */
 /* Not scoped to .field: some hints sit beside a checkbox, outside any field. */
 .hint { font-size: var(--fs-xs); color: var(--text-muted); margin-top: 4px; font-weight: 400; }
+/* A card whose controls come from a peer template says so, once, at the top. */
+.inherit-note { padding: 8px 12px; border-left: 3px solid var(--primary); background: var(--surface-alt); border-radius: 0 6px 6px 0; }
+.inherit-note[hidden] { display: none; }
+.inherit-note a { font-weight: 600; }
 .field-error { font-size: var(--fs-xs); color: var(--danger-deep); margin-top: 4px; font-weight: 500; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 .checks { display: flex; flex-direction: column; gap: var(--space-2); margin-top: 4px; }
@@ -1180,6 +1187,7 @@ textarea {
 	margin-bottom: 14px; padding: 16px 18px; border: 1px solid var(--border);
 	border-radius: var(--radius-card); background: var(--surface);
 }
+.setup-assistant[hidden] { display: none; }
 .setup-assistant > div:first-child { display: grid; gap: 2px; }
 .setup-assistant strong { font-size: var(--fs-base); font-weight: 600; }
 .setup-assistant small { color: var(--text-muted); font-size: var(--fs-xs); }

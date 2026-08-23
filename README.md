@@ -246,6 +246,9 @@ things follow from that, and both are one setting away:
   drain (RFC 8326 graceful shutdown), and BFD per peer
 - Composable import and export policy chains that can match communities, rather than one policy per
   session; clone a peer to make another of the same shape
+- **Peer templates** — the shape of a session (chains, limits, safeguards, transforms) kept once and
+  linked from any number of peers; save the template and every linked peer is rewritten, reviewed on
+  the Changes page like any other edit
 - A library of prefix sets, AS sets, and static routes — both set kinds can be expanded from an IRR
   AS-SET with `bgpq4` (used automatically when installed), and kept current on a schedule (never
   auto-applied)

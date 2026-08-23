@@ -468,9 +468,43 @@ apply to the role you pick.
 | **Graceful restart** | all | Negotiate BGP graceful restart so forwarding continues across a control-plane restart on either end: **aware** (help a restarting neighbour — BIRD's default), **on** (negotiate in both directions), or **off** (drop routes immediately). |
 | **Import / export policy chains** | eBGP | Ordered lists of policies. **Imports compose with AND** (a route must survive every import policy); **exports compose with OR** (a route is announced if any export policy permits it). With no export policy the session is receive-only (RFC 8212 default-deny). |
 
-**Clone a peer** to use one as a template: birdy copies the role, policy chains,
-limits and transforms, and drops only the identity (name, addresses, ASN) and the
-password.
+**Clone a peer** to make another of the same shape: birdy copies the role, policy
+chains, limits and transforms, and drops only the identity (name, addresses, ASN)
+and the password. A clone of a peer linked to a template is linked to the same
+template.
+
+### Peer templates
+
+Thirty peers at an exchange usually want the same thing: the same import and export
+chains, the same limit, the same safeguards. A **peer template** (Peers → Templates)
+is that shape kept once — a peer without an identity — and any number of peers can
+**link** to it. Save the template and **every linked peer is rewritten** in the same
+transaction; the Changes page then shows each of them as a changed section, behind
+the usual syntax check, lint and armed auto-revert, so nothing reaches the router
+until you have looked.
+
+| | |
+|---|---|
+| **The template owns** | Role, the import and export chains, import limit and action, import/export communities, AS-path prepend, require-first-AS, origin-peer-only, RFC 9234 role, GTSM, BFD, graceful restart, passive, multihop, next-hop-self, route-reflector client, iBGP export fallback. |
+| **Each peer keeps** | Name, description, neighbor address, remote AS, local address, interface, tunnel endpoint, MD5 password, and the **Enabled** and **Drain** switches. |
+
+- **Link a peer** from the *Template* field at the top of its form. The governed
+  controls fill with the template's values and grey out; the live preview shows the
+  result. Whatever the form posts for a governed field is ignored on save — the
+  template wins.
+- **Detach** by choosing *None*. The peer keeps the values it inherited and stops
+  following the template — the same result as a clone, in place.
+- **Capture an existing peer** with *Save as template* on its edit page: the new
+  template starts from that peer's shape, and the peer can be linked to it in the
+  same step. From a template's row, *Add peer* starts a new session already linked,
+  so only the identity is left to type.
+- A template **cannot be deleted while peers link to it**, and a policy cannot be
+  deleted while a template chains it. A linked peer's protocol block in the rendered
+  config carries a comment naming its template.
+
+A template is not a BIRD `template bgp`: birdy's filters embed per-peer values (the
+remote ASN, prepends, the drain flag), so each linked peer still renders its own
+complete block. The template is where the shape is edited, not how it is expressed.
 
 ---
 

@@ -359,6 +359,16 @@ func (s *Server) routes() {
 	// warm start. Model-only, so it is allowed in read-only mode.
 	s.mux.Handle("GET /peers/seed", s.requireAuth(s.handleSeedPage))
 	s.mux.Handle("POST /peers/seed", s.requireAuth(s.handleSeedSave))
+	// Peer templates live under /peers/templates. Every one of these is a
+	// literal path, which the mux ranks above the /peers/{name} wildcard below;
+	// store.Peer refuses "templates" as a name so the two can never collide.
+	s.mux.Handle("GET /peers/templates", s.requireAuth(s.handlePeerTemplatesList))
+	s.mux.Handle("GET /peers/templates/new", s.requireAuth(s.handlePeerTemplateNew))
+	s.mux.Handle("POST /peers/templates/new", s.requireAuth(s.handlePeerTemplateSave))
+	s.mux.Handle("POST /peers/templates/preview", s.requireAuth(s.handlePeerTemplatePreview))
+	s.mux.Handle("GET /peers/templates/{name}/edit", s.requireAuth(s.handlePeerTemplateEdit))
+	s.mux.Handle("POST /peers/templates/{name}/edit", s.requireAuth(s.handlePeerTemplateSave))
+	s.mux.Handle("POST /peers/templates/{name}/delete", s.requireAuth(s.handlePeerTemplateDelete))
 	if s.peeringDB {
 		s.mux.Handle("GET /api/peeringdb/{asn}", s.requireAuth(s.handlePeeringDBLookup))
 	}

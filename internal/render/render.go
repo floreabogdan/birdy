@@ -983,6 +983,14 @@ func writePeer(b *strings.Builder, in Input, p store.Peer) error {
 	}
 
 	fmt.Fprintf(b, "protocol bgp %s {\n", p.Name)
+	if p.TemplateName != "" {
+		// The shape of this session is a copy its template keeps current; say so
+		// where someone reading the file would otherwise change it in birdy and
+		// wonder why the next template save undid the edit. Inside the block so
+		// the form's per-peer preview, which slices from the first filter or
+		// protocol marker, still carries it.
+		fmt.Fprintf(b, "\t# Shape inherited from peer template %s; edit the template to change it.\n", p.TemplateName)
+	}
 	if !p.Enabled {
 		b.WriteString("\tdisabled;\n")
 	}
