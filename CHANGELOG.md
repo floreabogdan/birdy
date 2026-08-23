@@ -18,10 +18,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   place. *Save as template* on a peer captures its shape (and can link the peer in
   the same step); *Add peer* on a template's row starts a session already linked.
   A template cannot be deleted while peers link to it, and a policy cannot be
-  deleted while a template chains it. A linked peer's protocol block carries a
-  comment naming its template; unlinked peers render byte-for-byte as before.
-  (Schema version 38: two new tables and two nullable/defaulted columns on
-  `peers`; existing peers are untouched.)
+  deleted while a template chains it. In `bird.conf` a template in use renders as
+  BIRD's own `template bgp NAME { … }` carrying the shared session options, and
+  each linked peer is declared `protocol bgp X from NAME` — its filters, channel
+  and identity stay in its own block. Unlinked peers render byte-for-byte as
+  before. (Schema version 38: two new tables and two nullable/defaulted columns
+  on `peers`; existing peers are untouched.)
   - A linked peer can keep **its own import limit** (*Use this peer's own import
     limit*), for the one IX peer that sends far more than the rest; everything else
     still follows the template.

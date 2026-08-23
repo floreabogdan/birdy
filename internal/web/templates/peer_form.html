@@ -51,8 +51,8 @@
 			</div>
 
 			{{if and .IsTemplate (not .IsNew)}}
-			<div class="card panel-warning">
-				<div class="panel-head">{{template "icon-alert"}}{{if .Usage}}{{.Usage}} peer{{if ne .Usage 1}}s{{end}} linked{{else}}No peers linked yet{{end}}</div>
+			<div class="card panel-info">
+				<div class="panel-head">{{template "icon-info"}}{{if .Usage}}{{.Usage}} peer{{if ne .Usage 1}}s{{end}} linked{{else}}No peers linked yet{{end}}</div>
 				<div class="card-body">
 					{{if .Usage}}Saving this template rewrites the policy chains, limits and safeguards of
 					<a href="/peers?template={{.Peer.Name}}">{{if eq .Usage 1}}the peer linked to it{{else}}all {{.Usage}} peers linked to it{{end}}</a>.
@@ -137,7 +137,8 @@
 										<option value="customer" {{if eq .Peer.Role "customer"}}selected{{end}}>Customer — buys transit from us</option>
 										<option value="ibgp" {{if eq .Peer.Role "ibgp"}}selected{{end}}>iBGP — inside our own AS</option>
 									</select>
-									<div class="hint">Routes from this peer are tagged with its role, so export policies can say "announce what my customers sent me".</div>
+									<div class="hint">{{if .IsTemplate}}Peers of this template are tagged with its role, so export policies can say "announce what my customers sent me". A template is either external or internal: an iBGP template has no use for the eBGP safeguards below.{{else}}Routes from this peer are tagged with its role, so export policies can say "announce what my customers sent me".{{end}}</div>
+									{{if not .IsTemplate}}<div class="hint" data-inherit-only {{if not $inh}}hidden{{end}}>Set by the template.</div>{{end}}
 									{{with index .Errs "role"}}<div class="field-error">{{.}}</div>{{end}}
 									{{/* The policies card is hidden for iBGP, so its error has to live here. */}}
 									{{with index .Errs "policies"}}<div class="field-error">{{.}}</div>{{end}}
@@ -197,7 +198,7 @@
 								Your own large communities are <strong>never stripped</strong> on an internal session &mdash; they are the origin tags
 								the route was stamped with at the edge.
 							</div>
-							<label>Import chain — what we accept from this peer</label>
+							<label>Import chain — what we accept from {{if .IsTemplate}}these peers{{else}}this peer{{end}}</label>
 							<div class="hint" style="margin-bottom:8px">Applied in order. Each policy can only reject, so a route must survive all of them.</div>
 							<div class="chain" data-name="importPolicyIds" data-governed{{if $inh}} data-locked{{end}}>
 								<div class="chain-rows">
@@ -229,7 +230,7 @@
 								</template>
 							</div>
 							<div class="field" data-role-only="ebgp" {{if eq .Peer.Role "ibgp"}}hidden{{end}} style="margin-top:16px">
-								<label for="importCommunities">Tag accepted routes from this peer</label>
+								<label for="importCommunities">Tag accepted routes from {{if .IsTemplate}}these peers{{else}}this peer{{end}}</label>
 								<textarea id="importCommunities" name="importCommunities" rows="3" class="mono" spellcheck="false" placeholder="FROM_LON_RS&#10;65000:120&#10;65000:20:1" data-governed {{if $inh}}disabled{{end}}>{{.Peer.ImportCommunities}}</textarea>
 								<div class="hint">Added after a route passes the import chain. Use this to identify a specific route server, downstream, or ingress. One per line: a literal <span class="mono">ASN:value</span> / <span class="mono">ASN:x:y</span>, or a <a href="/library/communities">named community</a>. Birdy also adds its broader relationship tag automatically.</div>
 								{{with index .Errs "importCommunities"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
@@ -237,7 +238,7 @@
 
 							<hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
 
-							<label>Export chain — what we announce to this peer</label>
+							<label>Export chain — what we announce to {{if .IsTemplate}}these peers{{else}}this peer{{end}}</label>
 							<div class="hint" data-role-only="ebgp"{{if eq .Peer.Role "ibgp"}} hidden{{end}} style="margin-bottom:8px">A route is announced if any policy permits it. With no export policy the session is receive-only (RFC 8212 default-deny).</div>
 							<div class="hint" data-role-only="ibgp"{{if ne .Peer.Role "ibgp"}} hidden{{end}} style="margin-bottom:8px">A route is announced if any policy permits it. With no export policy, this iBGP session uses the fallback you choose below.</div>
 							<div class="field" data-role-only="ibgp"{{if ne .Peer.Role "ibgp"}} hidden{{end}} style="margin-bottom:12px">
@@ -457,7 +458,7 @@
 						{{end}}
 						</div>
 						<div class="card-body preview-note">
-							{{if .IsTemplate}}Shown for an example neighbor (<span class="mono">192.0.2.1</span>, AS64496) named after the template; each linked peer renders its own identity into this shape.
+							{{if .IsTemplate}}The <span class="mono">template bgp</span> block is what every linked peer inherits; below it, an example peer (<span class="mono">192.0.2.1</span>, AS64496) shows the filters and protocol block each linked peer renders with its own identity.
 							{{else}}The filter calls each policy in turn. Our own large communities are stripped before the role tag is added, so a peer cannot forge one. Passwords are masked here.{{end}}
 						</div>
 					</div>

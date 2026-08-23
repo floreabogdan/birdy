@@ -43,6 +43,10 @@ Writing `bird.conf` is still a deliberate act you take in the UI, not something 
 <td width="50%"><img src="docs/screenshots/changes-dark.png" alt="Review and apply a candidate config"><br><sub><b>Syntax-check, lint, diff, then apply with an armed auto-revert.</b></sub></td>
 </tr>
 <tr>
+<td width="50%"><img src="docs/screenshots/peer-templates.png" alt="Peer templates: the shape of a session, kept once and linked from many peers"><br><sub><b>Peer templates — thirty IX peers change in one edit.</b></sub></td>
+<td width="50%"><img src="docs/screenshots/peer-form-linked.png" alt="A peer linked to a template, inheriting its chains, limit and safeguards"><br><sub><b>A linked peer: identity is its own, the shape comes from the template.</b></sub></td>
+</tr>
+<tr>
 <td width="50%"><img src="docs/screenshots/policies.png" alt="Composable import and export policies"><br><sub><b>Composable policy chains — import rejects, export accepts.</b></sub></td>
 <td width="50%" valign="top"><br>
 
@@ -248,7 +252,8 @@ things follow from that, and both are one setting away:
   session; clone a peer to make another of the same shape
 - **Peer templates** — the shape of a session (chains, limits, safeguards, transforms) kept once and
   linked from any number of peers; save the template and every linked peer is rewritten, reviewed on
-  the Changes page like any other edit
+  the Changes page like any other edit. Rendered as BIRD's own `template bgp` with each linked peer
+  declared `from` it
 - A library of prefix sets, AS sets, and static routes — both set kinds can be expanded from an IRR
   AS-SET with `bgpq4` (used automatically when installed), and kept current on a schedule (never
   auto-applied)

@@ -518,9 +518,16 @@ until you have looked.
   findings about peers of one template fold into a single line attributed to the
   template — thirty peers missing an import limit is one thing to fix, once.
 
-A template is not a BIRD `template bgp`: birdy's filters embed per-peer values (the
-remote ASN, prepends, the drain flag), so each linked peer still renders its own
-complete block. The template is where the shape is edited, not how it is expressed.
+In the rendered config a template is BIRD's own `template bgp NAME { … }`, carrying the
+session options every linked peer shares — multihop, passive, BFD, GTSM, graceful restart,
+the RFC 9234 role, route reflection — and each linked peer is declared
+`protocol bgp NAME from TEMPLATE { … }`. What stays in the peer's own block is everything
+peers differ in: the neighbor and password, the filters (they embed the peer's own ASN and
+transforms), and the whole channel — its address family follows the neighbor, and its
+import limit is the one thing a linked peer may override. A template nobody links to is
+not written at all, so creating one changes nothing until a peer uses it. In the split
+`birdy.d/` layout the template blocks are filed with the policies (`08-templates-*.conf`),
+ahead of the peers that inherit them.
 
 ---
 
