@@ -756,13 +756,13 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 			// permit nothing — rather than dropping the check, which would turn
 			// "accept only these prefixes" into "accept anything" and leak the table.
 			fmt.Fprintf(b, "\t# %s is disabled, so this policy permits nothing here.\n", ps.Name)
-			fmt.Fprintf(b, "\treject \"%s is disabled; no prefixes are permitted\";\n", ps.Name)
+			b.WriteString("\treject;\n")
 			return nil
 		case len(ps.Entries) == 0:
 			return fmt.Errorf("accept-only prefix set %q is empty", ps.Name)
 		case familyOf(ps) != fam.suffix:
 			fmt.Fprintf(b, "\t# %s is %s, so this policy permits nothing here.\n", ps.Name, ps.Family)
-			fmt.Fprintf(b, "\treject \"no %s prefixes are permitted by this policy\";\n", fam.channel)
+			b.WriteString("\treject;\n")
 			return nil
 		}
 	}
@@ -790,11 +790,16 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 		fmt.Fprintf(b, "\tif %s then {\n\t\tdest = RTD_BLACKHOLE;\n\t\taccept;\n\t}\n", cond)
 	}
 
+	// Rejects that drop everything not explicitly allowed stay bare, with the
+	// reason as a comment: BIRD logs a reject's message once per route, and a
+	// catch-all can match most of a full table on every session start and
+	// every UPDATE. Only vetoes — one specific thing wrong with a route — say
+	// why in the log.
 	switch pol.DefaultRoute {
 	case store.DefaultReject:
 		fmt.Fprintf(b, "\tif net = %s then reject \"default route not accepted\";\n", fam.anyRoute)
 	case store.DefaultOnly:
-		fmt.Fprintf(b, "\tif net != %s then reject \"only the default route is accepted\";\n", fam.anyRoute)
+		fmt.Fprintf(b, "\tif net != %s then reject;\t# only the default route is accepted\n", fam.anyRoute)
 	case store.DefaultAccept:
 		fmt.Fprintf(b, "\t# the default route is accepted like any other prefix\n")
 	}
@@ -833,7 +838,7 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 	}
 	if pol.AcceptOnlySetID.Valid {
 		name := sets[pol.AcceptOnlySetID.Int64].Name
-		fmt.Fprintf(b, "\tif ! (net ~ %s) then reject \"not in %s\";\n", name, name)
+		fmt.Fprintf(b, "\tif ! (net ~ %s) then reject;\t# not in %s\n", name, name)
 	}
 	// bgp_path.last is the AS that originated the route. Restricting it to the
 	// members of an expanded IRR AS-SET is how a transit provider says "announce
@@ -846,7 +851,7 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 		if len(as.Entries) == 0 {
 			return fmt.Errorf("origin AS set %q is empty", as.Name)
 		}
-		fmt.Fprintf(b, "\tif ! (bgp_path.last ~ %s) then reject \"origin AS not in %s\";\n", as.Name, as.Name)
+		fmt.Fprintf(b, "\tif ! (bgp_path.last ~ %s) then reject;\t# origin AS not in %s\n", as.Name, as.Name)
 	}
 	// RPKI route-origin validation. roa_check compares the route's origin AS
 	// against the ROAs its prefix holder published. Invalid means the origin is
@@ -1206,7 +1211,7 @@ func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 	// AS must be the peer itself. Prepending still works, because the origin is
 	// the last ASN in the path, not the first.
 	if p.OriginPeerOnly {
-		fmt.Fprintf(b, "\tif bgp_path.last != %d then reject \"prefix not originated by this peer\";\n", p.RemoteASN)
+		fmt.Fprintf(b, "\tif bgp_path.last != %d then reject;\t# not originated by this peer\n", p.RemoteASN)
 	}
 	if p.IsIBGP() {
 		// The opposite of the eBGP rule below, and the reason iBGP gets its own
@@ -1289,8 +1294,8 @@ func writePeerExportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 	}
 	// A bare reject: BIRD logs a reject's message for every route it drops, and
 	// this line drops nearly the whole table on every export to an upstream or
-	// iBGP peer. `show route noexport` answers "why was this not announced".
-	b.WriteString("\treject;\n}\n\n")
+	// iBGP peer. `show route noexport` still lists what was withheld.
+	b.WriteString("\treject;\t# not permitted by any export policy\n}\n\n")
 }
 
 // IsPrivateASN reports whether asn falls in one of the ranges the operator has

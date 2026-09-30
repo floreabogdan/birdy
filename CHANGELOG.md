@@ -43,15 +43,19 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The peer form's role-specific checkbox group for the *other* role (the iBGP
   switches on an eBGP peer, and vice versa) was visible, greyed out, instead of
   hidden: the group's flex layout overrode the `hidden` attribute.
-- **Export filters no longer log every route they drop.** The catch-all at the end
-  of each generated export filter was `reject "not permitted by any export
-  policy"`, and BIRD logs a reject's message once per route. On a full-table
-  router that is nearly the whole table on every export to every upstream and iBGP
-  peer, again on each session re-establishment and on routine table churn —
-  millions of syslog lines a day, enough for journald to rate-limit `bird.service`
-  and drop the session events worth reading. It is now a bare `reject;`. Which
-  routes an export withholds is still one click away under a peer's *Rejected on
-  export* tab (`show route noexport`).
+- **Generated filters no longer log every route a catch-all drops.** BIRD logs a
+  reject's message once per route it drops. Export filters ended in
+  `reject "not permitted by any export policy"`, and import policies rejected
+  everything outside their allow-list, default-only rule, origin AS set or
+  origin-only check with a message too. On a full-table router such a catch-all
+  matches nearly the whole table on every session start and every UPDATE —
+  millions of syslog lines a day, enough for journald to rate-limit
+  `bird.service` and drop the session events worth reading. Catch-alls are now a
+  bare `reject;` with the reason kept as a config comment; vetoes (bogon, RPKI
+  invalid, AS-path, prefix-length and first-AS checks) still log why. A peer's
+  *Rejected on export* tab (`show route noexport`) still lists what was withheld.
+  The quieter filters take effect on the next apply, so after upgrading every
+  install with policies shows unapplied changes until then.
 
 ## [0.5.0] - 2026-07-22
 
