@@ -2,6 +2,7 @@ package render
 
 import (
 	"database/sql"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -155,7 +156,7 @@ func TestDefaultRouteModes(t *testing.T) {
 	in := baseInput()
 	in.PrefixSets, in.Policies = sets, []store.Policy{only}
 	fn := block(t, mustRender(t, in), "function imp_P_v4()")
-	if !strings.Contains(fn, `if net != 0.0.0.0/0 then reject "only the default route is accepted";`) {
+	if !strings.Contains(fn, "\tif net != 0.0.0.0/0 then reject;\t# only the default route is accepted") {
 		t.Errorf("accept-only-default must reject everything else:\n%s", fn)
 	}
 
@@ -336,8 +337,15 @@ func TestExportChainEndsInReject(t *testing.T) {
 	if first < 0 || second < 0 || first > second {
 		t.Errorf("export policies must be called in attachment order:\n%s", f)
 	}
-	if !strings.Contains(f, `reject "not permitted by any export policy";`) {
-		t.Error("the export filter must reject anything no policy accepted")
+	if !strings.HasSuffix(f, "\n\treject;\t# not permitted by any export policy") {
+		t.Errorf("the export filter must end by rejecting anything no policy accepted:\n%s", f)
+	}
+	// Without a message: BIRD logs a reject's text for every route it drops, and
+	// on a full-table router the catch-all drops nearly every route on every
+	// export — millions of syslog lines, enough for journald to start
+	// suppressing the ones that matter.
+	if strings.Contains(f, `reject "`) {
+		t.Errorf("the catch-all reject must not log a message per route:\n%s", f)
 	}
 }
 
@@ -383,11 +391,11 @@ func TestAcceptOnlySetRejectsTheOtherFamily(t *testing.T) {
 	in.Policies = []store.Policy{pol}
 	out := mustRender(t, in)
 
-	if v4 := block(t, out, "function imp_CUST_v4()"); !strings.Contains(v4, `if ! (net ~ CUST_A_V4) then reject "not in CUST_A_V4";`) {
+	if v4 := block(t, out, "function imp_CUST_v4()"); !strings.Contains(v4, "\tif ! (net ~ CUST_A_V4) then reject;\t# not in CUST_A_V4") {
 		t.Errorf("v4 function should permit only the set:\n%s", v4)
 	}
 	v6 := block(t, out, "function imp_CUST_v6()")
-	if !strings.Contains(v6, `reject "no ipv6 prefixes are permitted by this policy";`) {
+	if !strings.Contains(v6, "so this policy permits nothing here.\n\treject;") {
 		t.Errorf("v6 function must reject everything, not silently accept:\n%s", v6)
 	}
 }
@@ -1030,5 +1038,67 @@ func TestBlackholeKeepsOriginTag(t *testing.T) {
 	}
 	if tag > call {
 		t.Errorf("origin tag must be added BEFORE the policy call so a blackhole accept keeps it:\n%s", f)
+	}
+}
+
+// BIRD logs a reject's message once for every route it drops. For a veto — one
+// specific thing wrong with this route — that is worth it: such routes are rare
+// and the line says why. A catch-all that drops everything not explicitly
+// allowed can match most of a full table on every session start and every
+// UPDATE, and its log lines crowd out the session events. Catch-alls stay
+// bare, with the reason as a config comment. A new messaged reject must be
+// added to the veto list here on purpose.
+func TestOnlyVetoRejectsCarryAMessage(t *testing.T) {
+	vetoes := map[string]bool{
+		"default route not accepted": true, "prefix length out of bounds": true, "bogon prefix": true,
+		"RPKI invalid": true, "AS path too long": true, "our own ASN in AS path": true,
+		"bogon ASN in AS path": true, "first AS is not the peer AS": true,
+	}
+
+	cust := store.PrefixSet{ID: 30, Name: "CUST_A_V4", Family: store.FamilyV4,
+		Entries: []store.PrefixEntry{{Prefix: "198.51.100.0/24", Modifier: "+"}}}
+	off := store.PrefixSet{ID: 31, Name: "OFF_V4", Family: store.FamilyV4, Disabled: true,
+		Entries: []store.PrefixEntry{{Prefix: "203.0.113.0/24"}}}
+	as := custASSet()
+	onlyDefault := store.Policy{ID: 10, Name: "ONLY_DEFAULT", Direction: store.DirImport,
+		DefaultRoute: store.DefaultOnly, BogonASNs: store.BogonASNsOff}
+	allow := store.Policy{ID: 11, Name: "CUST", Direction: store.DirImport, DefaultRoute: store.DefaultReject,
+		BogonASNs: store.BogonASNsOff, AcceptOnlySetID: sql.NullInt64{Int64: cust.ID, Valid: true},
+		OriginASSetID: sql.NullInt64{Int64: as.ID, Valid: true}}
+	disabled := store.Policy{ID: 12, Name: "OFF", Direction: store.DirImport, DefaultRoute: store.DefaultReject,
+		BogonASNs: store.BogonASNsOff, AcceptOnlySetID: sql.NullInt64{Int64: off.ID, Valid: true}}
+	export := store.Policy{ID: 13, Name: "EXPORT_CUST", Direction: store.DirExport, AnnounceFromCustomer: true}
+
+	p := ebgpPeer()
+	p.EnforceFirstAS, p.OriginPeerOnly = true, true
+	p.ImportPolicies = []store.Policy{sanityPolicy(), allow}
+	p.ExportPolicies = []store.Policy{export}
+
+	in := baseInput()
+	in.PrefixSets = append(bogonSets(), cust, off)
+	in.ASSets = []store.ASSet{as}
+	in.Policies = []store.Policy{sanityPolicy(), onlyDefault, allow, disabled, export}
+	in.Peers = []store.Peer{p}
+	out := mustRender(t, in)
+
+	msg := regexp.MustCompile(`reject "([^"]*)"`)
+	for _, m := range msg.FindAllStringSubmatch(out, -1) {
+		if !vetoes[m[1]] {
+			t.Errorf("reject %q logs once per route it drops; make it a bare reject with a comment, or add it to the vetoes if it is one", m[1])
+		}
+	}
+	// And the catch-alls are all there, bare — the test covers what it claims to.
+	for _, want := range []string{
+		"then reject;\t# only the default route is accepted\n",
+		"then reject;\t# not in CUST_A_V4\n",
+		"then reject;\t# origin AS not in AS_CUSTOMER_A\n",
+		"then reject;\t# not originated by this peer\n",
+		"\treject;\t# not permitted by any export policy\n",
+		"OFF_V4 is disabled, so this policy permits nothing here.\n\treject;\n",
+		"CUST_A_V4 is ipv4, so this policy permits nothing here.\n\treject;\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected the bare catch-all %q in:\n%s", want, out)
+		}
 	}
 }

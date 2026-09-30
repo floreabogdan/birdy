@@ -32,7 +32,7 @@ func TestOriginPeerOnlyRendersOnTheSession(t *testing.T) {
 	in.PrefixSets, in.Policies, in.Peers = bogonSets(), []store.Policy{sanityPolicy()}, []store.Peer{p}
 	f := block(t, mustRender(t, in), "filter ebgp_in_edge_v4")
 
-	if !strings.Contains(f, `if bgp_path.last != 64600 then reject "prefix not originated by this peer";`) {
+	if !strings.Contains(f, "\tif bgp_path.last != 64600 then reject;\t# not originated by this peer\n") {
 		t.Errorf("origin-peer-only guard missing:\n%s", f)
 	}
 	// It must land on the peer's filter, not inside a shared policy function:
@@ -65,7 +65,7 @@ func TestOriginASSetRendersInThePolicy(t *testing.T) {
 	}
 	// It applies to both families: an ASN has no address family.
 	for _, fn := range []string{"function imp_IMPORT_SANITY_v4()", "function imp_IMPORT_SANITY_v6()"} {
-		if !strings.Contains(block(t, out, fn), `if ! (bgp_path.last ~ AS_CUSTOMER_A) then reject "origin AS not in AS_CUSTOMER_A";`) {
+		if !strings.Contains(block(t, out, fn), "\tif ! (bgp_path.last ~ AS_CUSTOMER_A) then reject;\t# origin AS not in AS_CUSTOMER_A\n") {
 			t.Errorf("%s should filter the origin AS", fn)
 		}
 	}

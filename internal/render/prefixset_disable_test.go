@@ -93,7 +93,7 @@ func TestDisabledImportAllowListFailsClosed(t *testing.T) {
 	if strings.Contains(fn, "! (net ~ CUST_IN)") {
 		t.Errorf("a disabled allow-list must not render its membership check:\n%s", fn)
 	}
-	if !strings.Contains(fn, `reject "CUST_IN is disabled`) {
+	if !strings.Contains(fn, "CUST_IN is disabled, so this policy permits nothing here.\n\treject;") {
 		t.Errorf("a disabled allow-list must fail closed (reject all):\n%s", fn)
 	}
 }
