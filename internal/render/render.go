@@ -1042,7 +1042,20 @@ func writeSessionOptions(b *strings.Builder, t store.PeerTemplate) {
 	if t.BFD {
 		// Sub-second failure detection: BIRD tears the session down the moment BFD
 		// stops hearing the neighbour, rather than waiting out the hold timer.
-		b.WriteString("\tbfd;\n")
+		// Timers set here apply to this session alone (BIRD 2.0.8+); unset, the
+		// bare form keeps BIRD's defaults and the rendering of every older peer.
+		if t.BFDInterval > 0 || t.BFDMultiplier > 0 {
+			b.WriteString("\tbfd {\n")
+			if t.BFDInterval > 0 {
+				fmt.Fprintf(b, "\t\tinterval %d ms;\n", t.BFDInterval)
+			}
+			if t.BFDMultiplier > 0 {
+				fmt.Fprintf(b, "\t\tmultiplier %d;\n", t.BFDMultiplier)
+			}
+			b.WriteString("\t};\n")
+		} else {
+			b.WriteString("\tbfd;\n")
+		}
 	}
 	// graceful restart "aware" is BIRD's own default, so only the explicit
 	// on/off choices are written.

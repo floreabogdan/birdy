@@ -414,3 +414,26 @@ func TestPeerNamedTemplatesIsRefused(t *testing.T) {
 		t.Errorf("a peer named templates would be unreachable behind /peers/templates: code=%d", rec.Code)
 	}
 }
+
+func TestPeerTemplateBFDTimersShowInListAndPreview(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+	form := templateForm(env, t)
+	form.Set("bfd", "on")
+	form.Set("bfdInterval", "300")
+	form.Set("bfdMultiplier", "10")
+	if rec := env.do(t, "POST", "/peers/templates/new", form); rec.Code != http.StatusSeeOther {
+		t.Fatalf("create template: code=%d body=%s", rec.Code, rec.Body)
+	}
+	tmpl, err := env.store.GetPeerTemplateByName("IX_PEERS")
+	if err != nil || !tmpl.BFD || tmpl.BFDInterval != 300 || tmpl.BFDMultiplier != 10 {
+		t.Fatalf("template should store its BFD timers: %v %+v", err, tmpl)
+	}
+
+	if body := env.do(t, "GET", "/peers/templates", nil).Body.String(); !strings.Contains(body, `<span class="chip">BFD 300 ms &times;10</span>`) {
+		t.Error("the templates list should show the BFD timers on the chip")
+	}
+	if body := env.do(t, "GET", "/peers/templates/IX_PEERS/edit", nil).Body.String(); !strings.Contains(body, "interval 300 ms;") {
+		t.Error("the template preview should render the BFD timers")
+	}
+}

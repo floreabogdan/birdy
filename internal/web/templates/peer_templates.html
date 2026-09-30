@@ -67,7 +67,7 @@
 									{{if .GTSM}}<span class="chip">GTSM</span>{{end}}
 									{{if .PrependCount}}<span class="chip chip-info">prepend &times;{{.PrependCount}}</span>{{end}}
 								{{end}}
-								{{if .BFD}}<span class="chip">BFD</span>{{end}}
+								{{if .BFD}}<span class="chip">BFD{{if .BFDInterval}} {{.BFDInterval}} ms{{end}}{{if .BFDMultiplier}} &times;{{.BFDMultiplier}}{{end}}</span>{{end}}
 								{{if .Passive}}<span class="chip chip-secondary">passive</span>{{end}}
 								{{if .Multihop}}<span class="chip chip-secondary">multihop {{.Multihop}}</span>{{end}}
 							</td>

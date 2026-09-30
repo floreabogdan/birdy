@@ -204,6 +204,8 @@ func peerFromForm(r *http.Request) store.Peer {
 		ExportCommunities: strings.TrimSpace(r.FormValue("exportCommunities")),
 		Drained:           r.FormValue("drained") == "on",
 		BFD:               r.FormValue("bfd") == "on",
+		BFDInterval:       formInt(r, "bfdInterval"),
+		BFDMultiplier:     formInt(r, "bfdMultiplier"),
 		GTSM:              r.FormValue("gtsm") == "on",
 		GracefulRestart:   r.FormValue("gracefulRestart"),
 		TemplateID:        formNullInt(r, "templateId"),

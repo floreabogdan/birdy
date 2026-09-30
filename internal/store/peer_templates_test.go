@@ -23,8 +23,8 @@ func TestEveryPeerFieldIsClassified(t *testing.T) {
 	shape := []string{
 		"Role", "Multihop", "Passive", "ImportLimit", "ImportLimitAction",
 		"ImportCommunities", "ExportCommunities", "PrependCount",
-		"EnforceFirstAS", "OriginPeerOnly", "BGPRole", "GTSM", "BFD", "GracefulRestart",
-		"NextHopSelf", "RRClient", "IBGPExportDefault", "ImportPolicies", "ExportPolicies",
+		"EnforceFirstAS", "OriginPeerOnly", "BGPRole", "GTSM", "BFD", "BFDInterval", "BFDMultiplier",
+		"GracefulRestart", "NextHopSelf", "RRClient", "IBGPExportDefault", "ImportPolicies", "ExportPolicies",
 	}
 	peerT := reflect.TypeOf(Peer{})
 	tmplT := reflect.TypeOf(PeerTemplate{})
@@ -58,6 +58,7 @@ func TestEveryPeerFieldIsClassified(t *testing.T) {
 		Role: RoleUpstream, Multihop: 2, Passive: true, ImportLimit: 10, ImportLimitAction: "warn",
 		ImportCommunities: "65000:1", ExportCommunities: "65000:2", PrependCount: 1,
 		EnforceFirstAS: true, OriginPeerOnly: true, BGPRole: true, GTSM: true, BFD: true, GracefulRestart: GROn,
+		BFDInterval: 1000, BFDMultiplier: 3,
 		NextHopSelf: true, RRClient: true, IBGPExportDefault: IBGPExportNone,
 		ImportPolicies: []Policy{{ID: 1}}, ExportPolicies: []Policy{{ID: 2}},
 	}
@@ -66,6 +67,7 @@ func TestEveryPeerFieldIsClassified(t *testing.T) {
 		Role: RoleIXPeer, Multihop: 0, Passive: false, ImportLimit: 50000, ImportLimitAction: "restart",
 		ImportCommunities: "65000:3", ExportCommunities: "65000:4", PrependCount: 0,
 		EnforceFirstAS: false, OriginPeerOnly: false, BGPRole: false, GTSM: false, BFD: false, GracefulRestart: GRAware,
+		BFDInterval: 300, BFDMultiplier: 10,
 		NextHopSelf: false, RRClient: false, IBGPExportDefault: IBGPExportAll,
 		ImportPolicies: []Policy{{ID: 5}}, ExportPolicies: []Policy{{ID: 6}},
 	}
@@ -474,5 +476,38 @@ func TestMigratePeerTemplatesFromV37(t *testing.T) {
 	}
 	if version != schemaVersion {
 		t.Errorf("user_version = %d, want %d", version, schemaVersion)
+	}
+}
+
+// BFD timers are part of the session shape: a template stores them, a link
+// copies them, and a template save rewrites them on every linked peer.
+func TestTemplateCarriesBFDTimersToLinkedPeers(t *testing.T) {
+	s := openTest(t)
+	tmpl, sanity, _, _ := seedTemplateFixture(t, s)
+	tmpl.BFD, tmpl.BFDInterval, tmpl.BFDMultiplier = true, 300, 10
+	if _, err := s.UpdatePeerTemplate(tmpl, []int64{sanity.ID}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetPeerTemplate(tmpl.ID); got.BFDInterval != 300 || got.BFDMultiplier != 10 {
+		t.Fatalf("template did not store its BFD timers: %+v", got)
+	}
+
+	id, err := s.CreatePeer(validPeer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkPeerToTemplate(id, tmpl.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetPeer(id); !got.BFD || got.BFDInterval != 300 || got.BFDMultiplier != 10 {
+		t.Errorf("link should copy the BFD timers: %+v", got)
+	}
+
+	tmpl.BFDInterval, tmpl.BFDMultiplier = 1000, 3
+	if n, err := s.UpdatePeerTemplate(tmpl, []int64{sanity.ID}, nil); err != nil || n != 1 {
+		t.Fatalf("template save: n=%d err=%v", n, err)
+	}
+	if got, _ := s.GetPeer(id); got.BFDInterval != 1000 || got.BFDMultiplier != 3 {
+		t.Errorf("template save should rewrite the linked peer's BFD timers: %+v", got)
 	}
 }
