@@ -50,8 +50,8 @@ over a local Unix control socket. It is not a controller for a fleet.
 **Runtime (on the router):**
 
 - **BIRD 2.x**, running, with its control socket reachable. Tested against
-  BIRD 2.17.1. The RFC 9234 role feature needs a BIRD new enough to support BGP
-  roles (2.0.8 or later); everything else works on any 2.x.
+  BIRD 2.17.1. The RFC 9234 role feature and per-session BFD timers need BIRD
+  2.0.8 or later; everything else works on any 2.x.
 - The **`bird` binary** on `PATH` (or point `--bird-binary` at it). birdy shells
   out to `bird -p` to syntax-check a candidate config before it is ever applied.
   This is the same binary as the daemon — installing BIRD gives you both.
@@ -464,7 +464,7 @@ apply to the role you pick.
 | **Policy chains** | all | An **iBGP** session with no chains carries everything in both directions (`import all; export all;`) — the conventional full-mesh config. That includes any default route the far router learned from *its* upstream, which is a trap when the session runs over a **tunnel**: the far end installs your default, then tries to reach the tunnel's own endpoint *through the tunnel*, and the tunnel dies (the kernel calls this a dead loop and counts it under `collisions`). Attach chains and the internal session filters like any other — e.g. an import policy that rejects the default and accepts only your internal prefix set. Unlike eBGP, an internal import filter **never strips your own large communities**: on that session they are the origin tags the route was stamped with at the edge, and every export policy downstream reads them. (The other half of the tunnel fix lives in the OS, not in BIRD: pin the tunnel endpoint with a host route through the underlay, `ip route add <peer>/32 via <underlay-gw>`.) |
 | **iBGP export fallback** | iBGP | With no export chain attached, choose whether the session announces **everything** (`export all`, the full-mesh default) or **nothing** (`export none`) — the same default-deny posture eBGP has under RFC 8212, without inventing a reject-all policy. It governs only the empty-chain case and is ignored the moment you attach an export policy. |
 | **BFD** | all | Bidirectional Forwarding Detection — tear the session down within a second of a link failure instead of waiting out the hold timer. Needs a BFD-capable path. |
-| **BFD interval / multiplier** | all | This session's BFD timers: how often packets are sent and expected (ms), and how many intervals may go unheard before the session is declared down. Their product is the detection time. 0 keeps BIRD's defaults, 100 ms × 5 = 0.5 s — right for a direct link, but a session over a tunnel across the internet will flap on every half-second blip; 300 ms × 10 (3 s) rides those out. BFD negotiates between the two ends, so set the same on both routers. Rendered as `bfd { interval …; multiplier …; };` on the session alone (BIRD 2.0.8+), so other peers keep the defaults. |
+| **BFD interval / multiplier** | all | This session's BFD timers: how often packets are sent and expected (ms), and how many intervals may go unheard before the session is declared down. Their product is the detection time. 0 keeps BIRD's defaults, 100 ms × 5 = 0.5 s — right for a direct link, but a session over a tunnel across the internet will flap on every half-second blip; 300 ms × 10 (3 s) rides those out. BFD negotiates between the two ends, so set the same on both routers. Rendered as `bfd { interval …; multiplier …; };` on the session alone (BIRD 2.0.8+), so other peers keep the defaults. BIRD runs one BFD session per neighbor address, so two sessions to the same address share the timers of whichever asked first. |
 | **GTSM** | eBGP | Generalized TTL Security Mechanism (RFC 5082): send with a maximal TTL and drop received packets whose TTL is lower than expected, so an off-path attacker cannot spoof the session. For a multihop peer, set **Multihop TTL** correctly so BIRD computes the right expected TTL. |
 | **Graceful restart** | all | Negotiate BGP graceful restart so forwarding continues across a control-plane restart on either end: **aware** (help a restarting neighbour — BIRD's default), **on** (negotiate in both directions), or **off** (drop routes immediately). |
 | **Import / export policy chains** | eBGP | Ordered lists of policies. **Imports compose with AND** (a route must survive every import policy); **exports compose with OR** (a route is announced if any export policy permits it). With no export policy the session is receive-only (RFC 8212 default-deny). |
@@ -729,8 +729,10 @@ button.
   ships with.
 - **Raw configuration** — an escape hatch appended verbatim to the end of the
   rendered `bird.conf`, for anything birdy does not model (extra tables,
-  graceful-restart options). BFD timers are per-session fields on the peer form. birdy understands none of it; its only gate is
-  `bird -p`, which runs before it saves.
+  graceful-restart options). birdy understands none of it; its only gate is
+  `bird -p`, which runs before it saves. BFD timers for a BGP session do not
+  belong here — they are fields on the peer form, and a BFD protocol added here
+  would never see the sessions the generated one already takes.
 - **Access control** — an application-level IP allow-list: one IP or CIDR per line,
   and only those may reach birdy at all. A blocked client gets **no response** — the
   connection is closed — and the gate covers *every* request, including the

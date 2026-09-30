@@ -156,6 +156,9 @@ CREATE TABLE IF NOT EXISTS peer_templates (
 	bgp_role             INTEGER NOT NULL DEFAULT 0,
 	gtsm                 INTEGER NOT NULL DEFAULT 0,
 	bfd                  INTEGER NOT NULL DEFAULT 0,
+	-- Per-session BFD timers: ms and intervals-missed; 0 keeps BIRD's default.
+	bfd_interval         INTEGER NOT NULL DEFAULT 0,
+	bfd_multiplier       INTEGER NOT NULL DEFAULT 0,
 	graceful_restart     TEXT NOT NULL DEFAULT 'aware',
 	next_hop_self        INTEGER NOT NULL DEFAULT 1,
 	rr_client            INTEGER NOT NULL DEFAULT 0,

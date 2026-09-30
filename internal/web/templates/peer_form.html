@@ -393,7 +393,7 @@
 								<div class="field">
 									<label for="bfdInterval">BFD interval (ms)</label>
 									<input type="number" id="bfdInterval" name="bfdInterval" class="mono" value="{{.Peer.BFDInterval}}" min="0" max="10000" data-governed {{if $inh}}disabled{{end}}>
-									<div class="hint">How often BFD packets are sent and expected. 0 keeps BIRD's default, 100 ms.</div>
+									<div class="hint">How often BFD packets are sent and expected. 0 keeps BIRD's defaults: send every 100 ms, accept down to 10 ms.</div>
 									{{with index .Errs "bfdInterval"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
 								<div class="field">

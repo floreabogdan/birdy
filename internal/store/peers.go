@@ -156,7 +156,8 @@ type Peer struct {
 	// hold timer. Requires a BFD-capable path to the neighbor.
 	BFD bool
 	// BFDInterval is the BFD transmit and receive interval for this session, in
-	// milliseconds; 0 keeps BIRD's default (100 ms). BFDMultiplier is how many
+	// milliseconds; 0 keeps BIRD's defaults (send every 100 ms, accept down to
+	// 10 ms). BFDMultiplier is how many
 	// intervals may pass unheard before the session is declared down; 0 keeps
 	// BIRD's default (5). Their product is the detection time: the defaults give
 	// 0.5 s, which suits a direct link but tears a session across the internet
@@ -377,7 +378,7 @@ func (p *Peer) validateShape(errs map[string]string) {
 		p.BFDInterval, p.BFDMultiplier = 0, 0
 	}
 	if p.BFDInterval != 0 && (p.BFDInterval < 10 || p.BFDInterval > 10000) {
-		errs["bfdInterval"] = "Enter an interval between 10 and 10000 ms, or 0 for BIRD's default (100 ms)."
+		errs["bfdInterval"] = "Enter an interval between 10 and 10000 ms, or 0 for BIRD's defaults."
 	}
 	if p.BFDMultiplier < 0 || p.BFDMultiplier > 255 {
 		errs["bfdMultiplier"] = "Enter a multiplier between 1 and 255, or 0 for BIRD's default (5)."

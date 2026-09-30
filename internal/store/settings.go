@@ -45,8 +45,9 @@ type Settings struct {
 	InstanceAPITokenRevoked   bool
 
 	// RawConfig is appended verbatim to the end of the generated bird.conf.
-	// The escape hatch for everything birdy does not model — BFD, extra tables,
-	// graceful restart tuning. birdy does not parse it; `bird -p` is the only
+	// The escape hatch for everything birdy does not model — extra tables, other
+	// protocols, graceful restart tuning. Not BGP sessions' BFD timers: those are
+	// per peer, and the generated bfd1 would shadow a BFD protocol added here. birdy does not parse it; `bird -p` is the only
 	// thing standing between it and a broken router.
 	RawConfig string
 

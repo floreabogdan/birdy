@@ -287,7 +287,8 @@
 					<div class="card-body">
 						<p style="margin-top:0;font-size:0.8125rem" class="text-muted">
 							Appended verbatim to the end of the generated <span class="mono">bird.conf</span>. The escape hatch for what birdy does not
-							model &mdash; BFD, extra tables, graceful restart tuning. <strong>birdy does not understand any of it.</strong>
+							model &mdash; extra tables, other protocols, graceful restart tuning. (BFD for a BGP session is set on the peer, not here:
+							the generated BFD protocol takes every session that asks for BFD.) <strong>birdy does not understand any of it.</strong>
 							Nothing here is linted, diffed intelligently, or protected from you; the only check it gets is
 							<span class="mono">bird -p</span>, which runs before this saves.
 						</p>
@@ -299,7 +300,7 @@
 							<div class="field">
 								<label for="rawConfig">Config appended to the end of the file</label>
 								<textarea id="rawConfig" name="rawConfig" rows="10" class="mono" spellcheck="false"
-									placeholder="protocol bfd {&#10;&#9;interface &quot;eno1&quot;;&#10;}">{{.RawConfig}}</textarea>
+									placeholder="ipv4 table extra4;">{{.RawConfig}}</textarea>
 								<div class="hint">Leave empty if you do not need it. It cannot reference the filters birdy generates &mdash; it is appended after them, not before.</div>
 							</div>
 							<button type="submit" class="btn btn-primary">Save raw config</button>
