@@ -26,6 +26,8 @@
 					Nothing goes live until you review the generated config under <a href="/changes">Changes</a> and apply it.
 					birdy reads each session off the control socket; check the role, then fine-tune anything else on the
 					peer's edit form afterwards.
+					{{if .Templates}}Pick a <a href="/peers/templates">template</a> for a row and the peer is imported already linked to it
+					&mdash; role, policy chains, limit and safeguards included, so thirty route-server sessions arrive ready to review.{{end}}
 				</p>
 
 				{{if .Message}}
@@ -37,7 +39,7 @@
 						<thead><tr>
 							<th style="width:2.2rem"></th>
 							<th>Name</th><th>AFI</th><th>Neighbor</th><th>Remote AS</th>
-							<th>Local address</th><th>Role</th><th>State</th><th>Notes</th>
+							<th>Local address</th><th>Role</th>{{if .Templates}}<th>Template</th>{{end}}<th>State</th><th>Notes</th>
 						</tr></thead>
 						<tbody>
 							{{range .Rows}}
@@ -58,7 +60,7 @@
 									{{if .Invalid}}
 										<span class="text-muted">&mdash;</span>
 									{{else}}
-									<select name="role_{{.Name}}" class="input-sm">
+									<select name="role_{{.Name}}" class="input-sm" data-seed-role>
 										<option value="upstream" {{if eq .Role "upstream"}}selected{{end}}>upstream</option>
 										<option value="ix_peer" {{if eq .Role "ix_peer"}}selected{{end}}>IX peer</option>
 										<option value="customer" {{if eq .Role "customer"}}selected{{end}}>customer</option>
@@ -66,6 +68,18 @@
 									</select>
 									{{end}}
 								</td>
+								{{if $.Templates}}
+								<td>
+									{{if .Invalid}}
+										<span class="text-muted">&mdash;</span>
+									{{else}}
+									<select name="template_{{.Name}}" class="input-sm" data-seed-template aria-label="Template for {{.Name}}">
+										<option value="">none</option>
+										{{range $.Templates}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+									</select>
+									{{end}}
+								</td>
+								{{end}}
 								<td>{{sessionBadge .Up .State}}</td>
 								<td class="text-muted" style="font-size:0.8rem">
 									{{if .Invalid}}<span class="badge badge-danger">can't import</span> {{.Invalid}}
@@ -80,9 +94,18 @@
 						<button type="submit" class="btn btn-success" {{if not .Importable}}disabled{{end}}>
 							{{template "icon-plus"}}Import selected
 						</button>
-						<span class="text-muted">Roles are a starting guess &mdash; the community birdy stamps on a peer's routes depends on it, so check each one.</span>
+						{{if .Templates}}
+						<label class="text-muted" for="seed-template-all" style="margin-left:8px">Template for every checked row:</label>
+						<select id="seed-template-all" class="input-sm" aria-label="Set the template on every checked row">
+							<option value="">leave as is</option>
+							<option value="-">none</option>
+							{{range .Templates}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+						</select>
+						{{end}}
+						<span class="text-muted">Roles are a starting guess &mdash; the community birdy stamps on a peer's routes depends on it, so check each one. A template decides the role for its row.</span>
 					</div>
 				</form>
+				<script src="/static/seed.js"></script>
 				{{end}}
 			</div>
 		</div>

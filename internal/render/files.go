@@ -53,6 +53,7 @@ var groupNum = map[string]string{
 	"protocols":   "06",
 	"static":      "07",
 	"policies":    "08",
+	"templates":   "08", // with the policies: what peers are declared "from" comes before them
 	"peers":       "09",
 	"raw":         "10",
 }

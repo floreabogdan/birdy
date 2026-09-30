@@ -21,6 +21,7 @@
 				<div class="card-header">
 					<span class="card-title">{{template "icon-peers"}}Configured peers</span>
 					<div class="card-header-actions">
+						<a class="btn" href="/peers/templates" title="Shared policy chains, limits and safeguards that many peers link to">{{template "icon-copy"}}Templates</a>
 						<a class="btn" href="/peers/seed" title="Create peers from the sessions BIRD is already running">{{template "icon-download"}}Import from BIRD</a>
 						<a class="btn btn-success" href="/peers/new">{{template "icon-plus"}}Add peer</a>
 					</div>
@@ -34,6 +35,7 @@
 				<div class="table-scroll">
 				<table>
 					<thead><tr>
+						{{if .Peers}}<th style="width:2.2rem"><input type="checkbox" data-check-all aria-label="Select every peer on this page"></th>{{end}}
 						<th>Name</th><th>Role</th><th>AFI</th><th>Neighbor</th><th>Remote AS</th>
 						<th class="num">Imported</th><th class="num">Rejected</th><th class="num">Exported</th>
 						<th>State</th><th class="num">Actions</th>
@@ -42,6 +44,7 @@
 						{{range .Peers}}
 						{{$live := index $.Live .Name}}
 						<tr>
+							<td><input type="checkbox" name="peer" value="{{.Name}}" form="bulk-attach" aria-label="Select {{.Name}}"></td>
 							<td class="mono">
 								<a href="/peers/{{.Name}}">{{.Name}}</a>
 								{{if .Description}}<div class="text-muted" style="font-size:0.75rem">{{.Description}}</div>{{end}}
@@ -52,6 +55,7 @@
 								{{else if eq .Role "customer"}}<span class="badge badge-success">customer</span>
 								{{else}}<span class="badge badge-info">iBGP</span>{{end}}
 								{{if .Drained}}<span class="badge badge-warning" title="Draining for maintenance (RFC 8326 graceful shutdown)">draining</span>{{end}}
+								{{if .TemplateName}}<div style="margin-top:4px"><a class="chip mono" href="/peers/templates/{{.TemplateName}}/edit" title="Policy chains, limits and safeguards come from this template">from {{.TemplateName}}</a></div>{{end}}
 							</td>
 							<td><span class="chip chip-primary">{{if .IsV6}}IPv6{{else}}IPv4{{end}}</span></td>
 							<td class="mono">{{.NeighborIP}}{{if .Multihop}}<div class="text-muted" style="font-size:0.75rem">multihop {{.Multihop}}</div>{{end}}</td>
@@ -95,10 +99,24 @@
 					</tbody>
 				</table>
 				</div>
+				{{if .Peers}}
+				{{/* Row checkboxes join this form through form="bulk-attach"; the table's
+				     per-row toggle forms rule out wrapping it. */}}
+				<form id="bulk-attach" method="post" action="/peers/attach" class="bulk-bar" data-confirm="Attach or detach the selected peers? Attaching replaces each peer's policy chains, limit and safeguards with the template's. Nothing reaches the router until you apply.">
+					<span class="text-muted" data-selected-count>none selected</span>
+					<select name="templateId" aria-label="Template to attach the selected peers to">
+						{{range .Templates}}<option value="{{.ID}}">Attach to {{.Name}}</option>{{end}}
+						<option value="">Detach from template</option>
+					</select>
+					<button type="submit" class="btn">Apply to selected</button>
+					<span class="hint">Attaching gives each selected peer the template's chains, limit and safeguards; detaching leaves every value in place and makes the peer own it.{{if not .Templates}} No templates yet &mdash; <a href="/peers/templates/new">create one</a>.{{end}}</span>
+				</form>
+				{{end}}
 				{{template "pager" .Pager}}
 			</div>
 		</div>
 	</div>
 </div>
+<script src="/static/peers.js"></script>
 </body>
 </html>
