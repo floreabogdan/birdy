@@ -336,8 +336,15 @@ func TestExportChainEndsInReject(t *testing.T) {
 	if first < 0 || second < 0 || first > second {
 		t.Errorf("export policies must be called in attachment order:\n%s", f)
 	}
-	if !strings.Contains(f, `reject "not permitted by any export policy";`) {
-		t.Error("the export filter must reject anything no policy accepted")
+	if !strings.HasSuffix(f, "\n\treject;") {
+		t.Errorf("the export filter must end by rejecting anything no policy accepted:\n%s", f)
+	}
+	// Without a message: BIRD logs a reject's text for every route it drops, and
+	// on a full-table router the catch-all drops nearly every route on every
+	// export — millions of syslog lines, enough for journald to start
+	// suppressing the ones that matter.
+	if strings.Contains(f, `reject "`) {
+		t.Errorf("the catch-all reject must not log a message per route:\n%s", f)
 	}
 }
 

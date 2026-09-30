@@ -1287,7 +1287,10 @@ func writePeerExportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 	for _, pol := range p.ExportPolicies {
 		fmt.Fprintf(b, "\t%s;\n", policyFunc(pol, fam))
 	}
-	b.WriteString("\treject \"not permitted by any export policy\";\n}\n\n")
+	// A bare reject: BIRD logs a reject's message for every route it drops, and
+	// this line drops nearly the whole table on every export to an upstream or
+	// iBGP peer. `show route noexport` answers "why was this not announced".
+	b.WriteString("\treject;\n}\n\n")
 }
 
 // IsPrivateASN reports whether asn falls in one of the ranges the operator has
