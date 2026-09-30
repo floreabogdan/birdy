@@ -330,15 +330,25 @@ func replacePolicySets(tx *sql.Tx, policyID int64, setIDs []int64) error {
 	return nil
 }
 
-// DeletePolicy refuses while any peer still names it: silently detaching would
-// change what that session imports or announces.
+// DeletePolicy refuses while any peer or peer template still names it:
+// silently detaching would change what those sessions import or announce. A
+// linked peer already counts through its own materialised chain rows, so the
+// template count is the templates themselves, not the peers behind them.
 func (s *Store) DeletePolicy(id int64) error {
-	var peers int
+	var peers, templates int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM peer_policies WHERE policy_id = ?`, id).Scan(&peers); err != nil {
 		return err
 	}
-	if peers > 0 {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM template_policies WHERE policy_id = ?`, id).Scan(&templates); err != nil {
+		return err
+	}
+	switch {
+	case peers > 0 && templates > 0:
+		return fmt.Errorf("store: policy is attached to %d peer(s) and %d peer template(s)", peers, templates)
+	case peers > 0:
 		return fmt.Errorf("store: policy is attached to %d peer(s)", peers)
+	case templates > 0:
+		return fmt.Errorf("store: policy is attached to %d peer template(s)", templates)
 	}
 	res, err := s.db.Exec(`DELETE FROM policies WHERE id = ?`, id)
 	if err != nil {
@@ -349,12 +359,26 @@ func (s *Store) DeletePolicy(id int64) error {
 
 // PeerPolicies returns the peer's chains, each already in application order.
 func (s *Store) PeerPolicies(peerID int64) (imports, exports []Policy, err error) {
-	rows, err := s.db.Query(`
+	return s.chainFor(s.db, "peer_policies", "peer_id", peerID)
+}
+
+// querier is the slice of *sql.DB and *sql.Tx the chain readers need, so a
+// chain can be read inside the transaction that is about to rewrite it.
+type querier interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+// chainFor reads an ordered chain out of one of the two chain tables —
+// peer_policies keyed by peer_id, template_policies keyed by template_id —
+// and splits it by direction. The table and key are code constants, never
+// user input, which is the only reason they are spliced into the SQL.
+func (s *Store) chainFor(q querier, table, key string, id int64) (imports, exports []Policy, err error) {
+	rows, err := q.Query(`
 		SELECT `+withPrefix(policyCols, "p.")+`
-		FROM peer_policies pp JOIN policies p ON p.id = pp.policy_id
-		WHERE pp.peer_id = ? ORDER BY pp.position, p.name`, peerID)
+		FROM `+table+` c JOIN policies p ON p.id = c.policy_id
+		WHERE c.`+key+` = ? ORDER BY c.position, p.name`, id)
 	if err != nil {
-		return nil, nil, fmt.Errorf("store: peer policies: %w", err)
+		return nil, nil, fmt.Errorf("store: %s: %w", table, err)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -396,19 +420,28 @@ func (s *Store) SetPeerPolicies(peerID int64, importIDs, exportIDs []int64) erro
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM peer_policies WHERE peer_id = ?`, peerID); err != nil {
+	if err := replaceChain(tx, "peer_policies", "peer_id", peerID, importIDs, exportIDs); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// replaceChain rewrites one row's chain in either chain table, inside the
+// caller's transaction. See chainFor for why the table name is spliced in.
+func replaceChain(tx *sql.Tx, table, key string, id int64, importIDs, exportIDs []int64) error {
+	if _, err := tx.Exec(`DELETE FROM `+table+` WHERE `+key+` = ?`, id); err != nil {
 		return err
 	}
 	pos := 0
 	for _, ids := range [][]int64{importIDs, exportIDs} {
-		for _, id := range ids {
-			if _, err := tx.Exec(`INSERT INTO peer_policies (peer_id, policy_id, position) VALUES (?, ?, ?)`, peerID, id, pos); err != nil {
-				return fmt.Errorf("store: attach policy to peer: %w", err)
+		for _, pid := range ids {
+			if _, err := tx.Exec(`INSERT INTO `+table+` (`+key+`, policy_id, position) VALUES (?, ?, ?)`, id, pid, pos); err != nil {
+				return fmt.Errorf("store: attach policy (%s): %w", table, err)
 			}
 			pos++
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // PrefixSetUsage counts every reference to a prefix set, so a delete can

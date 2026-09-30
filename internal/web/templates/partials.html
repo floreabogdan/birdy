@@ -89,7 +89,7 @@
 
 		<div class="nav-label">Manage</div>
 		<a href="/peers" title="Peers" class="{{if eq .Active "peers"}}active{{end}}">{{template "icon-peers"}}<span class="nav-copy">Peers</span></a>
-		{{if eq .Active "peers"}}<div class="sidebar-subnav"><a href="/peers">All peers</a><a href="/peers/new">Add peer</a><a href="/changes">Validate changes</a></div>{{end}}
+		{{if eq .Active "peers"}}<div class="sidebar-subnav"><a href="/peers">All peers</a><a href="/peers/templates">Templates</a><a href="/peers/new">Add peer</a><a href="/changes">Validate changes</a></div>{{end}}
 		<a href="/policies" title="Policies" class="{{if eq .Active "policies"}}active{{end}}">{{template "icon-filter"}}<span class="nav-copy">Policies</span></a>
 		{{if eq .Active "policies"}}<div class="sidebar-subnav"><a href="/policies">All policies</a><a href="/policies/new">Add policy</a></div>{{end}}
 		<a href="/library/prefix-sets" title="Library" class="{{if eq .Active "library"}}active{{end}}">{{template "icon-library"}}<span class="nav-copy">Library</span></a>
@@ -153,6 +153,7 @@
 			<div class="command-group">Navigate</div>
 			<a href="/" data-command>Dashboard <span>G</span></a>
 			<a href="/peers" data-command>Peers and BGP sessions <span>P</span></a>
+			<a href="/peers/templates" data-command>Peer templates</a>
 			<a href="/policies" data-command>Import and export policies <span>O</span></a>
 			<a href="/library/prefix-sets" data-command>Routing library <span>R</span></a>
 			<a href="/lg" data-command>Looking Glass and diagnostics <span>L</span></a>
@@ -162,6 +163,7 @@
 			<a href="/settings" data-command>Settings <span>S</span></a>
 			<div class="command-group">Create</div>
 			<a href="/peers/new" data-command>Add a BGP peer <span>New</span></a>
+			<a href="/peers/templates/new" data-command>Add a peer template <span>New</span></a>
 			<a href="/policies/new" data-command>Add a routing policy <span>New</span></a>
 			<a href="/library/prefix-sets/new" data-command>Add a prefix set <span>New</span></a>
 			<a href="/library/communities/new" data-command>Add a community <span>New</span></a>

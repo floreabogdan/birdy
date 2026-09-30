@@ -119,8 +119,57 @@ CREATE TABLE IF NOT EXISTS peers (
 	-- What an iBGP session with no export policy announces: 'all' (the full-mesh
 	-- default) or 'none' (receive-only). Ignored for eBGP and once a chain is set.
 	ibgp_export_default  TEXT NOT NULL DEFAULT 'all',
+	-- The peer template this session inherits its shape from, or NULL when the
+	-- peer owns its own. A linked peer still carries a full copy of every
+	-- governed column (see peer_templates): the link says who rewrites them.
+	template_id          INTEGER REFERENCES peer_templates(id) ON DELETE RESTRICT,
+	-- Comma-separated keys of governed fields this peer keeps its own value
+	-- for, so one oversized IX peer can carry a higher import limit than the
+	-- rest of its template. Empty means the template decides everything.
+	template_overrides   TEXT NOT NULL DEFAULT '',
 	created_at           TEXT NOT NULL,
 	updated_at           TEXT NOT NULL
+);
+
+-- A peer template is a peer without an identity: the shape a session has —
+-- role, policy chains, limits, transport safeguards, export transforms —
+-- captured once and linked from many peers (a "peer group"). Linked peers
+-- carry a full copy of the governed columns, and saving a template rewrites
+-- every linked peer in the same transaction, so the renderer, the linter and
+-- every "in use" count keep reading plain peer rows and never need to know
+-- templates exist. Columns mirror peers; a knob added there must be added
+-- here too, and TestEveryPeerFieldIsClassified enforces the bookkeeping.
+CREATE TABLE IF NOT EXISTS peer_templates (
+	id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+	name                 TEXT NOT NULL UNIQUE,
+	description          TEXT NOT NULL DEFAULT '',
+	role                 TEXT NOT NULL DEFAULT 'ix_peer',
+	multihop             INTEGER NOT NULL DEFAULT 0,
+	passive              INTEGER NOT NULL DEFAULT 0,
+	import_limit         INTEGER NOT NULL DEFAULT 0,
+	import_limit_action  TEXT NOT NULL DEFAULT 'restart',
+	import_communities   TEXT NOT NULL DEFAULT '',
+	export_communities   TEXT NOT NULL DEFAULT '',
+	prepend_count        INTEGER NOT NULL DEFAULT 0,
+	enforce_first_as     INTEGER NOT NULL DEFAULT 1,
+	origin_peer_only     INTEGER NOT NULL DEFAULT 0,
+	bgp_role             INTEGER NOT NULL DEFAULT 0,
+	gtsm                 INTEGER NOT NULL DEFAULT 0,
+	bfd                  INTEGER NOT NULL DEFAULT 0,
+	graceful_restart     TEXT NOT NULL DEFAULT 'aware',
+	next_hop_self        INTEGER NOT NULL DEFAULT 1,
+	rr_client            INTEGER NOT NULL DEFAULT 0,
+	ibgp_export_default  TEXT NOT NULL DEFAULT 'all',
+	created_at           TEXT NOT NULL,
+	updated_at           TEXT NOT NULL
+);
+
+-- A template's ordered chains, the same shape as peer_policies.
+CREATE TABLE IF NOT EXISTS template_policies (
+	template_id INTEGER NOT NULL REFERENCES peer_templates(id) ON DELETE CASCADE,
+	policy_id   INTEGER NOT NULL REFERENCES policies(id) ON DELETE RESTRICT,
+	position    INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (template_id, policy_id)
 );
 
 -- One policies table with a direction discriminator. Import policies only ever

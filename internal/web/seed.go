@@ -27,6 +27,9 @@ type seedView struct {
 	Rows     []seedRow
 	// Message explains an empty table: BIRD unreachable, or nothing left to seed.
 	Message string
+	// Templates are offered per row, so thirty IX sessions can be imported
+	// already carrying the chains, limit and safeguards their template holds.
+	Templates []store.PeerTemplate
 }
 
 // Importable counts the rows the operator can actually bring in, so the page can
@@ -178,15 +181,21 @@ func (s *Server) discoverSeedRows(ctx context.Context) ([]seedRow, string) {
 
 func (s *Server) handleSeedPage(w http.ResponseWriter, r *http.Request) {
 	rows, msg := s.discoverSeedRows(r.Context())
+	templates, err := s.store.ListPeerTemplates()
+	if err != nil {
+		s.serverError(w, "list peer templates", err)
+		return
+	}
 	render(w, s.log, "seed.html", seedView{
-		Active: "peers", ReadOnly: s.readOnly, Rows: rows, Message: msg,
+		Active: "peers", ReadOnly: s.readOnly, Rows: rows, Message: msg, Templates: templates,
 	})
 }
 
 // handleSeedSave imports the checked sessions. It re-reads each session from BIRD
 // rather than trusting the posted values, so what lands in the model is what the
-// router actually has; only the role is taken from the form. Sessions already
-// modelled (or gone) since the page loaded are skipped, not duplicated.
+// router actually has; only the role — or the template, which then decides the
+// role and everything else a template owns — is taken from the form. Sessions
+// already modelled (or gone) since the page loaded are skipped, not duplicated.
 func (s *Server) handleSeedSave(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
@@ -195,6 +204,15 @@ func (s *Server) handleSeedSave(w http.ResponseWriter, r *http.Request) {
 	include := map[string]bool{}
 	for _, name := range r.Form["include"] {
 		include[name] = true
+	}
+	templates, err := s.store.ListPeerTemplates()
+	if err != nil {
+		s.serverError(w, "list peer templates", err)
+		return
+	}
+	templateByID := make(map[int64]store.PeerTemplate, len(templates))
+	for _, t := range templates {
+		templateByID[t.ID] = t
 	}
 
 	modelled := map[string]bool{}
@@ -222,13 +240,30 @@ func (s *Server) handleSeedSave(w http.ResponseWriter, r *http.Request) {
 			p.NextHopSelf = role == store.RoleIBGP
 			p.EnforceFirstAS = role != store.RoleIBGP
 		}
+		// A template wins over the row's role and brings its chains along — the
+		// one thing a plain seed never had, since BIRD's socket says nothing about
+		// what the session's filters were meant to do.
+		var tmpl store.PeerTemplate
+		if id := formNullInt(r, "template_"+proto.Name); id.Valid {
+			if t, ok := templateByID[id.Int64]; ok {
+				tmpl = t
+				t.ApplyTo(&p)
+			}
+		}
 		if errs := p.Validate(); len(errs) > 0 {
 			skipped = append(skipped, proto.Name)
 			continue
 		}
-		if _, err := s.store.CreatePeer(p); err != nil {
+		id, err := s.store.CreatePeer(p)
+		if err != nil {
 			skipped = append(skipped, proto.Name)
 			continue
+		}
+		if tmpl.ID != 0 {
+			if err := s.store.SetPeerPolicies(id, store.PolicyIDs(tmpl.ImportPolicies), store.PolicyIDs(tmpl.ExportPolicies)); err != nil {
+				s.serverError(w, "attach template chains", err)
+				return
+			}
 		}
 		created = append(created, proto.Name)
 	}

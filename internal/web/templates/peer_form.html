@@ -1,27 +1,40 @@
 <!doctype html>
 <html>
 <head>
-	<title>birdy — {{if .IsNew}}new peer{{else}}{{.Peer.Name}}{{end}}</title>
+	<title>birdy — {{if .IsTemplate}}{{if .IsNew}}new peer template{{else}}template {{.Peer.Name}}{{end}}{{else if .IsNew}}new peer{{else}}{{.Peer.Name}}{{end}}</title>
 	{{template "head" .}}
 </head>
 <body>
+{{/* $inh: this peer is linked to a template, so every governed control renders
+     disabled and pre-filled with the template's value. The server re-applies
+     the template on save regardless, so this is presentation, not enforcement. */}}
+{{$inh := and .Peer.TemplateID.Valid (not .IsTemplate)}}
 <div class="app-shell">
 	{{template "sidebar" .}}
 	<div class="main">
 		{{template "topbar" .}}
 		<div class="page">
 			<div class="page-top">
-				<span class="page-eyebrow">{{if .IsNew}}New peer{{else}}Edit peer{{end}}</span>
-				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/peers">Peers</a><span class="sep">/</span><span class="current mono">{{if .IsNew}}new{{else}}{{.Peer.Name}}{{end}}</span></div>
+				<span class="page-eyebrow">{{if .IsTemplate}}{{if .IsNew}}New peer template{{else}}Edit peer template{{end}}{{else if .IsNew}}New peer{{else}}Edit peer{{end}}</span>
+				<div class="breadcrumb"><a href="/">Dashboard</a><span class="sep">/</span><a href="/peers">Peers</a><span class="sep">/</span>{{if .IsTemplate}}<a href="/peers/templates">Templates</a><span class="sep">/</span>{{end}}<span class="current mono">{{if .IsNew}}new{{else}}{{.Peer.Name}}{{end}}</span></div>
 			</div>
 			<div class="page-header">
 				<div>
-					<h1>{{if .IsNew}}Add peer{{else}}Edit {{.Peer.Name}}{{end}}</h1>
+					<h1>{{if .IsTemplate}}{{if .IsNew}}Add peer template{{else}}Edit template {{.Peer.Name}}{{end}}{{else if .IsNew}}Add peer{{else}}Edit {{.Peer.Name}}{{end}}</h1>
 					<div class="page-sub">
-						{{if .ClonedFrom}}Cloned from <span class="mono">{{.ClonedFrom}}</span> &mdash; fill in the name, neighbor and AS, and set a password.
+						{{if .IsTemplate}}
+							{{if .LinkSource}}Captured from <span class="mono">{{.LinkSource}}</span> &mdash; name the template, and that peer can be linked to it on save.
+							{{else}}A template is a peer without an identity: the shape of a kind of session, kept once. Saving rewrites every peer linked to it. The router is not touched until you apply a config.{{end}}
+						{{else if .ClonedFrom}}Cloned from <span class="mono">{{.ClonedFrom}}</span> &mdash; fill in the name, neighbor and AS, and set a password.
 						{{else}}Saved to birdy's model. The router is not touched until you apply a config.{{end}}
 					</div>
 				</div>
+				{{if and (not .IsTemplate) (not .IsNew)}}
+				<div class="page-header-actions">
+					{{if $inh}}<a class="btn" href="/peers/templates/{{.Peer.TemplateName}}/edit">{{template "icon-edit"}}Edit template {{.Peer.TemplateName}}</a>
+					{{else}}<a class="btn" href="/peers/templates/new?from={{.Peer.Name}}" title="Capture this peer's policy chains, limits and safeguards as a template other peers can link to">{{template "icon-copy"}}Save as template</a>{{end}}
+				</div>
+				{{end}}
 			</div>
 
 			<div data-preview-warnings {{if not .Warnings}}hidden{{end}}>
@@ -37,11 +50,23 @@
 				{{end}}
 			</div>
 
-			<div class="setup-assistant" id="peer-setup-assistant">
+			{{if and .IsTemplate (not .IsNew)}}
+			<div class="card panel-info">
+				<div class="panel-head">{{template "icon-info"}}{{if .Usage}}{{.Usage}} peer{{if ne .Usage 1}}s{{end}} linked{{else}}No peers linked yet{{end}}</div>
+				<div class="card-body">
+					{{if .Usage}}Saving this template rewrites the policy chains, limits and safeguards of
+					<a href="/peers?template={{.Peer.Name}}">{{if eq .Usage 1}}the peer linked to it{{else}}all {{.Usage}} peers linked to it{{end}}</a>.
+					Nothing reaches the router until you review the result under <a href="/changes">Changes</a> and apply.
+					{{else}}Link peers to it from the <strong>Template</strong> field on each peer's form, or <a href="/peers/new?template={{.Peer.Name}}">add a new peer from it</a>.{{end}}
+				</div>
+			</div>
+			{{end}}
+
+			<div class="setup-assistant" id="peer-setup-assistant" {{if $inh}}hidden{{end}}>
 				<div>
 					<span class="setup-kicker">Setup assistant</span>
 					<strong>Start from a safe session profile</strong>
-					<small>Presets fill transport safeguards and route limits. They never choose export policy or save the peer.</small>
+					<small>Presets fill transport safeguards and route limits. They never choose export policy or save {{if .IsTemplate}}the template{{else}}the peer{{end}}.</small>
 				</div>
 				<div class="preset-control">
 					<label class="sr-only" for="peer-preset">Peer profile</label>
@@ -57,6 +82,7 @@
 				</div>
 			</div>
 
+			{{if not .IsTemplate}}
 			<div class="readiness-strip" id="peer-readiness" aria-live="polite">
 				<div><span class="readiness-dot"></span><strong id="peer-readiness-title">Incomplete</strong><small id="peer-readiness-copy">Complete the session identity and routing safeguards.</small></div>
 				<ul>
@@ -66,17 +92,19 @@
 					<li data-ready-check="transport">Transport</li>
 				</ul>
 			</div>
+			{{end}}
 
-			<form method="post" action="{{if .IsNew}}/peers/new{{else}}/peers/{{.Peer.Name}}/edit{{end}}" data-preview-url="/peers/preview" data-editor>
+			<form method="post" action="{{if .IsTemplate}}{{if .IsNew}}/peers/templates/new{{else}}/peers/templates/{{.Template.Name}}/edit{{end}}{{else if .IsNew}}/peers/new{{else}}/peers/{{.Peer.Name}}/edit{{end}}" data-preview-url="{{if .IsTemplate}}/peers/templates/preview{{else}}/peers/preview{{end}}" data-editor data-peer-form{{if .IsTemplate}} data-template-form{{end}}>
+			{{if and .IsTemplate .LinkSource}}<input type="hidden" name="from" value="{{.LinkSource}}">{{end}}
 			<div class="split">
 				<div>
 					<div class="card">
-						<div class="card-header"><span class="card-title">{{template "icon-activity"}}Session</span></div>
+						<div class="card-header"><span class="card-title">{{template "icon-activity"}}{{if .IsTemplate}}Template{{else}}Session{{end}}</span></div>
 						<div class="card-body">
 							<div class="field">
 								<label for="name">Name</label>
 								<input type="text" id="name" name="name" class="mono" value="{{.Peer.Name}}" autocomplete="off" required>
-								<div class="hint">Becomes the BIRD protocol name. Letters, digits, underscore.</div>
+								<div class="hint">{{if .IsTemplate}}Names the kind of session, e.g. <span class="mono">IX_PEERS</span>. Letters, digits, underscore.{{else}}Becomes the BIRD protocol name. Letters, digits, underscore.{{end}}</div>
 								{{with index .Errs "name"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
 							<div class="field">
@@ -84,20 +112,38 @@
 								<input type="text" id="description" name="description" value="{{.Peer.Description}}" autocomplete="off">
 								{{with index .Errs "description"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
+							{{if not .IsTemplate}}
+							<div class="field">
+								<label for="templateId">Template</label>
+								<select id="templateId" name="templateId">
+									<option value="">None — this peer owns its own settings</option>
+									{{range .Templates}}<option value="{{.ID}}" {{if and $.Peer.TemplateID.Valid (eq .ID $.Peer.TemplateID.Int64)}}selected{{end}}>{{.Name}}{{if .Description}} — {{.Description}}{{end}}</option>{{end}}
+								</select>
+								<div class="hint">
+									Link this peer to a <a href="/peers/templates">peer template</a> and its role, policy chains, import limit,
+									transport safeguards and export transforms come from the template &mdash; change the template once and every
+									linked peer follows. The name, neighbor, AS, password and the enabled/drain switches stay this peer's own.
+									{{if not .Templates}}No templates yet &mdash; <a href="/peers/templates/new">create one</a>, or save this peer and use <strong>Save as template</strong>.{{end}}
+								</div>
+								{{with index .Errs "template"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							{{end}}
 							<div class="field-row">
 								<div class="field">
 									<label for="role">Role</label>
-									<select id="role" name="role">
+									<select id="role" name="role" data-governed {{if $inh}}disabled{{end}}>
 										<option value="upstream" {{if eq .Peer.Role "upstream"}}selected{{end}}>Upstream — sells us transit</option>
 										<option value="ix_peer" {{if eq .Peer.Role "ix_peer"}}selected{{end}}>IX peer — settlement-free peering</option>
 										<option value="customer" {{if eq .Peer.Role "customer"}}selected{{end}}>Customer — buys transit from us</option>
 										<option value="ibgp" {{if eq .Peer.Role "ibgp"}}selected{{end}}>iBGP — inside our own AS</option>
 									</select>
-									<div class="hint">Routes from this peer are tagged with its role, so export policies can say "announce what my customers sent me".</div>
+									<div class="hint">{{if .IsTemplate}}Peers of this template are tagged with its role, so export policies can say "announce what my customers sent me". A template is either external or internal: an iBGP template has no use for the eBGP safeguards below.{{else}}Routes from this peer are tagged with its role, so export policies can say "announce what my customers sent me".{{end}}</div>
+									{{if not .IsTemplate}}<div class="hint" data-inherit-only {{if not $inh}}hidden{{end}}>Set by the template.</div>{{end}}
 									{{with index .Errs "role"}}<div class="field-error">{{.}}</div>{{end}}
 									{{/* The policies card is hidden for iBGP, so its error has to live here. */}}
 									{{with index .Errs "policies"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
+								{{if not .IsTemplate}}
 								<div class="field">
 									<label for="remoteAsn">Remote AS</label>
 									<div style="display:flex;gap:8px;align-items:center">
@@ -107,7 +153,9 @@
 									<div class="hint" id="pdb-status" hidden></div>
 									{{with index .Errs "remoteAsn"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
+								{{end}}
 							</div>
+							{{if not .IsTemplate}}
 							<div class="field-row">
 								<div class="field">
 									<label for="neighborIp">Neighbor address</label>
@@ -134,12 +182,14 @@
 									{{with index .Errs "transportEndpoint"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
 							</div>
+							{{end}}
 						</div>
 					</div>
 
 					<div class="card">
 						<div class="card-header"><span class="card-title">{{template "icon-filter"}}Policies</span></div>
 						<div class="card-body">
+							{{template "peer-inherit-note" .}}
 							<div class="hint" data-role-only="ibgp" {{if ne .Peer.Role "ibgp"}}hidden{{end}} style="margin-bottom:10px">
 								<strong>Leave both chains empty</strong> and this internal session carries everything, in both directions &mdash;
 								the conventional full-mesh config. That includes any <span class="mono">0.0.0.0/0</span> the other router learned
@@ -148,25 +198,25 @@
 								Your own large communities are <strong>never stripped</strong> on an internal session &mdash; they are the origin tags
 								the route was stamped with at the edge.
 							</div>
-							<label>Import chain — what we accept from this peer</label>
+							<label>Import chain — what we accept from {{if .IsTemplate}}these peers{{else}}this peer{{end}}</label>
 							<div class="hint" style="margin-bottom:8px">Applied in order. Each policy can only reject, so a route must survive all of them.</div>
-							<div class="chain" data-name="importPolicyIds">
+							<div class="chain" data-name="importPolicyIds" data-governed{{if $inh}} data-locked{{end}}>
 								<div class="chain-rows">
 									{{range .Peer.ImportPolicies}}
 									<div class="chain-row">
 										<span class="chain-pos"></span>
-										<select name="importPolicyIds">
+										<select name="importPolicyIds" {{if $inh}}disabled{{end}}>
 											{{$cur := .ID}}
 											{{range $.Imports}}<option value="{{.ID}}" {{if eq .ID $cur}}selected{{end}}>{{.Name}}</option>{{end}}
 										</select>
-										<button type="button" class="icon-action" data-move="up" title="Move up" aria-label="Move up">&uarr;</button>
-										<button type="button" class="icon-action" data-move="down" title="Move down" aria-label="Move down">&darr;</button>
-										<button type="button" class="icon-action a-danger" data-remove title="Remove" aria-label="Remove">&times;</button>
+										<button type="button" class="icon-action" data-move="up" title="Move up" aria-label="Move up" {{if $inh}}disabled{{end}}>&uarr;</button>
+										<button type="button" class="icon-action" data-move="down" title="Move down" aria-label="Move down" {{if $inh}}disabled{{end}}>&darr;</button>
+										<button type="button" class="icon-action a-danger" data-remove title="Remove" aria-label="Remove" {{if $inh}}disabled{{end}}>&times;</button>
 									</div>
 									{{end}}
 								</div>
 								<div class="chain-empty{{if .Peer.ImportPolicies}} is-hidden{{end}}">No import policy: everything this peer sends would be accepted.</div>
-								<button type="button" class="btn btn-sm" data-add>{{template "icon-plus"}}Add import policy</button>
+								<button type="button" class="btn btn-sm" data-add {{if $inh}}disabled{{end}}>{{template "icon-plus"}}Add import policy</button>
 								<template>
 									<div class="chain-row">
 										<span class="chain-pos"></span>
@@ -180,43 +230,43 @@
 								</template>
 							</div>
 							<div class="field" data-role-only="ebgp" {{if eq .Peer.Role "ibgp"}}hidden{{end}} style="margin-top:16px">
-								<label for="importCommunities">Tag accepted routes from this peer</label>
-								<textarea id="importCommunities" name="importCommunities" rows="3" class="mono" spellcheck="false" placeholder="FROM_LON_RS&#10;65000:120&#10;65000:20:1">{{.Peer.ImportCommunities}}</textarea>
+								<label for="importCommunities">Tag accepted routes from {{if .IsTemplate}}these peers{{else}}this peer{{end}}</label>
+								<textarea id="importCommunities" name="importCommunities" rows="3" class="mono" spellcheck="false" placeholder="FROM_LON_RS&#10;65000:120&#10;65000:20:1" data-governed {{if $inh}}disabled{{end}}>{{.Peer.ImportCommunities}}</textarea>
 								<div class="hint">Added after a route passes the import chain. Use this to identify a specific route server, downstream, or ingress. One per line: a literal <span class="mono">ASN:value</span> / <span class="mono">ASN:x:y</span>, or a <a href="/library/communities">named community</a>. Birdy also adds its broader relationship tag automatically.</div>
 								{{with index .Errs "importCommunities"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
 							</div>
 
 							<hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
 
-							<label>Export chain — what we announce to this peer</label>
+							<label>Export chain — what we announce to {{if .IsTemplate}}these peers{{else}}this peer{{end}}</label>
 							<div class="hint" data-role-only="ebgp"{{if eq .Peer.Role "ibgp"}} hidden{{end}} style="margin-bottom:8px">A route is announced if any policy permits it. With no export policy the session is receive-only (RFC 8212 default-deny).</div>
 							<div class="hint" data-role-only="ibgp"{{if ne .Peer.Role "ibgp"}} hidden{{end}} style="margin-bottom:8px">A route is announced if any policy permits it. With no export policy, this iBGP session uses the fallback you choose below.</div>
 							<div class="field" data-role-only="ibgp"{{if ne .Peer.Role "ibgp"}} hidden{{end}} style="margin-bottom:12px">
 								<label for="ibgpExportDefault">With no export policy attached</label>
-								<select id="ibgpExportDefault" name="ibgpExportDefault">
+								<select id="ibgpExportDefault" name="ibgpExportDefault" data-governed {{if $inh}}disabled{{end}}>
 									<option value="all"{{if ne .Peer.IBGPExportDefault "none"}} selected{{end}}>Announce everything (export all) — the full-mesh default</option>
 									<option value="none"{{if eq .Peer.IBGPExportDefault "none"}} selected{{end}}>Announce nothing (export none) — receive-only</option>
 								</select>
 								<div class="hint">Applies only while this session has no export policy. Attach one above to filter precisely what it announces.</div>
 								{{with index .Errs "ibgpExportDefault"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
-							<div class="chain" data-name="exportPolicyIds">
+							<div class="chain" data-name="exportPolicyIds" data-governed{{if $inh}} data-locked{{end}}>
 								<div class="chain-rows">
 									{{range .Peer.ExportPolicies}}
 									<div class="chain-row">
 										<span class="chain-pos"></span>
-										<select name="exportPolicyIds">
+										<select name="exportPolicyIds" {{if $inh}}disabled{{end}}>
 											{{$cur := .ID}}
 											{{range $.Exports}}<option value="{{.ID}}" {{if eq .ID $cur}}selected{{end}}>{{.Name}}</option>{{end}}
 										</select>
-										<button type="button" class="icon-action" data-move="up" title="Move up" aria-label="Move up">&uarr;</button>
-										<button type="button" class="icon-action" data-move="down" title="Move down" aria-label="Move down">&darr;</button>
-										<button type="button" class="icon-action a-danger" data-remove title="Remove" aria-label="Remove">&times;</button>
+										<button type="button" class="icon-action" data-move="up" title="Move up" aria-label="Move up" {{if $inh}}disabled{{end}}>&uarr;</button>
+										<button type="button" class="icon-action" data-move="down" title="Move down" aria-label="Move down" {{if $inh}}disabled{{end}}>&darr;</button>
+										<button type="button" class="icon-action a-danger" data-remove title="Remove" aria-label="Remove" {{if $inh}}disabled{{end}}>&times;</button>
 									</div>
 									{{end}}
 								</div>
 								<div class="chain-empty{{if .Peer.ExportPolicies}} is-hidden{{end}}"><span data-role-only="ebgp"{{if eq .Peer.Role "ibgp"}} hidden{{end}}>No export policy: this session is receive-only.</span><span data-role-only="ibgp"{{if ne .Peer.Role "ibgp"}} hidden{{end}}>No export policy: this session uses the fallback selected above.</span></div>
-								<button type="button" class="btn btn-sm" data-add>{{template "icon-plus"}}Add export policy</button>
+								<button type="button" class="btn btn-sm" data-add {{if $inh}}disabled{{end}}>{{template "icon-plus"}}Add export policy</button>
 								<template>
 									<div class="chain-row">
 										<span class="chain-pos"></span>
@@ -235,56 +285,73 @@
 					<div class="card" data-role-only="ebgp" {{if eq .Peer.Role "ibgp"}}hidden{{end}}>
 						<div class="card-header"><span class="card-title">{{template "icon-route"}}Traffic engineering</span></div>
 						<div class="card-body">
+							{{template "peer-inherit-note" .}}
 							<div class="field">
 								<label for="prependCount">AS-path prepend</label>
-								<input type="number" id="prependCount" name="prependCount" class="mono" value="{{.Peer.PrependCount}}" min="0" max="10">
+								<input type="number" id="prependCount" name="prependCount" class="mono" value="{{.Peer.PrependCount}}" min="0" max="10" data-governed {{if $inh}}disabled{{end}}>
 								<div class="hint">Prepend our own AS this many times to everything we announce here. A longer path is less preferred, so this steers inbound traffic <strong>away</strong> from this peer. 0 = off.</div>
 								{{with index .Errs "prependCount"}}<div class="field-error">{{.}}</div>{{end}}
 							</div>
 							<div class="field">
 								<label for="exportCommunities">Export communities</label>
-								<textarea id="exportCommunities" name="exportCommunities" rows="3" class="mono" spellcheck="false" placeholder="65000:666&#10;65551:1:2">{{.Peer.ExportCommunities}}</textarea>
+								<textarea id="exportCommunities" name="exportCommunities" rows="3" class="mono" spellcheck="false" placeholder="65000:666&#10;65551:1:2" data-governed {{if $inh}}disabled{{end}}>{{.Peer.ExportCommunities}}</textarea>
 								<div class="hint">Attached to every route we announce here. One per line: a literal <span class="mono">ASN:value</span> / <span class="mono">ASN:x:y</span>, or a <a href="/library/communities">named community</a>.
 									{{if .Communities}}<br>Defined: {{range .Communities}}<span class="chip mono" title="{{.Pattern}}">{{.Name}}</span> {{end}}{{end}}</div>
 								{{with index .Errs "exportCommunities"}}<div class="field-error" style="white-space:pre-line">{{.}}</div>{{end}}
 							</div>
+							{{if not .IsTemplate}}
 							<div class="checks">
 								<label class="check"><input type="checkbox" name="drained" {{if .Peer.Drained}}checked{{end}}> Drain this session (maintenance)</label>
 							</div>
 							<div class="hint">
 								Signals <strong>graceful shutdown</strong> (RFC 8326) to the peer and deprefers its routes, so traffic moves off this
 								session before you take it down. It does <em>not</em> disable the session &mdash; undrain it when maintenance is done.
+								{{if $inh}}Draining is this peer's own switch; the template does not set it.{{end}}
 							</div>
+							{{end}}
 						</div>
 					</div>
 
 					<div class="card">
 						<div class="card-header"><span class="card-title">{{template "icon-shield"}}Transport &amp; limits</span></div>
 						<div class="card-body">
+							{{template "peer-inherit-note" .}}
 							<div class="field-row">
 								<div class="field">
 									<label for="multihop">Multihop TTL</label>
-									<input type="number" id="multihop" name="multihop" class="mono" value="{{.Peer.Multihop}}" min="0" max="255">
+									<input type="number" id="multihop" name="multihop" class="mono" value="{{.Peer.Multihop}}" min="0" max="255" data-governed {{if $inh}}disabled{{end}}>
 									<div class="hint">0 for a directly connected peer.</div>
 									{{with index .Errs "multihop"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
+								{{if not .IsTemplate}}
 								<div class="field">
 									<label for="password">MD5 password</label>
 									<input type="password" id="password" name="password" value="" autocomplete="new-password" placeholder="{{if and (not .IsNew) .Peer.Password}}unchanged{{else}}none{{end}}">
-									<div class="hint">{{if and (not .IsNew) .Peer.Password}}A password is set. Leave blank to keep it.{{else}}Optional. Never shown again once saved.{{end}}</div>
+									<div class="hint">{{if and (not .IsNew) .Peer.Password}}A password is set. Leave blank to keep it.{{else}}Optional. Never shown again once saved.{{end}}{{if $inh}} Always this peer's own.{{end}}</div>
 									{{with index .Errs "password"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
+								{{end}}
 							</div>
+							{{if not .IsTemplate}}
+							{{/* One oversized IX peer can keep its own limit without a template of its own. */}}
+							<div data-inherit-only {{if not $inh}}hidden{{end}}>
+								<div class="checks">
+									<label class="check"><input type="checkbox" name="overrideImportLimit" data-override="importLimit" {{if .Peer.HasOverride "importLimit"}}checked{{end}}> Use this peer's own import limit instead of the template's</label>
+								</div>
+								<div class="hint" style="margin-bottom:12px">For the one peer at an exchange that sends far more routes than the rest. The template's other settings still apply, and its limit returns the moment this is unticked.</div>
+							</div>
+							{{end}}
+							{{$limitLocked := and $inh (not (.Peer.HasOverride "importLimit"))}}
 							<div class="field-row">
 								<div class="field">
 									<label for="importLimit">Import limit</label>
-									<input type="number" id="importLimit" name="importLimit" class="mono" value="{{.Peer.ImportLimit}}" min="0">
+									<input type="number" id="importLimit" name="importLimit" class="mono" value="{{.Peer.ImportLimit}}" min="0" data-governed data-override-key="importLimit" {{if $limitLocked}}disabled{{end}}>
 									<div class="hint">0 for no limit.</div>
 									{{with index .Errs "importLimit"}}<div class="field-error">{{.}}</div>{{end}}
 								</div>
 								<div class="field">
 									<label for="importLimitAction">When exceeded</label>
-									<select id="importLimitAction" name="importLimitAction">
+									<select id="importLimitAction" name="importLimitAction" data-governed data-override-key="importLimit" {{if $limitLocked}}disabled{{end}}>
 										{{$a := .Peer.ImportLimitAction}}
 										<option value="restart" {{if eq $a "restart"}}selected{{end}}>restart the session</option>
 										<option value="block" {{if eq $a "block"}}selected{{end}}>block further routes</option>
@@ -298,7 +365,7 @@
 								<div class="field">
 									<label for="gracefulRestart">Graceful restart</label>
 									{{$gr := .Peer.GracefulRestart}}
-									<select id="gracefulRestart" name="gracefulRestart">
+									<select id="gracefulRestart" name="gracefulRestart" data-governed {{if $inh}}disabled{{end}}>
 										<option value="aware" {{if or (eq $gr "aware") (eq $gr "")}}selected{{end}}>aware &mdash; help a restarting neighbour (BIRD default)</option>
 										<option value="on" {{if eq $gr "on"}}selected{{end}}>on &mdash; negotiate in both directions</option>
 										<option value="off" {{if eq $gr "off"}}selected{{end}}>off &mdash; tear routes down immediately</option>
@@ -308,18 +375,18 @@
 								</div>
 							</div>
 							<div class="checks">
-								<label class="check"><input type="checkbox" name="enabled" {{if .Peer.Enabled}}checked{{end}}> Enabled</label>
-								<label class="check"><input type="checkbox" name="passive" {{if .Peer.Passive}}checked{{end}}> Passive — wait for the peer to connect</label>
-								<label class="check"><input type="checkbox" name="bfd" {{if .Peer.BFD}}checked{{end}}> BFD — detect a link failure in well under a second, instead of waiting out the hold timer</label>
+								{{if not .IsTemplate}}<label class="check"><input type="checkbox" name="enabled" {{if .Peer.Enabled}}checked{{end}}> Enabled</label>{{end}}
+								<label class="check"><input type="checkbox" name="passive" {{if .Peer.Passive}}checked{{end}} data-governed {{if $inh}}disabled{{end}}> Passive — wait for the peer to connect</label>
+								<label class="check"><input type="checkbox" name="bfd" {{if .Peer.BFD}}checked{{end}} data-governed {{if $inh}}disabled{{end}}> BFD — detect a link failure in well under a second, instead of waiting out the hold timer</label>
 								<span data-role-only="ebgp" {{if eq .Peer.Role "ibgp"}}hidden{{end}} class="checks">
-									<label class="check"><input type="checkbox" name="enforceFirstAs" {{if .Peer.EnforceFirstAS}}checked{{end}}> Require the peer to be the first AS in the path</label>
-									<label class="check"><input type="checkbox" name="originPeerOnly" {{if .Peer.OriginPeerOnly}}checked{{end}}> Accept only prefixes this peer originates &mdash; no downstreams</label>
-									<label class="check"><input type="checkbox" name="bgpRole" {{if .Peer.BGPRole}}checked{{end}}> RFC 9234 role &mdash; negotiate a BGP role and drop route leaks with the Only-To-Customer attribute</label>
-									<label class="check"><input type="checkbox" name="gtsm" {{if .Peer.GTSM}}checked{{end}}> GTSM (RFC 5082) &mdash; drop packets arriving with an unexpected TTL, so an off-path attacker cannot spoof the session</label>
+									<label class="check"><input type="checkbox" name="enforceFirstAs" {{if .Peer.EnforceFirstAS}}checked{{end}} data-governed {{if $inh}}disabled{{end}}> Require the peer to be the first AS in the path</label>
+									<label class="check"><input type="checkbox" name="originPeerOnly" {{if .Peer.OriginPeerOnly}}checked{{end}} data-governed {{if $inh}}disabled{{end}}> Accept only prefixes this peer originates &mdash; no downstreams</label>
+									<label class="check"><input type="checkbox" name="bgpRole" {{if .Peer.BGPRole}}checked{{end}} data-governed {{if $inh}}disabled{{end}}> RFC 9234 role &mdash; negotiate a BGP role and drop route leaks with the Only-To-Customer attribute</label>
+									<label class="check"><input type="checkbox" name="gtsm" {{if .Peer.GTSM}}checked{{end}} data-governed {{if $inh}}disabled{{end}}> GTSM (RFC 5082) &mdash; drop packets arriving with an unexpected TTL, so an off-path attacker cannot spoof the session</label>
 								</span>
 								<span data-role-only="ibgp" {{if ne .Peer.Role "ibgp"}}hidden{{end}} class="checks">
-									<label class="check"><input type="checkbox" name="nextHopSelf" {{if .Peer.NextHopSelf}}checked{{end}}> Next-hop-self &mdash; announce these routes with our own address as the next hop</label>
-									<label class="check"><input type="checkbox" name="rrClient" {{if .Peer.RRClient}}checked{{end}}> Route reflector client &mdash; we reflect iBGP routes to this peer</label>
+									<label class="check"><input type="checkbox" name="nextHopSelf" {{if .Peer.NextHopSelf}}checked{{end}} data-governed {{if $inh}}disabled{{end}}> Next-hop-self &mdash; announce these routes with our own address as the next hop</label>
+									<label class="check"><input type="checkbox" name="rrClient" {{if .Peer.RRClient}}checked{{end}} data-governed {{if $inh}}disabled{{end}}> Route reflector client &mdash; we reflect iBGP routes to this peer</label>
 								</span>
 							</div>
 							<div data-role-only="ibgp" {{if ne .Peer.Role "ibgp"}}hidden{{end}}>
@@ -356,10 +423,27 @@
 						</div>
 					</div>
 
+					{{if and .IsTemplate .LinkSource}}
+					<div class="card">
+						<div class="card-body">
+							<div class="checks">
+								<label class="check"><input type="checkbox" name="linkSource" checked> Link <span class="mono">{{.LinkSource}}</span> to this template once it is created</label>
+							</div>
+							<div class="hint">Its settings already match, so nothing changes on the router; from now on it follows the template.</div>
+						</div>
+					</div>
+					{{end}}
+
 					<div class="form-actions">
-						{{if .IsNew}}<button type="submit" class="btn btn-success">{{template "icon-plus"}}Create peer</button>
-						{{else}}<button type="submit" class="btn btn-primary">Save changes</button>{{end}}
-						<a class="btn" href="/peers">Cancel</a>
+						{{if .IsTemplate}}
+							{{if .IsNew}}<button type="submit" class="btn btn-success">{{template "icon-plus"}}Create template</button>
+							{{else}}<button type="submit" class="btn btn-primary">{{if .Usage}}Save and update {{.Usage}} peer{{if ne .Usage 1}}s{{end}}{{else}}Save template{{end}}</button>{{end}}
+							<a class="btn" href="/peers/templates">Cancel</a>
+						{{else}}
+							{{if .IsNew}}<button type="submit" class="btn btn-success">{{template "icon-plus"}}Create peer</button>
+							{{else}}<button type="submit" class="btn btn-primary">Save changes</button>{{end}}
+							<a class="btn" href="/peers">Cancel</a>
+						{{end}}
 					</div>
 				</div>
 
@@ -374,7 +458,8 @@
 						{{end}}
 						</div>
 						<div class="card-body preview-note">
-							The filter calls each policy in turn. Our own large communities are stripped before the role tag is added, so a peer cannot forge one. Passwords are masked here.
+							{{if .IsTemplate}}The <span class="mono">template bgp</span> block is what every linked peer inherits; below it, an example peer (<span class="mono">192.0.2.1</span>, AS64496) shows the filters and protocol block each linked peer renders with its own identity.
+							{{else}}The filter calls each policy in turn. Our own large communities are stripped before the role tag is added, so a peer cannot forge one. Passwords are masked here.{{end}}
 						</div>
 					</div>
 				</div>
@@ -383,9 +468,18 @@
 		</div>
 	</div>
 </div>
-<script src="/static/policy-chain.js"></script>
-<script src="/static/peer-form.js?v=dev-ui12"></script>
+{{if not .IsTemplate}}<script type="application/json" id="peer-templates-data">{{.TemplateData}}</script>{{end}}
+<script src="/static/policy-chain.js?v=dev-ui13"></script>
+<script src="/static/peer-form.js?v=dev-ui14"></script>
 <script src="/static/live-preview.js"></script>
 <script src="/static/peeringdb.js"></script>
 </body>
 </html>
+
+{{/* The note a card shows while its controls come from a template. Hidden when
+     unlinked; the form script shows it and rewrites the name on a link. */}}
+{{define "peer-inherit-note"}}
+<div class="hint inherit-note" data-inherit-note {{if not (and .Peer.TemplateID.Valid (not .IsTemplate))}}hidden{{end}} style="margin-bottom:12px">
+	Inherited from template <a href="/peers/templates/{{.Peer.TemplateName}}/edit" class="mono" data-inherit-link>{{.Peer.TemplateName}}</a> &mdash; edit the template to change these settings for every linked peer, or choose <strong>None</strong> above to make this peer own them.
+</div>
+{{end}}
