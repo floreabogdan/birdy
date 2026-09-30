@@ -243,3 +243,24 @@ func indexOf(list []string, want string) int {
 	}
 	return -1
 }
+
+// BFD timers are template shape: they render once, in the template block, as
+// the same per-session `bfd { ... };` an unlinked peer carries, and a linked
+// peer inherits them through BIRD's `from` instead of repeating them.
+func TestTemplateBlockCarriesBFDTimers(t *testing.T) {
+	tmpl := ixTemplate()
+	tmpl.BFDInterval, tmpl.BFDMultiplier = 300, 10
+	in := baseInput()
+	in.PrefixSets, in.Policies, in.Templates = bogonSets(), []store.Policy{sanityPolicy()}, []store.PeerTemplate{tmpl}
+	rs1 := linkedTo(tmpl, "rs1_v4", "198.51.100.10")
+	rs1.ImportPolicies = []store.Policy{sanityPolicy()}
+	in.Peers = []store.Peer{rs1}
+	out := mustRender(t, in)
+
+	if tb := block(t, out, "template bgp IX_PEERS {"); !strings.Contains(tb, "\tbfd {\n\t\tinterval 300 ms;\n\t\tmultiplier 10;\n\t};") {
+		t.Errorf("the template block should carry the BFD timers:\n%s", tb)
+	}
+	if blk := block(t, out, "protocol bgp rs1_v4 from IX_PEERS {"); strings.Contains(blk, "bfd") {
+		t.Errorf("a linked peer must leave BFD to the template:\n%s", blk)
+	}
+}

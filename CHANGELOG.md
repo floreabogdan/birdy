@@ -33,6 +33,14 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     the template's role, chains, limit and safeguards instead of bare identities.
   - Lint findings that are identical across peers of one template **fold into one
     line** attributed to the template.
+- **Per-session BFD timers.** A peer (or template) with BFD on can set its own
+  **interval** (ms) and **multiplier**, rendered as `bfd { interval …; multiplier …; };`
+  on that session alone. BIRD's default 100 ms × 5 declares a session dead after
+  0.5 s of silence — fine on a direct link, but a session carried over a tunnel
+  across the internet flapped on every passing blip, and the only way to slow it
+  down was a raw-config BFD protocol that the generated one shadowed. Leave both
+  at 0 and the session renders a bare `bfd;` exactly as before. (Schema version
+  39: two defaulted columns each on `peers` and `peer_templates`.)
 
 ### Changed
 - The peer names `new`, `seed`, `preview`, `templates` and `attach` are refused:

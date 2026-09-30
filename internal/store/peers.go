@@ -155,6 +155,15 @@ type Peer struct {
 	// failure is caught in well under a second instead of waiting for the BGP
 	// hold timer. Requires a BFD-capable path to the neighbor.
 	BFD bool
+	// BFDInterval is the BFD transmit and receive interval for this session, in
+	// milliseconds; 0 keeps BIRD's defaults (send every 100 ms, accept down to
+	// 10 ms). BFDMultiplier is how many
+	// intervals may pass unheard before the session is declared down; 0 keeps
+	// BIRD's default (5). Their product is the detection time: the defaults give
+	// 0.5 s, which suits a direct link but tears a session across the internet
+	// down on every passing blip. Both are ignored unless BFD is on.
+	BFDInterval   int
+	BFDMultiplier int
 
 	// GTSM turns on the Generalized TTL Security Mechanism (RFC 5082): BIRD sends
 	// with a maximal TTL and drops received packets whose TTL is lower than
@@ -362,6 +371,18 @@ func (p *Peer) validateShape(errs map[string]string) {
 	if p.Multihop < 0 || p.Multihop > 255 {
 		errs["multihop"] = "Enter a TTL between 1 and 255, or 0 for a directly connected peer."
 	}
+	// The timers only mean something with BFD on. Normalise rather than reject:
+	// the form submits them either way, and a session without BFD should carry
+	// no hidden timers that reappear the day someone ticks the box.
+	if !p.BFD {
+		p.BFDInterval, p.BFDMultiplier = 0, 0
+	}
+	if p.BFDInterval != 0 && (p.BFDInterval < 10 || p.BFDInterval > 10000) {
+		errs["bfdInterval"] = "Enter an interval between 10 and 10000 ms, or 0 for BIRD's defaults."
+	}
+	if p.BFDMultiplier < 0 || p.BFDMultiplier > 255 {
+		errs["bfdMultiplier"] = "Enter a multiplier between 1 and 255, or 0 for BIRD's default (5)."
+	}
 	if p.ImportLimit < 0 {
 		errs["importLimit"] = "Enter a positive limit, or 0 for no limit."
 	}
@@ -379,7 +400,7 @@ func (p *Peer) validateShape(errs map[string]string) {
 const peerCols = `id, name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 	interface, transport_endpoint, multihop, passive, password, import_limit, import_limit_action, enforce_first_as,
 	origin_peer_only, next_hop_self, rr_client,
-	prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart,
+	prepend_count, import_communities, export_communities, drained, bfd, bfd_interval, bfd_multiplier, bgp_role, gtsm, graceful_restart,
 	ibgp_export_default, template_id, template_overrides,
 	COALESCE((SELECT t.name FROM peer_templates t WHERE t.id = peers.template_id), '')`
 
@@ -429,7 +450,7 @@ func scanPeer(sc scanner) (Peer, error) {
 		&p.RemoteASN, &p.LocalIP, &p.Interface, &p.TransportEndpoint, &p.Multihop, &p.Passive, &p.Password,
 		&p.ImportLimit, &p.ImportLimitAction, &p.EnforceFirstAS, &p.OriginPeerOnly,
 		&p.NextHopSelf, &p.RRClient,
-		&p.PrependCount, &p.ImportCommunities, &p.ExportCommunities, &p.Drained, &p.BFD, &p.BGPRole, &p.GTSM, &p.GracefulRestart,
+		&p.PrependCount, &p.ImportCommunities, &p.ExportCommunities, &p.Drained, &p.BFD, &p.BFDInterval, &p.BFDMultiplier, &p.BGPRole, &p.GTSM, &p.GracefulRestart,
 		&p.IBGPExportDefault, &p.TemplateID, &p.TemplateOverrides, &p.TemplateName)
 	return p, err
 }
@@ -440,13 +461,13 @@ func (s *Store) CreatePeer(p Peer) (int64, error) {
 		INSERT INTO peers (name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		                   interface, transport_endpoint, multihop, passive, password, import_limit, import_limit_action,
 		                   enforce_first_as, origin_peer_only, next_hop_self, rr_client,
-		                   prepend_count, import_communities, export_communities, drained, bfd, bgp_role, gtsm, graceful_restart, ibgp_export_default,
+		                   prepend_count, import_communities, export_communities, drained, bfd, bfd_interval, bfd_multiplier, bgp_role, gtsm, graceful_restart, ibgp_export_default,
 		                   template_id, template_overrides, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Interface, p.TransportEndpoint, p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
-		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, p.IBGPExportDefault,
+		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BFDInterval, p.BFDMultiplier, p.BGPRole, p.GTSM, p.GracefulRestart, p.IBGPExportDefault,
 		p.TemplateID, p.TemplateOverrides, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create peer: %w", err)
@@ -460,13 +481,13 @@ func (s *Store) UpdatePeer(p Peer) error {
 		                 remote_asn = ?, local_ip = ?, interface = ?, transport_endpoint = ?, multihop = ?, passive = ?,
 		                 password = ?, import_limit = ?, import_limit_action = ?, enforce_first_as = ?,
 		                 origin_peer_only = ?, next_hop_self = ?, rr_client = ?,
-		                 prepend_count = ?, import_communities = ?, export_communities = ?, drained = ?, bfd = ?, bgp_role = ?,
+		                 prepend_count = ?, import_communities = ?, export_communities = ?, drained = ?, bfd = ?, bfd_interval = ?, bfd_multiplier = ?, bgp_role = ?,
 		                 gtsm = ?, graceful_restart = ?, ibgp_export_default = ?, template_id = ?, template_overrides = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Name, p.Description, p.Role, p.Enabled, p.NeighborIP, p.RemoteASN, p.LocalIP,
 		p.Interface, p.TransportEndpoint, p.Multihop, p.Passive, p.Password, p.ImportLimit, p.ImportLimitAction,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.NextHopSelf, p.RRClient,
-		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BGPRole, p.GTSM, p.GracefulRestart, p.IBGPExportDefault,
+		p.PrependCount, p.ImportCommunities, p.ExportCommunities, p.Drained, p.BFD, p.BFDInterval, p.BFDMultiplier, p.BGPRole, p.GTSM, p.GracefulRestart, p.IBGPExportDefault,
 		p.TemplateID, p.TemplateOverrides, now(), p.ID)
 	if err != nil {
 		return fmt.Errorf("store: update peer: %w", err)
@@ -482,13 +503,13 @@ func updatePeerShape(tx *sql.Tx, p Peer) error {
 	res, err := tx.Exec(`
 		UPDATE peers SET role = ?, multihop = ?, passive = ?, import_limit = ?, import_limit_action = ?,
 		                 import_communities = ?, export_communities = ?, prepend_count = ?,
-		                 enforce_first_as = ?, origin_peer_only = ?, bgp_role = ?, gtsm = ?, bfd = ?, graceful_restart = ?,
+		                 enforce_first_as = ?, origin_peer_only = ?, bgp_role = ?, gtsm = ?, bfd = ?, bfd_interval = ?, bfd_multiplier = ?, graceful_restart = ?,
 		                 next_hop_self = ?, rr_client = ?, ibgp_export_default = ?,
 		                 template_id = ?, template_overrides = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Role, p.Multihop, p.Passive, p.ImportLimit, p.ImportLimitAction,
 		p.ImportCommunities, p.ExportCommunities, p.PrependCount,
-		p.EnforceFirstAS, p.OriginPeerOnly, p.BGPRole, p.GTSM, p.BFD, p.GracefulRestart,
+		p.EnforceFirstAS, p.OriginPeerOnly, p.BGPRole, p.GTSM, p.BFD, p.BFDInterval, p.BFDMultiplier, p.GracefulRestart,
 		p.NextHopSelf, p.RRClient, p.IBGPExportDefault,
 		p.TemplateID, p.TemplateOverrides, now(), p.ID)
 	if err != nil {

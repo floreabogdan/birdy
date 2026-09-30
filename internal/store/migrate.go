@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 38
+const schemaVersion = 39
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -478,6 +478,19 @@ func migrate(db *sql.DB) error {
 		}
 		if err := ensureColumn(tx, "peers", "template_overrides", `ALTER TABLE peers ADD COLUMN template_overrides TEXT NOT NULL DEFAULT ''`); err != nil {
 			return err
+		}
+	}
+	if version < 39 {
+		// Per-session BFD timers, on peers and on the templates that govern them.
+		// 0 is "BIRD's default", so every existing session keeps rendering a bare
+		// `bfd;` until someone sets a timer.
+		for _, table := range []string{"peers", "peer_templates"} {
+			for _, column := range []string{"bfd_interval", "bfd_multiplier"} {
+				ddl := fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s INTEGER NOT NULL DEFAULT 0`, table, column)
+				if err := ensureColumn(tx, table, column, ddl); err != nil {
+					return err
+				}
+			}
 		}
 	}
 

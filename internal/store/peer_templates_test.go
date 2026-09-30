@@ -23,8 +23,8 @@ func TestEveryPeerFieldIsClassified(t *testing.T) {
 	shape := []string{
 		"Role", "Multihop", "Passive", "ImportLimit", "ImportLimitAction",
 		"ImportCommunities", "ExportCommunities", "PrependCount",
-		"EnforceFirstAS", "OriginPeerOnly", "BGPRole", "GTSM", "BFD", "GracefulRestart",
-		"NextHopSelf", "RRClient", "IBGPExportDefault", "ImportPolicies", "ExportPolicies",
+		"EnforceFirstAS", "OriginPeerOnly", "BGPRole", "GTSM", "BFD", "BFDInterval", "BFDMultiplier",
+		"GracefulRestart", "NextHopSelf", "RRClient", "IBGPExportDefault", "ImportPolicies", "ExportPolicies",
 	}
 	peerT := reflect.TypeOf(Peer{})
 	tmplT := reflect.TypeOf(PeerTemplate{})
@@ -58,6 +58,7 @@ func TestEveryPeerFieldIsClassified(t *testing.T) {
 		Role: RoleUpstream, Multihop: 2, Passive: true, ImportLimit: 10, ImportLimitAction: "warn",
 		ImportCommunities: "65000:1", ExportCommunities: "65000:2", PrependCount: 1,
 		EnforceFirstAS: true, OriginPeerOnly: true, BGPRole: true, GTSM: true, BFD: true, GracefulRestart: GROn,
+		BFDInterval: 1000, BFDMultiplier: 3,
 		NextHopSelf: true, RRClient: true, IBGPExportDefault: IBGPExportNone,
 		ImportPolicies: []Policy{{ID: 1}}, ExportPolicies: []Policy{{ID: 2}},
 	}
@@ -66,6 +67,7 @@ func TestEveryPeerFieldIsClassified(t *testing.T) {
 		Role: RoleIXPeer, Multihop: 0, Passive: false, ImportLimit: 50000, ImportLimitAction: "restart",
 		ImportCommunities: "65000:3", ExportCommunities: "65000:4", PrependCount: 0,
 		EnforceFirstAS: false, OriginPeerOnly: false, BGPRole: false, GTSM: false, BFD: false, GracefulRestart: GRAware,
+		BFDInterval: 300, BFDMultiplier: 10,
 		NextHopSelf: false, RRClient: false, IBGPExportDefault: IBGPExportAll,
 		ImportPolicies: []Policy{{ID: 5}}, ExportPolicies: []Policy{{ID: 6}},
 	}
@@ -474,5 +476,126 @@ func TestMigratePeerTemplatesFromV37(t *testing.T) {
 	}
 	if version != schemaVersion {
 		t.Errorf("user_version = %d, want %d", version, schemaVersion)
+	}
+}
+
+// BFD timers are part of the session shape: a template stores them, a link
+// copies them, and a template save rewrites them on every linked peer.
+func TestTemplateCarriesBFDTimersToLinkedPeers(t *testing.T) {
+	s := openTest(t)
+	tmpl, sanity, _, _ := seedTemplateFixture(t, s)
+	tmpl.BFD, tmpl.BFDInterval, tmpl.BFDMultiplier = true, 300, 10
+	if _, err := s.UpdatePeerTemplate(tmpl, []int64{sanity.ID}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetPeerTemplate(tmpl.ID); got.BFDInterval != 300 || got.BFDMultiplier != 10 {
+		t.Fatalf("template did not store its BFD timers: %+v", got)
+	}
+
+	id, err := s.CreatePeer(validPeer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkPeerToTemplate(id, tmpl.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetPeer(id); !got.BFD || got.BFDInterval != 300 || got.BFDMultiplier != 10 {
+		t.Errorf("link should copy the BFD timers: %+v", got)
+	}
+
+	tmpl.BFDInterval, tmpl.BFDMultiplier = 1000, 3
+	if n, err := s.UpdatePeerTemplate(tmpl, []int64{sanity.ID}, nil); err != nil || n != 1 {
+		t.Fatalf("template save: n=%d err=%v", n, err)
+	}
+	if got, _ := s.GetPeer(id); got.BFDInterval != 1000 || got.BFDMultiplier != 3 {
+		t.Errorf("template save should rewrite the linked peer's BFD timers: %+v", got)
+	}
+}
+
+// A v38 database — templates without timer columns, a BFD peer and a BFD
+// template in use — must gain the columns at 0, so every existing session
+// keeps rendering a bare `bfd;`, and then be able to store timers.
+func TestMigrateBFDTimersFromV38(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v38.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE peer_templates (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, description TEXT NOT NULL DEFAULT '',
+			role TEXT NOT NULL DEFAULT 'ix_peer', multihop INTEGER NOT NULL DEFAULT 0, passive INTEGER NOT NULL DEFAULT 0,
+			import_limit INTEGER NOT NULL DEFAULT 0, import_limit_action TEXT NOT NULL DEFAULT 'restart',
+			import_communities TEXT NOT NULL DEFAULT '', export_communities TEXT NOT NULL DEFAULT '',
+			prepend_count INTEGER NOT NULL DEFAULT 0, enforce_first_as INTEGER NOT NULL DEFAULT 1,
+			origin_peer_only INTEGER NOT NULL DEFAULT 0, bgp_role INTEGER NOT NULL DEFAULT 0, gtsm INTEGER NOT NULL DEFAULT 0,
+			bfd INTEGER NOT NULL DEFAULT 0, graceful_restart TEXT NOT NULL DEFAULT 'aware', next_hop_self INTEGER NOT NULL DEFAULT 1,
+			rr_client INTEGER NOT NULL DEFAULT 0, ibgp_export_default TEXT NOT NULL DEFAULT 'all',
+			created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`INSERT INTO peer_templates (name, role, bfd, created_at, updated_at)
+			VALUES ('TUNNELS', 'ibgp', 1, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`,
+		`CREATE TABLE peers (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, description TEXT NOT NULL DEFAULT '',
+			role TEXT NOT NULL DEFAULT 'upstream', enabled INTEGER NOT NULL DEFAULT 1, neighbor_ip TEXT NOT NULL,
+			remote_asn INTEGER NOT NULL, local_ip TEXT NOT NULL DEFAULT '', interface TEXT NOT NULL DEFAULT '',
+			transport_endpoint TEXT NOT NULL DEFAULT '', multihop INTEGER NOT NULL DEFAULT 0, passive INTEGER NOT NULL DEFAULT 0,
+			password TEXT NOT NULL DEFAULT '', import_limit INTEGER NOT NULL DEFAULT 0, import_limit_action TEXT NOT NULL DEFAULT 'restart',
+			import_communities TEXT NOT NULL DEFAULT '', enforce_first_as INTEGER NOT NULL DEFAULT 1,
+			ibgp_export_default TEXT NOT NULL DEFAULT 'all', origin_peer_only INTEGER NOT NULL DEFAULT 0,
+			next_hop_self INTEGER NOT NULL DEFAULT 1, rr_client INTEGER NOT NULL DEFAULT 0, prepend_count INTEGER NOT NULL DEFAULT 0,
+			export_communities TEXT NOT NULL DEFAULT '', drained INTEGER NOT NULL DEFAULT 0, bfd INTEGER NOT NULL DEFAULT 0,
+			bgp_role INTEGER NOT NULL DEFAULT 0, gtsm INTEGER NOT NULL DEFAULT 0, graceful_restart TEXT NOT NULL DEFAULT 'aware',
+			template_id INTEGER REFERENCES peer_templates(id) ON DELETE RESTRICT, template_overrides TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`INSERT INTO peers (name, role, neighbor_ip, remote_asn, bfd, template_id, created_at, updated_at)
+			VALUES ('nav_v4', 'ibgp', '192.168.10.2', 210622, 1, 1, '2026-09-01T00:00:00Z', '2026-09-01T00:00:00Z')`,
+		// policies as of v38, the same as the v37 fixture: schema.go carries only
+		// the base columns, and the migrations that add the rest do not run here.
+		`CREATE TABLE policies (
+			id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, description TEXT NOT NULL DEFAULT '',
+			direction TEXT NOT NULL, builtin INTEGER NOT NULL DEFAULT 0, default_route TEXT NOT NULL DEFAULT 'reject',
+			min_len_v4 INTEGER NOT NULL DEFAULT 0, max_len_v4 INTEGER NOT NULL DEFAULT 0, min_len_v6 INTEGER NOT NULL DEFAULT 0,
+			max_len_v6 INTEGER NOT NULL DEFAULT 0, reject_own_asn INTEGER NOT NULL DEFAULT 1, max_as_path_len INTEGER NOT NULL DEFAULT 0,
+			bogon_asns TEXT NOT NULL DEFAULT 'all', accept_only_set_id INTEGER, set_local_pref INTEGER NOT NULL DEFAULT 0,
+			announce_everything INTEGER NOT NULL DEFAULT 0, announce_default INTEGER NOT NULL DEFAULT 0,
+			announce_from_upstream INTEGER NOT NULL DEFAULT 0, announce_from_ix INTEGER NOT NULL DEFAULT 0,
+			announce_from_customer INTEGER NOT NULL DEFAULT 0, reject_bogon_prefixes INTEGER NOT NULL DEFAULT 1,
+			origin_as_set_id INTEGER, rov TEXT NOT NULL DEFAULT 'off', match_community TEXT NOT NULL DEFAULT '',
+			accept_blackhole INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`PRAGMA user_version = 38`,
+	} {
+		if _, err := raw.Exec(stmt); err != nil {
+			t.Fatalf("setup %q: %v", stmt, err)
+		}
+	}
+	raw.Close()
+
+	st, err := Open(path)
+	if err != nil {
+		t.Fatalf("open/migrate: %v", err)
+	}
+	defer st.Close()
+
+	p, err := st.GetPeerByName("nav_v4")
+	if err != nil {
+		t.Fatalf("read peer after migrate (columns missing?): %v", err)
+	}
+	if !p.BFD || p.BFDInterval != 0 || p.BFDMultiplier != 0 || !p.TemplateID.Valid {
+		t.Errorf("an existing BFD peer should keep BFD, gain zero timers and stay linked: %+v", p)
+	}
+	tmpl, err := st.GetPeerTemplateByName("TUNNELS")
+	if err != nil {
+		t.Fatalf("read template after migrate (columns missing?): %v", err)
+	}
+	if !tmpl.BFD || tmpl.BFDInterval != 0 || tmpl.BFDMultiplier != 0 {
+		t.Errorf("an existing BFD template should gain zero timers: %+v", tmpl)
+	}
+
+	tmpl.BFDInterval, tmpl.BFDMultiplier = 300, 10
+	if n, err := st.UpdatePeerTemplate(tmpl, nil, nil); err != nil || n != 1 {
+		t.Fatalf("template save on a migrated database: n=%d err=%v", n, err)
+	}
+	if p, _ = st.GetPeerByName("nav_v4"); p.BFDInterval != 300 || p.BFDMultiplier != 10 {
+		t.Errorf("the template save should reach the linked peer: %+v", p)
 	}
 }

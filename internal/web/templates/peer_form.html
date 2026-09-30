@@ -389,6 +389,20 @@
 									<label class="check"><input type="checkbox" name="rrClient" {{if .Peer.RRClient}}checked{{end}} data-governed {{if $inh}}disabled{{end}}> Route reflector client &mdash; we reflect iBGP routes to this peer</label>
 								</span>
 							</div>
+							<div class="field-row">
+								<div class="field">
+									<label for="bfdInterval">BFD interval (ms)</label>
+									<input type="number" id="bfdInterval" name="bfdInterval" class="mono" value="{{.Peer.BFDInterval}}" min="0" max="10000" data-governed {{if $inh}}disabled{{end}}>
+									<div class="hint">How often BFD packets are sent and expected. 0 keeps BIRD's defaults: send every 100 ms, accept down to 10 ms.</div>
+									{{with index .Errs "bfdInterval"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+								<div class="field">
+									<label for="bfdMultiplier">BFD multiplier</label>
+									<input type="number" id="bfdMultiplier" name="bfdMultiplier" class="mono" value="{{.Peer.BFDMultiplier}}" min="0" max="255" data-governed {{if $inh}}disabled{{end}}>
+									<div class="hint">Intervals missed before the session is declared down. 0 keeps BIRD's default, 5. Across the internet, 300 ms &times; 10 rides out the blips that 100 ms &times; 5 does not.</div>
+									{{with index .Errs "bfdMultiplier"}}<div class="field-error">{{.}}</div>{{end}}
+								</div>
+							</div>
 							<div data-role-only="ibgp" {{if ne .Peer.Role "ibgp"}}hidden{{end}}>
 								<div class="hint">
 									A route learned from an eBGP peer carries <em>that peer's</em> address as its next hop. Readvertise it over iBGP unchanged and the

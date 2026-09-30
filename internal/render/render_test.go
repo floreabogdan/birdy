@@ -942,6 +942,47 @@ func TestBFDRenders(t *testing.T) {
 	}
 }
 
+// A session over a lossy path (a tunnel across the internet) needs slower BFD
+// than BIRD's 100 ms x 5 default, or every half-second blip tears it down. The
+// timers go on the session itself, so a direct peer beside it keeps the fast
+// default.
+func TestBFDTimersRender(t *testing.T) {
+	in := baseInput()
+	p := ebgpPeer()
+	p.BFD = true
+	p.BFDInterval = 300
+	p.BFDMultiplier = 10
+	in.Peers = []store.Peer{p}
+	session := func() string {
+		out, err := Config(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seg := out[strings.Index(out, "protocol bgp "+p.Name):]
+		return seg[:strings.Index(seg, "\n}")]
+	}
+
+	seg := session()
+	if !strings.Contains(seg, "\tbfd {\n\t\tinterval 300 ms;\n\t\tmultiplier 10;\n\t};\n") {
+		t.Errorf("the session should carry its BFD timers:\n%s", seg)
+	}
+	if strings.Contains(seg, "\tbfd;\n") {
+		t.Errorf("a session with timers should not also render a bare bfd:\n%s", seg)
+	}
+
+	// Either timer alone renders just that one; BIRD keeps its default for the other.
+	in.Peers[0].BFDInterval = 0
+	if seg := session(); !strings.Contains(seg, "\tbfd {\n\t\tmultiplier 10;\n\t};\n") {
+		t.Errorf("only the multiplier should render:\n%s", seg)
+	}
+
+	// No timers: the bare form, byte-identical to what birdy always rendered.
+	in.Peers[0].BFDMultiplier = 0
+	if seg := session(); !strings.Contains(seg, "\tbfd;\n") {
+		t.Errorf("a session without timers should render bare bfd:\n%s", seg)
+	}
+}
+
 func TestAcceptBlackholeRenders(t *testing.T) {
 	in := baseInput()
 	pol := store.Policy{ID: 1, Name: "CUST_IN", Direction: store.DirImport,

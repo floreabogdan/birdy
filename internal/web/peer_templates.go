@@ -44,6 +44,8 @@ type templateFormData struct {
 	BGPRole           bool    `json:"bgpRole"`
 	GTSM              bool    `json:"gtsm"`
 	BFD               bool    `json:"bfd"`
+	BFDInterval       int     `json:"bfdInterval"`
+	BFDMultiplier     int     `json:"bfdMultiplier"`
 	GracefulRestart   string  `json:"gracefulRestart"`
 	NextHopSelf       bool    `json:"nextHopSelf"`
 	RRClient          bool    `json:"rrClient"`
@@ -58,7 +60,8 @@ func formDataFor(t store.PeerTemplate) templateFormData {
 		ImportLimit: t.ImportLimit, ImportLimitAction: t.ImportLimitAction,
 		ImportCommunities: t.ImportCommunities, ExportCommunities: t.ExportCommunities,
 		PrependCount: t.PrependCount, EnforceFirstAS: t.EnforceFirstAS, OriginPeerOnly: t.OriginPeerOnly,
-		BGPRole: t.BGPRole, GTSM: t.GTSM, BFD: t.BFD, GracefulRestart: t.GracefulRestart,
+		BGPRole: t.BGPRole, GTSM: t.GTSM, GracefulRestart: t.GracefulRestart,
+		BFD: t.BFD, BFDInterval: t.BFDInterval, BFDMultiplier: t.BFDMultiplier,
 		NextHopSelf: t.NextHopSelf, RRClient: t.RRClient, IBGPExportDefault: t.IBGPExportDefault,
 		ImportPolicyIDs: store.PolicyIDs(t.ImportPolicies), ExportPolicyIDs: store.PolicyIDs(t.ExportPolicies),
 	}

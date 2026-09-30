@@ -390,3 +390,70 @@ func TestPrefixEntriesCascadeOnDelete(t *testing.T) {
 		t.Errorf("%d orphaned entries left behind", n)
 	}
 }
+
+func TestPeerBFDTimersPersist(t *testing.T) {
+	s := openTest(t)
+	p := validPeer()
+	p.BFD, p.BFDInterval, p.BFDMultiplier = true, 300, 10
+	id, err := s.CreatePeer(p)
+	if err != nil {
+		t.Fatalf("CreatePeer: %v", err)
+	}
+	got, err := s.GetPeer(id)
+	if err != nil {
+		t.Fatalf("GetPeer: %v", err)
+	}
+	if !got.BFD || got.BFDInterval != 300 || got.BFDMultiplier != 10 {
+		t.Errorf("BFD timers did not round-trip: %+v", got)
+	}
+
+	got.BFDInterval, got.BFDMultiplier = 1000, 3
+	if err := s.UpdatePeer(got); err != nil {
+		t.Fatalf("UpdatePeer: %v", err)
+	}
+	peers, err := s.ListPeers()
+	if err != nil || len(peers) != 1 {
+		t.Fatalf("ListPeers: %v, %d peers", err, len(peers))
+	}
+	if peers[0].BFDInterval != 1000 || peers[0].BFDMultiplier != 3 {
+		t.Errorf("BFD timer update did not stick: %+v", peers[0])
+	}
+}
+
+func TestPeerValidatesBFDTimers(t *testing.T) {
+	for _, tc := range []struct {
+		interval, multiplier int
+		wantErr              string
+	}{
+		{0, 0, ""},
+		{10, 1, ""},
+		{300, 10, ""},
+		{10000, 255, ""},
+		{9, 0, "bfdInterval"},
+		{10001, 0, "bfdInterval"},
+		{-1, 0, "bfdInterval"},
+		{0, 256, "bfdMultiplier"},
+		{0, -1, "bfdMultiplier"},
+	} {
+		p := validPeer()
+		p.BFD, p.BFDInterval, p.BFDMultiplier = true, tc.interval, tc.multiplier
+		errs := p.Validate()
+		if tc.wantErr == "" && len(errs) != 0 {
+			t.Errorf("interval %d, multiplier %d: unexpected errors %v", tc.interval, tc.multiplier, errs)
+		}
+		if _, ok := errs[tc.wantErr]; tc.wantErr != "" && !ok {
+			t.Errorf("interval %d, multiplier %d: want an error on %s, got %v", tc.interval, tc.multiplier, tc.wantErr, errs)
+		}
+	}
+
+	// Timers mean nothing without BFD. Normalise rather than reject — the form
+	// submits them regardless — so a disabled session carries no hidden state.
+	p := validPeer()
+	p.BFD, p.BFDInterval, p.BFDMultiplier = false, 300, 10
+	if errs := p.Validate(); len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if p.BFDInterval != 0 || p.BFDMultiplier != 0 {
+		t.Errorf("timers should be cleared when BFD is off: %+v", p)
+	}
+}

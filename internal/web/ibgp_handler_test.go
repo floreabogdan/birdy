@@ -2,6 +2,7 @@ package web
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strings"
@@ -316,5 +317,54 @@ func TestBFDAndBlackholePersist(t *testing.T) {
 	}
 	if p, _ := env.store.GetPolicyByName("CUST_IN"); !p.AcceptBlackhole {
 		t.Error("accept-blackhole should persist on the policy")
+	}
+}
+
+func TestBFDTimersPersistAndShowOnTheForm(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+
+	form := peerForm()
+	form.Set("bfd", "on")
+	form.Set("bfdInterval", "300")
+	form.Set("bfdMultiplier", "10")
+	if rec := env.do(t, "POST", "/peers/new", form); rec.Code != http.StatusSeeOther {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	p, _ := env.store.GetPeerByName("transit_v4")
+	if !p.BFD || p.BFDInterval != 300 || p.BFDMultiplier != 10 {
+		t.Fatalf("BFD timers should persist on the peer: %+v", p)
+	}
+
+	body := env.do(t, "GET", "/peers/transit_v4/edit", nil).Body.String()
+	for _, want := range []string{`name="bfdInterval" class="mono" value="300"`, `name="bfdMultiplier" class="mono" value="10"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("edit form should show %s", want)
+		}
+	}
+
+	// Out of range: the form comes back with the error, nothing is stored.
+	form.Set("name", "transit2_v4")
+	form.Set("bfdInterval", "5")
+	rec := env.do(t, "POST", "/peers/new", form)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "between 10 and 10000 ms") {
+		t.Errorf("an out-of-range interval should re-render the form with its error: %d", rec.Code)
+	}
+	if _, err := env.store.GetPeerByName("transit2_v4"); err == nil {
+		t.Error("an invalid peer must not be stored")
+	}
+}
+
+// The peer form's script fills governed controls from this JSON by key, so the
+// timers must travel under their form field names.
+func TestTemplateFormDataCarriesBFDTimers(t *testing.T) {
+	b, err := json.Marshal(formDataFor(store.PeerTemplate{BFD: true, BFDInterval: 300, BFDMultiplier: 10}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"bfdInterval":300`, `"bfdMultiplier":10`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("template form data should carry %s: %s", want, b)
+		}
 	}
 }

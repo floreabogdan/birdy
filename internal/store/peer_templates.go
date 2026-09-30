@@ -38,6 +38,8 @@ type PeerTemplate struct {
 	BGPRole           bool
 	GTSM              bool
 	BFD               bool
+	BFDInterval       int
+	BFDMultiplier     int
 	GracefulRestart   string
 	NextHopSelf       bool
 	RRClient          bool
@@ -73,6 +75,8 @@ func (t PeerTemplate) ApplyTo(p *Peer) {
 	p.BGPRole = t.BGPRole
 	p.GTSM = t.GTSM
 	p.BFD = t.BFD
+	p.BFDInterval = t.BFDInterval
+	p.BFDMultiplier = t.BFDMultiplier
 	p.GracefulRestart = t.GracefulRestart
 	p.NextHopSelf = t.NextHopSelf
 	p.RRClient = t.RRClient
@@ -101,6 +105,8 @@ func TemplateFromPeer(p Peer) PeerTemplate {
 		BGPRole:           p.BGPRole,
 		GTSM:              p.GTSM,
 		BFD:               p.BFD,
+		BFDInterval:       p.BFDInterval,
+		BFDMultiplier:     p.BFDMultiplier,
 		GracefulRestart:   p.GracefulRestart,
 		NextHopSelf:       p.NextHopSelf,
 		RRClient:          p.RRClient,
@@ -129,13 +135,13 @@ func (t *PeerTemplate) Validate() map[string]string {
 
 const templateCols = `id, name, description, role, multihop, passive, import_limit, import_limit_action,
 	import_communities, export_communities, prepend_count, enforce_first_as, origin_peer_only,
-	bgp_role, gtsm, bfd, graceful_restart, next_hop_self, rr_client, ibgp_export_default`
+	bgp_role, gtsm, bfd, bfd_interval, bfd_multiplier, graceful_restart, next_hop_self, rr_client, ibgp_export_default`
 
 func scanTemplate(sc scanner) (PeerTemplate, error) {
 	var t PeerTemplate
 	err := sc.Scan(&t.ID, &t.Name, &t.Description, &t.Role, &t.Multihop, &t.Passive, &t.ImportLimit, &t.ImportLimitAction,
 		&t.ImportCommunities, &t.ExportCommunities, &t.PrependCount, &t.EnforceFirstAS, &t.OriginPeerOnly,
-		&t.BGPRole, &t.GTSM, &t.BFD, &t.GracefulRestart, &t.NextHopSelf, &t.RRClient, &t.IBGPExportDefault)
+		&t.BGPRole, &t.GTSM, &t.BFD, &t.BFDInterval, &t.BFDMultiplier, &t.GracefulRestart, &t.NextHopSelf, &t.RRClient, &t.IBGPExportDefault)
 	return t, err
 }
 
@@ -199,11 +205,11 @@ func (s *Store) CreatePeerTemplate(t PeerTemplate, importIDs, exportIDs []int64)
 	res, err := tx.Exec(`
 		INSERT INTO peer_templates (name, description, role, multihop, passive, import_limit, import_limit_action,
 			import_communities, export_communities, prepend_count, enforce_first_as, origin_peer_only,
-			bgp_role, gtsm, bfd, graceful_restart, next_hop_self, rr_client, ibgp_export_default, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			bgp_role, gtsm, bfd, bfd_interval, bfd_multiplier, graceful_restart, next_hop_self, rr_client, ibgp_export_default, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		t.Name, t.Description, t.Role, t.Multihop, t.Passive, t.ImportLimit, t.ImportLimitAction,
 		t.ImportCommunities, t.ExportCommunities, t.PrependCount, t.EnforceFirstAS, t.OriginPeerOnly,
-		t.BGPRole, t.GTSM, t.BFD, t.GracefulRestart, t.NextHopSelf, t.RRClient, t.IBGPExportDefault, ts, ts)
+		t.BGPRole, t.GTSM, t.BFD, t.BFDInterval, t.BFDMultiplier, t.GracefulRestart, t.NextHopSelf, t.RRClient, t.IBGPExportDefault, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create peer template: %w", err)
 	}
@@ -236,12 +242,12 @@ func (s *Store) UpdatePeerTemplate(t PeerTemplate, importIDs, exportIDs []int64)
 		UPDATE peer_templates SET name = ?, description = ?, role = ?, multihop = ?, passive = ?,
 			import_limit = ?, import_limit_action = ?, import_communities = ?, export_communities = ?,
 			prepend_count = ?, enforce_first_as = ?, origin_peer_only = ?, bgp_role = ?, gtsm = ?, bfd = ?,
-			graceful_restart = ?, next_hop_self = ?, rr_client = ?, ibgp_export_default = ?, updated_at = ?
+			bfd_interval = ?, bfd_multiplier = ?, graceful_restart = ?, next_hop_self = ?, rr_client = ?, ibgp_export_default = ?, updated_at = ?
 		WHERE id = ?`,
 		t.Name, t.Description, t.Role, t.Multihop, t.Passive,
 		t.ImportLimit, t.ImportLimitAction, t.ImportCommunities, t.ExportCommunities,
 		t.PrependCount, t.EnforceFirstAS, t.OriginPeerOnly, t.BGPRole, t.GTSM, t.BFD,
-		t.GracefulRestart, t.NextHopSelf, t.RRClient, t.IBGPExportDefault, now(), t.ID)
+		t.BFDInterval, t.BFDMultiplier, t.GracefulRestart, t.NextHopSelf, t.RRClient, t.IBGPExportDefault, now(), t.ID)
 	if err != nil {
 		return 0, fmt.Errorf("store: update peer template: %w", err)
 	}
