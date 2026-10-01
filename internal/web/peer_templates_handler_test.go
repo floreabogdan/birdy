@@ -479,3 +479,28 @@ func TestTemplateAndPeerNamesCannotShareABIRDSymbol(t *testing.T) {
 		t.Error("the clashing peer must not be stored")
 	}
 }
+
+// A template's community references are copied onto every peer linked later,
+// so a community only a template names is still in use: deleting it would
+// make the next attach render an undefined symbol.
+func TestCommunityUsedOnlyByATemplateCannotBeDeleted(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+	if rec := env.do(t, "POST", "/library/communities/new", url.Values{"name": {"NO_EXPORT_X"}, "value": {"65000:7"}}); rec.Code != http.StatusSeeOther {
+		t.Fatalf("community create: %d %s", rec.Code, rec.Body)
+	}
+	form := templateForm(env, t)
+	form.Set("exportCommunities", "NO_EXPORT_X")
+	if rec := env.do(t, "POST", "/peers/templates/new", form); rec.Code != http.StatusSeeOther {
+		t.Fatalf("template create: %d %s", rec.Code, rec.Body)
+	}
+
+	env.do(t, "POST", "/library/communities/NO_EXPORT_X/delete", nil)
+	if _, err := env.store.GetCommunityDefByName("NO_EXPORT_X"); err != nil {
+		t.Errorf("a community a template references must not be deleted: %v", err)
+	}
+	users, err := env.srv.communityInUse("NO_EXPORT_X")
+	if err != nil || len(users) != 1 || users[0] != "peer template IX_PEERS" {
+		t.Errorf("the template should be named as the user: %v %v", users, err)
+	}
+}

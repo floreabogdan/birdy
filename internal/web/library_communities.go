@@ -173,7 +173,9 @@ func (s *Server) checkCommunityRefs(text string) string {
 	return "Unknown community: " + strings.Join(missing, ", ") + ". Define it under Library → Communities."
 }
 
-// communityInUse lists the peers and policies that reference a community by name.
+// communityInUse lists the peers, peer templates and policies that reference a
+// community by name. A template counts even with no peers linked: attaching one
+// later copies its references onto the peer.
 func (s *Server) communityInUse(name string) ([]string, error) {
 	var users []string
 	peers, err := s.store.ListPeers()
@@ -186,6 +188,16 @@ func (s *Server) communityInUse(name string) ([]string, error) {
 		}
 		if slices.Contains(store.NamedCommunityRefs(p.ImportCommunities), name) {
 			users = append(users, "peer "+p.Name)
+		}
+	}
+	templates, err := s.store.ListPeerTemplates()
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range templates {
+		if slices.Contains(store.NamedCommunityRefs(t.ExportCommunities), name) ||
+			slices.Contains(store.NamedCommunityRefs(t.ImportCommunities), name) {
+			users = append(users, "peer template "+t.Name)
 		}
 	}
 	policies, err := s.store.ListPolicies()
