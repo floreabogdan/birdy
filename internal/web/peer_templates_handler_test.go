@@ -578,3 +578,17 @@ func TestPoliciesListCountsTemplateUse(t *testing.T) {
 		t.Errorf("both policies the template chains should show 1 template, found %d", got)
 	}
 }
+
+func TestDeletingALinkedTemplateSaysToDetachFirst(t *testing.T) {
+	env := newTestEnv(t, false)
+	tmpl := createTemplate(env, t)
+	peer := peerForm()
+	peer.Set("templateId", strconv.FormatInt(tmpl.ID, 10))
+	if rec := env.do(t, "POST", "/peers/new", peer); rec.Code != http.StatusSeeOther {
+		t.Fatalf("peer create: %d", rec.Code)
+	}
+	rec := env.do(t, "POST", "/peers/templates/IX_PEERS/delete", nil)
+	if flash := flashOf(rec); !strings.Contains(flash, "used by 1 peer(s): transit_v4") || !strings.Contains(flash, "Detach those peers first") {
+		t.Errorf("a linked template's delete should name the peers and say to detach them: %q", flash)
+	}
+}

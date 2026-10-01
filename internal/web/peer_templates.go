@@ -2,6 +2,7 @@ package web
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -263,8 +264,13 @@ func (s *Server) handlePeerTemplateDelete(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := s.store.DeletePeerTemplate(t.ID); err != nil {
-		msg := strings.TrimPrefix(err.Error(), "store: ")
-		s.flashRedirect(w, r, "/peers/templates", "Could not delete "+t.Name+": "+msg+". Detach those peers first (choose \"none\" as their template).", true)
+		msg := "Could not delete " + t.Name + ": " + strings.TrimPrefix(err.Error(), "store: ") + "."
+		// Only a template peers still link to is fixed by detaching them.
+		var inUse *store.TemplateInUseError
+		if errors.As(err, &inUse) {
+			msg += " Detach those peers first (choose \"none\" as their template)."
+		}
+		s.flashRedirect(w, r, "/peers/templates", msg, true)
 		return
 	}
 	s.audit(r, "deleted peer template "+t.Name)

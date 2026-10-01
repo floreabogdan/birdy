@@ -409,6 +409,18 @@ func (s *Store) TemplateUsage() (map[int64]int, error) {
 	return out, rows.Err()
 }
 
+// TemplateInUseError is DeletePeerTemplate refusing a template that peers
+// still link to — the one failure the operator fixes by detaching them.
+type TemplateInUseError struct{ Peers []string }
+
+func (e *TemplateInUseError) Error() string {
+	shown := e.Peers
+	if len(shown) > 5 {
+		shown = append(shown[:5:5], "…")
+	}
+	return fmt.Sprintf("store: template is used by %d peer(s): %s", len(e.Peers), strings.Join(shown, ", "))
+}
+
 // DeletePeerTemplate refuses while any peer still links to the template:
 // detaching them silently would leave thirty sessions owning a shape nobody
 // chose for them on purpose. The foreign key is the backstop; this is the
@@ -419,11 +431,7 @@ func (s *Store) DeletePeerTemplate(id int64) error {
 		return err
 	}
 	if len(users) > 0 {
-		shown := users
-		if len(shown) > 5 {
-			shown = append(shown[:5:5], "…")
-		}
-		return fmt.Errorf("store: template is used by %d peer(s): %s", len(users), strings.Join(shown, ", "))
+		return &TemplateInUseError{Peers: users}
 	}
 	res, err := s.db.Exec(`DELETE FROM peer_templates WHERE id = ?`, id)
 	if err != nil {

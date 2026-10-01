@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -375,6 +376,11 @@ func TestDeleteGuardsNameWhatStandsInTheWay(t *testing.T) {
 	err = s.DeletePeerTemplate(tmpl.ID)
 	if err == nil || !strings.Contains(err.Error(), "1 peer(s): edge_v4") {
 		t.Errorf("deleting a linked template should refuse and name the peer, got %v", err)
+	}
+	// Typed, so the UI can tell "detach these first" from any other failure.
+	var inUse *TemplateInUseError
+	if !errors.As(err, &inUse) || len(inUse.Peers) != 1 || inUse.Peers[0] != "edge_v4" {
+		t.Errorf("the refusal should be a TemplateInUseError naming edge_v4, got %#v", err)
 	}
 	// NO_DEFAULT is in the template's chain and, through it, the peer's.
 	err = s.DeletePolicy(noDefault.ID)
