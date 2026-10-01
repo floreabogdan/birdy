@@ -638,3 +638,56 @@ func TestSymbolUsesFindsEveryOwnerOfAName(t *testing.T) {
 		t.Errorf("an owner should describe itself for the form error, got %q", uses[0].String())
 	}
 }
+
+// Drain is an eBGP signal; validateShape clears it when a peer is iBGP. A
+// template can make a peer iBGP without the peer form ever running, so the
+// shape write clears it too — or the iBGP filters would carry graceful
+// shutdown and local-pref 0, from a switch the form then hides.
+func TestTemplatePathsClearDrainWhenThePeerBecomesIBGP(t *testing.T) {
+	s := openTest(t)
+	ibgp := PeerTemplate{Name: "CORE", Role: RoleIBGP, ImportLimitAction: "restart"}
+	if errs := ibgp.Validate(); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	id, err := s.CreatePeerTemplate(ibgp, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := validPeer()
+	p.Drained = true
+	pid, err := s.CreatePeer(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkPeerToTemplate(pid, id); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetPeer(pid); got.Role != RoleIBGP || got.Drained {
+		t.Errorf("linking to an iBGP template should clear the drain: %+v", got)
+	}
+
+	// The same through a template save that changes the role.
+	ix, sanity, _, _ := seedTemplateFixture(t, s)
+	q := validPeer()
+	q.Name, q.Drained = "rs1_v4", true
+	qid, err := s.CreatePeer(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkPeerToTemplate(qid, ix.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetPeer(qid); !got.Drained {
+		t.Fatalf("an eBGP template should leave the drain alone: %+v", got)
+	}
+	ix.Role = RoleIBGP
+	if errs := ix.Validate(); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if _, err := s.UpdatePeerTemplate(ix, []int64{sanity.ID}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetPeer(qid); got.Drained {
+		t.Errorf("a template turned iBGP should clear its peers' drain: %+v", got)
+	}
+}
