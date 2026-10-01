@@ -253,7 +253,7 @@ func (s *Server) handlePeerTemplateSave(w http.ResponseWriter, r *http.Request) 
 		t.ImportPolicies, t.ExportPolicies = s.resolvePolicies(all, importIDs), s.resolvePolicies(all, exportIDs)
 	}
 	v := s.templateFormView(t, isNew)
-	v.Errs, v.LinkSource = errs, r.FormValue("from")
+	v.Errs, v.LinkSource, v.StoredName = errs, r.FormValue("from"), r.PathValue("name")
 	s.renderPeerForm(w, v)
 }
 

@@ -538,3 +538,32 @@ func TestLongTemplateNamePreviews(t *testing.T) {
 		t.Errorf("a valid long template name should still preview:\n%s", body)
 	}
 }
+
+// A rename that fails validation re-renders the form with the typed name, but
+// the record is still stored under the old one: the form must post back there,
+// or the corrected resubmit hits a 404 and the edit is lost.
+func TestFailedRenameStillPostsToTheStoredName(t *testing.T) {
+	env := newTestEnv(t, false)
+	createTemplate(env, t)
+	form := templateForm(env, t)
+	form.Set("name", "IX_RS")
+	form.Set("exportCommunities", "NO_SUCH_COMMUNITY")
+	body := env.do(t, "POST", "/peers/templates/IX_PEERS/edit", form).Body.String()
+	if !strings.Contains(body, `action="/peers/templates/IX_PEERS/edit"`) {
+		t.Errorf("a failed template rename should post back to the stored name")
+	}
+	if !strings.Contains(body, `value="IX_RS"`) {
+		t.Errorf("the form should keep what the operator typed")
+	}
+
+	peer := peerForm()
+	if rec := env.do(t, "POST", "/peers/new", peer); rec.Code != http.StatusSeeOther {
+		t.Fatalf("peer create: %d", rec.Code)
+	}
+	peer.Set("name", "transit2_v4")
+	peer.Set("multihop", "999")
+	body = env.do(t, "POST", "/peers/transit_v4/edit", peer).Body.String()
+	if !strings.Contains(body, `action="/peers/transit_v4/edit"`) {
+		t.Errorf("a failed peer rename should post back to the stored name")
+	}
+}

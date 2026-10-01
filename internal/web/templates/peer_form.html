@@ -94,7 +94,7 @@
 			</div>
 			{{end}}
 
-			<form method="post" action="{{if .IsTemplate}}{{if .IsNew}}/peers/templates/new{{else}}/peers/templates/{{.Template.Name}}/edit{{end}}{{else if .IsNew}}/peers/new{{else}}/peers/{{.Peer.Name}}/edit{{end}}" data-preview-url="{{if .IsTemplate}}/peers/templates/preview{{else}}/peers/preview{{end}}" data-editor data-peer-form{{if .IsTemplate}} data-template-form{{end}}>
+			<form method="post" action="{{if .IsTemplate}}{{if .IsNew}}/peers/templates/new{{else}}/peers/templates/{{or .StoredName .Template.Name}}/edit{{end}}{{else if .IsNew}}/peers/new{{else}}/peers/{{or .StoredName .Peer.Name}}/edit{{end}}" data-preview-url="{{if .IsTemplate}}/peers/templates/preview{{else}}/peers/preview{{end}}" data-editor data-peer-form{{if .IsTemplate}} data-template-form{{end}}>
 			{{if and .IsTemplate .LinkSource}}<input type="hidden" name="from" value="{{.LinkSource}}">{{end}}
 			<div class="split">
 				<div>

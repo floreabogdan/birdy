@@ -36,6 +36,10 @@ type peerFormView struct {
 	// ClonedFrom names the peer a new form was pre-filled from, so the operator
 	// knows the shape came from somewhere and only the identity needs its values.
 	ClonedFrom string
+	// StoredName is the name the record is saved under, which the form posts
+	// back to. It differs from the shown name only when a rename failed
+	// validation and the form re-renders with what the operator typed.
+	StoredName string
 	// PeeringDB reports whether the PeeringDB lookup is enabled, so the form can
 	// show the "look up ASN" button.
 	PeeringDB bool
@@ -348,7 +352,7 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 	if all, aerr := s.store.ListPolicies(); aerr == nil {
 		p.ImportPolicies, p.ExportPolicies = s.resolvePolicies(all, importIDs), s.resolvePolicies(all, exportIDs)
 	}
-	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: isNew, Peer: p, Errs: errs})
+	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: isNew, StoredName: r.PathValue("name"), Peer: p, Errs: errs})
 }
 
 // handlePeersAttach links every selected peer to one template — or, with no
