@@ -273,6 +273,9 @@ func Sections(in Input) ([]Section, error) {
 	if ferr != nil {
 		return nil, ferr
 	}
+	if err := checkSymbols(secs); err != nil {
+		return nil, err
+	}
 	return secs, nil
 }
 
