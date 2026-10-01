@@ -20,6 +20,7 @@ type policiesView struct {
 	ImportPager Pager
 	ExportPager Pager
 	InUse       map[int64]int // policy id -> peers attached
+	TemplateUse map[int64]int // policy id -> peer templates chaining it
 	SetNames    map[int64]string
 	Flash       string
 }
@@ -60,6 +61,19 @@ func (s *Server) handlePoliciesList(w http.ResponseWriter, r *http.Request) {
 			inUse[pol.ID]++
 		}
 	}
+	// A template's chain holds the policy too: delete refuses it, so the list
+	// must not call it unused.
+	templates, err := s.store.ListPeerTemplates()
+	if err != nil {
+		s.serverError(w, "list peer templates", err)
+		return
+	}
+	templateUse := map[int64]int{}
+	for _, t := range templates {
+		for _, pol := range append(t.ImportPolicies, t.ExportPolicies...) {
+			templateUse[pol.ID]++
+		}
+	}
 	sets, err := s.store.ListPrefixSets()
 	if err != nil {
 		s.serverError(w, "list prefix sets", err)
@@ -70,7 +84,7 @@ func (s *Server) handlePoliciesList(w http.ResponseWriter, r *http.Request) {
 		names[ps.ID] = ps.Name
 	}
 
-	v := policiesView{Active: "policies", ReadOnly: s.readOnly, InUse: inUse, SetNames: names,
+	v := policiesView{Active: "policies", ReadOnly: s.readOnly, InUse: inUse, TemplateUse: templateUse, SetNames: names,
 		Flash: s.flashMsg(w, r)}
 	var imports, exports []store.Policy
 	for _, p := range policies {

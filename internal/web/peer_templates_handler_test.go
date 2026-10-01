@@ -567,3 +567,14 @@ func TestFailedRenameStillPostsToTheStoredName(t *testing.T) {
 		t.Errorf("a failed peer rename should post back to the stored name")
 	}
 }
+
+// Delete refuses a policy a template chains; the list must say so too, not
+// show "nothing" beside a policy that cannot be deleted.
+func TestPoliciesListCountsTemplateUse(t *testing.T) {
+	env := newTestEnv(t, false)
+	createTemplate(env, t) // chains IMPORT_SANITY and EXPORT_OWN, with no peers linked
+	body := env.do(t, "GET", "/policies", nil).Body.String()
+	if got := strings.Count(body, `<span class="badge badge-warning">1 template</span>`); got != 2 {
+		t.Errorf("both policies the template chains should show 1 template, found %d", got)
+	}
+}
