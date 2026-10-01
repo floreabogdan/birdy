@@ -416,6 +416,25 @@ func (s *Store) TemplateUsage() (map[int64]int, error) {
 	return out, rows.Err()
 }
 
+// TemplatePolicyUsage counts, per policy id, the templates whose chain holds it.
+func (s *Store) TemplatePolicyUsage() (map[int64]int, error) {
+	rows, err := s.db.Query(`SELECT policy_id, COUNT(*) FROM template_policies GROUP BY policy_id`)
+	if err != nil {
+		return nil, fmt.Errorf("store: template policy usage: %w", err)
+	}
+	defer rows.Close()
+	out := map[int64]int{}
+	for rows.Next() {
+		var id int64
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}
+
 // TemplateInUseError is DeletePeerTemplate refusing a template that peers
 // still link to — the one failure the operator fixes by detaching them.
 type TemplateInUseError struct{ Peers []string }

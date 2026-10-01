@@ -63,16 +63,10 @@ func (s *Server) handlePoliciesList(w http.ResponseWriter, r *http.Request) {
 	}
 	// A template's chain holds the policy too: delete refuses it, so the list
 	// must not call it unused.
-	templates, err := s.store.ListPeerTemplates()
+	templateUse, err := s.store.TemplatePolicyUsage()
 	if err != nil {
-		s.serverError(w, "list peer templates", err)
+		s.serverError(w, "template policy usage", err)
 		return
-	}
-	templateUse := map[int64]int{}
-	for _, t := range templates {
-		for _, pol := range append(t.ImportPolicies, t.ExportPolicies...) {
-			templateUse[pol.ID]++
-		}
 	}
 	sets, err := s.store.ListPrefixSets()
 	if err != nil {
