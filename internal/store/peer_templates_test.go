@@ -691,3 +691,47 @@ func TestTemplatePathsClearDrainWhenThePeerBecomesIBGP(t *testing.T) {
 		t.Errorf("a template turned iBGP should clear its peers' drain: %+v", got)
 	}
 }
+
+// A bulk attach is all or nothing: one peer that cannot be linked leaves every
+// other peer in the request as it was, instead of half the selection rewritten.
+func TestAttachPeersIsAllOrNothing(t *testing.T) {
+	s := openTest(t)
+	tmpl, _, _, _ := seedTemplateFixture(t, s)
+	var ids []int64
+	for _, name := range []string{"rs1_v4", "rs2_v4"} {
+		p := validPeer()
+		p.Name, p.ImportLimit = name, 7
+		id, err := s.CreatePeer(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+
+	if err := s.AttachPeers([]int64{ids[0], 9999}, tmpl.ID); err != ErrNotFound {
+		t.Fatalf("attaching a missing peer should be ErrNotFound, got %v", err)
+	}
+	if p, _ := s.GetPeer(ids[0]); p.TemplateID.Valid || p.ImportLimit != 7 {
+		t.Errorf("a failed bulk attach must not have linked anyone: %+v", p)
+	}
+
+	if err := s.AttachPeers(ids, tmpl.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if p, _ := s.GetPeer(id); !p.TemplateID.Valid || p.ImportLimit != 50000 {
+			t.Errorf("both peers should be linked with the template's shape: %+v", p)
+		}
+	}
+	if err := s.AttachPeers(ids, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if p, _ := s.GetPeer(id); p.TemplateID.Valid || p.ImportLimit != 50000 {
+			t.Errorf("detaching keeps the values and drops the link: %+v", p)
+		}
+	}
+	if err := s.AttachPeers(ids, 9999); err != ErrNotFound {
+		t.Errorf("attaching to a missing template should be ErrNotFound, got %v", err)
+	}
+}

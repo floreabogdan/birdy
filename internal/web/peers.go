@@ -390,6 +390,7 @@ func (s *Server) handlePeersAttach(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var done, missing []string
+	var ids []int64
 	for _, name := range names {
 		p, err := s.store.GetPeerByName(name)
 		if err == store.ErrNotFound {
@@ -400,16 +401,16 @@ func (s *Server) handlePeersAttach(w http.ResponseWriter, r *http.Request) {
 			s.serverError(w, "get peer", err)
 			return
 		}
-		if tmpl.ID != 0 {
-			err = s.store.LinkPeerToTemplate(p.ID, tmpl.ID)
-		} else {
-			err = s.store.DetachPeer(p.ID)
-		}
-		if err != nil {
-			s.serverError(w, "attach peer to template", err)
+		ids, done = append(ids, p.ID), append(done, name)
+	}
+	// One transaction for the whole selection: either every peer moves, or —
+	// on any error — none does, so a failure never leaves a half-attached,
+	// unaudited group.
+	if len(ids) > 0 {
+		if err := s.store.AttachPeers(ids, tmpl.ID); err != nil {
+			s.serverError(w, "attach peers to template", err)
 			return
 		}
-		done = append(done, name)
 	}
 
 	var msg string
