@@ -212,7 +212,7 @@ func (s *Store) ListPolicies() ([]Policy, error) {
 		if out[i].IsImport() {
 			continue
 		}
-		ids, err := s.policySetIDs(out[i].ID)
+		ids, err := s.policySetIDs(s.db, out[i].ID)
 		if err != nil {
 			return nil, err
 		}
@@ -231,15 +231,16 @@ func (s *Store) GetPolicyByName(name string) (Policy, error) {
 		return Policy{}, fmt.Errorf("store: get policy: %w", err)
 	}
 	if !p.IsImport() {
-		if p.SetIDs, err = s.policySetIDs(p.ID); err != nil {
+		if p.SetIDs, err = s.policySetIDs(s.db, p.ID); err != nil {
 			return Policy{}, err
 		}
 	}
 	return p, nil
 }
 
-func (s *Store) policySetIDs(policyID int64) ([]int64, error) {
-	rows, err := s.db.Query(`SELECT set_id FROM policy_prefix_sets WHERE policy_id = ? ORDER BY position, set_id`, policyID)
+// policySetIDs reads through q, so a chain read inside a transaction stays in it.
+func (s *Store) policySetIDs(q querier, policyID int64) ([]int64, error) {
+	rows, err := q.Query(`SELECT set_id FROM policy_prefix_sets WHERE policy_id = ? ORDER BY position, set_id`, policyID)
 	if err != nil {
 		return nil, fmt.Errorf("store: policy prefix sets: %w", err)
 	}
@@ -396,7 +397,7 @@ func (s *Store) chainFor(q querier, table, key string, id int64) (imports, expor
 		return nil, nil, err
 	}
 	for i := range exports {
-		if exports[i].SetIDs, err = s.policySetIDs(exports[i].ID); err != nil {
+		if exports[i].SetIDs, err = s.policySetIDs(q, exports[i].ID); err != nil {
 			return nil, nil, err
 		}
 	}

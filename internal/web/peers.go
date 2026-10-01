@@ -405,7 +405,14 @@ func (s *Server) handlePeersAttach(w http.ResponseWriter, r *http.Request) {
 	// on any error — none does, so a failure never leaves a half-attached,
 	// unaudited group.
 	if len(ids) > 0 {
-		if err := s.store.AttachPeers(ids, tmpl.ID); err != nil {
+		err := s.store.AttachPeers(ids, tmpl.ID)
+		if err == store.ErrNotFound {
+			// A peer or the template was deleted between the lookups above and
+			// the transaction; it rolled back, so say so rather than fail.
+			s.flashRedirect(w, r, "/peers", "A selected peer or the template was deleted meanwhile, so nothing was changed. Try again.", true)
+			return
+		}
+		if err != nil {
 			s.serverError(w, "attach peers to template", err)
 			return
 		}

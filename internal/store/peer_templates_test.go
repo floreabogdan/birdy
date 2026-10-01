@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Every field of Peer is either identity — it stays the peer's own — or shape,
@@ -744,5 +745,48 @@ func TestAttachPeersIsAllOrNothing(t *testing.T) {
 	}
 	if err := s.AttachPeers(ids, 9999); err != ErrNotFound {
 		t.Errorf("attaching to a missing template should be ErrNotFound, got %v", err)
+	}
+}
+
+// Everything AttachPeers reads goes through its transaction. A read through the
+// pool while the transaction holds a connection waits for a second one, and
+// with the pool exhausted that wait never ends.
+func TestAttachPeersReadsOnlyThroughItsTransaction(t *testing.T) {
+	s := openTest(t)
+	tmpl, _, _, _ := seedTemplateFixture(t, s) // its chain has an export policy
+	id, err := s.CreatePeer(validPeer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.db.SetMaxOpenConns(1)
+	done := make(chan error, 1)
+	go func() { done <- s.AttachPeers([]int64{id}, tmpl.ID) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("AttachPeers blocked on a second connection while holding its transaction")
+	}
+}
+
+// Template 0 means "detach" only to AttachPeers, which says so. Linking to an
+// unset template is a caller's mistake, not a detach.
+func TestLinkingToTemplateZeroIsNotADetach(t *testing.T) {
+	s := openTest(t)
+	tmpl, _, _, _ := seedTemplateFixture(t, s)
+	id, err := s.CreatePeer(validPeer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkPeerToTemplate(id, tmpl.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkPeerToTemplate(id, 0); err != ErrNotFound {
+		t.Errorf("linking to template 0 should be ErrNotFound, got %v", err)
+	}
+	if p, _ := s.GetPeer(id); !p.TemplateID.Valid {
+		t.Error("a failed link must leave the peer linked as it was")
 	}
 }

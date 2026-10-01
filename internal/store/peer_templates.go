@@ -304,6 +304,9 @@ func (s *Store) UpdatePeerTemplate(t PeerTemplate, importIDs, exportIDs []int64)
 // template's shape over the peer's own. Overrides are cleared: a peer that
 // changes template takes the new template's word for everything.
 func (s *Store) LinkPeerToTemplate(peerID, templateID int64) error {
+	if templateID == 0 {
+		return ErrNotFound // 0 is AttachPeers' "detach", never a template
+	}
 	return s.AttachPeers([]int64{peerID}, templateID)
 }
 
@@ -320,6 +323,18 @@ func (s *Store) AttachPeers(peerIDs []int64, templateID int64) error {
 	defer tx.Rollback()
 	var t PeerTemplate
 	if templateID != 0 {
+		// Write before reading: SQLite takes the write lock at the first write,
+		// and a transaction that read first cannot upgrade once another
+		// connection has committed since (SQLITE_BUSY_SNAPSHOT, which
+		// busy_timeout does not retry). Touching the template's own row takes
+		// the lock, waiting its turn, and proves the template exists.
+		res, err := tx.Exec(`UPDATE peer_templates SET updated_at = updated_at WHERE id = ?`, templateID)
+		if err != nil {
+			return fmt.Errorf("store: lock peer template: %w", err)
+		}
+		if err := affectedOne(res); err != nil {
+			return err
+		}
 		if t, err = s.getTemplateIn(tx, `SELECT `+templateCols+` FROM peer_templates WHERE id = ?`, templateID); err != nil {
 			return err
 		}
@@ -352,14 +367,6 @@ func (s *Store) AttachPeers(peerIDs []int64, templateID int64) error {
 		}
 	}
 	return tx.Commit()
-}
-
-// DetachPeer clears a peer's link and its overrides, leaving every value it
-// inherited in place: the peer now owns the shape it had. The bulk "detach"
-// on the peers list and nothing else goes through here; the form detaches by
-// saving the peer with no template.
-func (s *Store) DetachPeer(peerID int64) error {
-	return s.AttachPeers([]int64{peerID}, 0)
 }
 
 // PolicyIDs lists a chain's ids in order, for the chain writers.
