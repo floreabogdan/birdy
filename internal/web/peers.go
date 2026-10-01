@@ -367,10 +367,19 @@ func (s *Server) handlePeersAttach(w http.ResponseWriter, r *http.Request) {
 		s.flashRedirect(w, r, "/peers", "Select at least one peer first.", true)
 		return
 	}
+	// The action is explicit: "detach", or a template id. An empty choice is
+	// the select's placeholder, and must never fall through to either.
+	choice := r.FormValue("templateId")
+	if choice == "" {
+		s.flashRedirect(w, r, "/peers", "Choose whether to attach the selected peers to a template or detach them.", true)
+		return
+	}
 	var tmpl store.PeerTemplate
-	if id := formNullInt(r, "templateId"); id.Valid {
-		t, err := s.store.GetPeerTemplate(id.Int64)
-		if err == store.ErrNotFound {
+	if choice != "detach" {
+		id, perr := strconv.ParseInt(choice, 10, 64)
+		var err error
+		tmpl, err = s.store.GetPeerTemplate(id)
+		if perr != nil || err == store.ErrNotFound {
 			s.flashRedirect(w, r, "/peers", "That template no longer exists.", true)
 			return
 		}
@@ -378,7 +387,6 @@ func (s *Server) handlePeersAttach(w http.ResponseWriter, r *http.Request) {
 			s.serverError(w, "get peer template", err)
 			return
 		}
-		tmpl = t
 	}
 
 	var done, missing []string

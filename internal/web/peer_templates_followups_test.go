@@ -143,7 +143,9 @@ func TestBulkAttachAndDetach(t *testing.T) {
 		}
 	}
 	body := env.do(t, "GET", "/peers", nil).Body.String()
-	for _, want := range []string{`id="bulk-attach"`, `name="peer" value="rs1_v4" form="bulk-attach"`, `Attach to IX_PEERS`, `data-check-all`} {
+	for _, want := range []string{`id="bulk-attach"`, `name="peer" value="rs1_v4" form="bulk-attach"`, `Attach to IX_PEERS`, `data-check-all`,
+		// No action is preselected: "Apply" with the default must not attach anything.
+		`<select name="templateId" required`, `<option value="" disabled selected>Choose an action</option>`, `<option value="detach">Detach from template</option>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("peers list should carry the bulk bar, missing %q", want)
 		}
@@ -169,7 +171,16 @@ func TestBulkAttachAndDetach(t *testing.T) {
 		t.Errorf("unselected peer must be untouched: %+v", p)
 	}
 
+	// No choice made is not "detach": nothing changes and the operator is asked.
 	rec = env.do(t, "POST", "/peers/attach", url.Values{"peer": {"rs1_v4"}, "templateId": {""}})
+	if flash := flashOf(rec); !strings.Contains(flash, "Choose whether to attach") {
+		t.Errorf("an empty choice should be refused: %q", flash)
+	}
+	if p, _ := env.store.GetPeerByName("rs1_v4"); !p.TemplateID.Valid {
+		t.Error("an empty choice must not detach")
+	}
+
+	rec = env.do(t, "POST", "/peers/attach", url.Values{"peer": {"rs1_v4"}, "templateId": {"detach"}})
 	if flash := flashOf(rec); !strings.Contains(flash, "Detached 1 peer") {
 		t.Errorf("detach flash: %q", flash)
 	}

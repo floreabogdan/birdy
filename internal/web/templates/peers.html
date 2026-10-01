@@ -104,9 +104,10 @@
 				     per-row toggle forms rule out wrapping it. */}}
 				<form id="bulk-attach" method="post" action="/peers/attach" class="bulk-bar" data-confirm="Attach or detach the selected peers? Attaching replaces each peer's policy chains, limit and safeguards with the template's. Nothing reaches the router until you apply.">
 					<span class="text-muted" data-selected-count>none selected</span>
-					<select name="templateId" aria-label="Template to attach the selected peers to">
+					<select name="templateId" required aria-label="Attach the selected peers to a template, or detach them">
+						<option value="" disabled selected>Choose an action</option>
 						{{range .Templates}}<option value="{{.ID}}">Attach to {{.Name}}</option>{{end}}
-						<option value="">Detach from template</option>
+						<option value="detach">Detach from template</option>
 					</select>
 					<button type="submit" class="btn">Apply to selected</button>
 					<span class="hint">Attaching gives each selected peer the template's chains, limit and safeguards; detaching leaves every value in place and makes the peer own it.{{if not .Templates}} No templates yet &mdash; <a href="/peers/templates/new">create one</a>.{{end}}</span>
