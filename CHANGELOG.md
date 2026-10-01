@@ -32,7 +32,11 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - **Import from BIRD** offers a template per row, so adopted sessions arrive with
     the template's role, chains, limit and safeguards instead of bare identities.
   - Lint findings that are identical across peers of one template **fold into one
-    line** attributed to the template.
+    line** attributed to the template and naming the peers.
+  - A template's name has to be free across BIRD's single namespace: it may not
+    be a peer's, a prefix or AS set's, a community's or one birdy generates, and
+    a peer may not take a template's — a clash would fail every apply with
+    "Symbol already defined".
 - **Per-session BFD timers.** A peer (or template) with BFD on can set its own
   **interval** (ms) and **multiplier**, rendered as `bfd { interval …; multiplier …; };`
   on that session alone. BIRD's default 100 ms × 5 declares a session dead after
@@ -51,6 +55,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The peer form's role-specific checkbox group for the *other* role (the iBGP
   switches on an eBGP peer, and vice versa) was visible, greyed out, instead of
   hidden: the group's flex layout overrode the `hidden` attribute.
+- A peer rename that failed validation re-rendered the form posting to the new
+  name, so the corrected resubmit hit "not found" and the edit was lost. The form
+  now posts back to the name the peer is stored under.
 - **Generated filters no longer log every route a catch-all drops.** BIRD logs a
   reject's message once per route it drops. Export filters ended in
   `reject "not permitted by any export policy"`, and import policies rejected
