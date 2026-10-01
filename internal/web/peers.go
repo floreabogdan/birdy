@@ -531,7 +531,7 @@ func (s *Server) renderPeerForm(w http.ResponseWriter, v peerFormView) {
 		// declared "from" the template as it is on the form right now.
 		t := store.TemplateFromPeer(v.Peer)
 		t.Name, t.Description = v.Peer.Name, v.Peer.Description
-		subject, templates = samplePeer(t), []store.PeerTemplate{t}
+		subject, templates = samplePeer(t, s.localASN()), []store.PeerTemplate{t}
 	}
 	var perr error
 	if v.Preview, v.PreviewErr, v.Warnings, perr = s.previewWithLibrary(subject, policies, templates); perr != nil {

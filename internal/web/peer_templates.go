@@ -282,7 +282,7 @@ func (s *Server) handlePeerTemplatePreview(w http.ResponseWriter, r *http.Reques
 	t := templateFromForm(r)
 	t.ImportPolicies = s.resolvePolicies(policiesAll, idList(r.Form["importPolicyIds"]))
 	t.ExportPolicies = s.resolvePolicies(policiesAll, idList(r.Form["exportPolicyIds"]))
-	sample := samplePeer(t)
+	sample := samplePeer(t, s.localASN())
 	preview, previewErr, warnings, err := s.previewWithLibrary(sample, policiesAll, []store.PeerTemplate{t})
 	if err != nil {
 		writeJSON(w, previewResp{Err: "could not load the library"})
@@ -307,14 +307,29 @@ func attributeToTemplate(ws []birdconf.Warning, sampleName, templateName string)
 // preview renders, declared "from" the template so the preview shows exactly
 // what a linked peer's block will look like. It is named after the template
 // with an _example suffix: a protocol cannot share the template's own name.
-func samplePeer(t store.PeerTemplate) store.Peer {
+func samplePeer(t store.PeerTemplate, localASN int64) store.Peer {
 	if t.Name == "" {
 		t.Name = "template"
 	}
 	p := displayPeer(t)
 	p.NeighborIP, p.RemoteASN = sampleNeighborIP, sampleRemoteASN
-	p.Name = t.Name + "_example"
+	// An internal session's neighbor is in our own AS; anything else renders an
+	// eBGP session and trips the "marked iBGP" lint on the template's own sample.
+	if t.IsIBGP() && localASN > 0 {
+		p.RemoteASN = localASN
+	}
+	// Named after the template, within BIRD's 63-character limit.
+	const suffix = "_example"
+	p.Name = t.Name[:min(len(t.Name), 63-len(suffix))] + suffix
 	// A template being created has no id yet; the preview links to it by name.
 	p.TemplateID, p.TemplateName = sql.NullInt64{Int64: max(t.ID, 1), Valid: true}, t.Name
 	return p
+}
+
+// localASN is our own AS from settings, or 0 before the router identity is set.
+func (s *Server) localASN() int64 {
+	if st, ok, err := s.store.GetSettings(); err == nil && ok && st.LocalASN.Valid {
+		return st.LocalASN.Int64
+	}
+	return 0
 }

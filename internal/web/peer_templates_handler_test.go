@@ -504,3 +504,37 @@ func TestCommunityUsedOnlyByATemplateCannotBeDeleted(t *testing.T) {
 		t.Errorf("the template should be named as the user: %v %v", users, err)
 	}
 }
+
+// The template preview renders the shape on a sample neighbor. For an iBGP
+// template that neighbor has to be in our own AS, or the preview shows an eBGP
+// session and a false "marked iBGP but its remote AS is…" danger.
+func TestIBGPTemplatePreviewUsesOurOwnAS(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+	form := templateForm(env, t)
+	form.Set("name", "CORE")
+	form.Set("role", "ibgp")
+	form.Del("importPolicyIds")
+	form.Del("exportPolicyIds")
+	body := env.do(t, "POST", "/peers/templates/preview", form).Body.String()
+	if strings.Contains(body, "is marked iBGP but its remote AS") {
+		t.Errorf("an iBGP template preview must not flag its own sample peer:\n%s", body)
+	}
+	if !strings.Contains(body, "as 65551;") {
+		t.Errorf("the sample iBGP neighbor should be in our own AS:\n%s", body)
+	}
+}
+
+// BIRD names are at most 63 characters. The sample peer is named after the
+// template, so a long template name must still give the preview a valid one.
+func TestLongTemplateNamePreviews(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+	form := templateForm(env, t)
+	long := "T" + strings.Repeat("x", 59) // 60 characters: valid, but not with "_example" appended
+	form.Set("name", long)
+	body := env.do(t, "POST", "/peers/templates/preview", form).Body.String()
+	if strings.Contains(body, "Fix the errors above") || !strings.Contains(body, "protocol bgp ") {
+		t.Errorf("a valid long template name should still preview:\n%s", body)
+	}
+}
