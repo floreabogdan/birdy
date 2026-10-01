@@ -592,3 +592,25 @@ func TestDeletingALinkedTemplateSaysToDetachFirst(t *testing.T) {
 		t.Errorf("a linked template's delete should name the peers and say to detach them: %q", flash)
 	}
 }
+
+// Every library object that renders a BIRD symbol refuses a template's name at
+// save, not only at the next render.
+func TestLibraryObjectsCannotTakeATemplatesName(t *testing.T) {
+	env := newTestEnv(t, false)
+	createTemplate(env, t)
+	for _, c := range []struct {
+		route string
+		form  url.Values
+	}{
+		{"/library/prefix-sets/new", url.Values{"name": {"IX_PEERS"}, "family": {"ipv4"}, "entries": {"192.0.2.0/24"}}},
+		{"/library/as-sets/new", url.Values{"name": {"IX_PEERS"}, "entries": {"64600"}}},
+		{"/library/communities/new", url.Values{"name": {"IX_PEERS"}, "value": {"65000:1"}}},
+		{"/rpki/new", url.Values{"name": {"IX_PEERS"}, "host": {"rtr.example.net"}, "port": {"8282"}, "refresh": {"900"}, "expire": {"172800"}, "enabled": {"on"}}},
+		{"/bmp/new", url.Values{"name": {"IX_PEERS"}, "address": {"203.0.113.5"}, "port": {"1790"}, "enabled": {"on"}}},
+	} {
+		rec := env.do(t, "POST", c.route, c.form)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "already uses this name") {
+			t.Errorf("%s should refuse a template's name: %d", c.route, rec.Code)
+		}
+	}
+}

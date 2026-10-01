@@ -306,15 +306,9 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 	}
 	// Another peer with the name is the unique index's to report; a template
 	// with it would be a second `bgp` symbol of the same name.
-	if _, taken := errs["name"]; !taken {
-		msg, err := s.symbolClash(p.Name, func(u store.SymbolUse) bool { return u.Kind == "peer template" })
-		if err != nil {
-			s.serverError(w, "check peer name", err)
-			return
-		}
-		if msg != "" {
-			errs["name"] = msg
-		}
+	if err := s.refuseTemplateName(p.Name, errs); err != nil {
+		s.serverError(w, "check peer name", err)
+		return
 	}
 
 	if len(errs) == 0 {

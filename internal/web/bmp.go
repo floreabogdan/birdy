@@ -86,6 +86,10 @@ func (s *Server) handleBMPSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	errs := st.Validate()
+	if err := s.refuseTemplateName(st.Name, errs); err != nil {
+		s.serverError(w, "check name", err)
+		return
+	}
 	if len(errs) == 0 {
 		var err error
 		if isNew {

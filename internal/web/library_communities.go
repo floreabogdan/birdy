@@ -92,6 +92,10 @@ func (s *Server) handleCommunitySave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	errs := cd.Validate()
+	if err := s.refuseTemplateName(cd.Name, errs); err != nil {
+		s.serverError(w, "check name", err)
+		return
+	}
 	if valueErr != "" {
 		errs["value"] = valueErr
 	}

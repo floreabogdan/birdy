@@ -163,3 +163,20 @@ func (s *Server) symbolClash(name string, counts func(store.SymbolUse) bool) (st
 	}
 	return "", nil
 }
+
+// refuseTemplateName records a name error when a peer template already uses
+// the name: the object being saved would render a second BIRD symbol of it.
+// A name the form already rejected is left with that error.
+func (s *Server) refuseTemplateName(name string, errs map[string]string) error {
+	if _, taken := errs["name"]; taken {
+		return nil
+	}
+	msg, err := s.symbolClash(name, func(u store.SymbolUse) bool { return u.Kind == "peer template" })
+	if err != nil {
+		return err
+	}
+	if msg != "" {
+		errs["name"] = msg
+	}
+	return nil
+}
