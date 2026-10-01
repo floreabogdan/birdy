@@ -58,6 +58,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A peer rename that failed validation re-rendered the form posting to the new
   name, so the corrected resubmit hit "not found" and the edit was lost. The form
   now posts back to the name the peer is stored under.
+- **Two objects with one BIRD name are caught before BIRD is.** BIRD keeps
+  defines, filters, functions, templates and protocols in one namespace, so a peer
+  and a prefix set (or community, AS set, RPKI server, BMP station) of the same
+  name failed `bird -p` with "Symbol already defined". The renderer now refuses
+  such a model with a message naming both, so Preview and Changes show it before
+  any apply. A library community also refuses every name birdy or BIRD defines
+  itself (`BOGON_ASNS`, `rpki4`, `master4`, …), not only the five it checked.
 - **Generated filters no longer log every route a catch-all drops.** BIRD logs a
   reject's message once per route it drops. Export filters ended in
   `reject "not permitted by any export policy"`, and import policies rejected
