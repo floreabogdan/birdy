@@ -248,7 +248,7 @@ func TestPreview(t *testing.T) {
 
 	templateFormV := peerFormView{Active: "peers", IsTemplate: true, Template: ixTemplate, Peer: displayPeer(ixTemplate),
 		Usage: 31, Imports: formV.Imports, Exports: formV.Exports}
-	templateSample := samplePeer(ixTemplate)
+	templateSample := samplePeer(ixTemplate, 0)
 	templateFormV.Preview, templateFormV.PreviewErr, templateFormV.Warnings = previewPeer(templateSample, previewLibrary{sets: sets, policies: allPolicies, templates: []store.PeerTemplate{ixTemplate}, localASN: 65551})
 	templateFormV.Warnings = attributeToTemplate(templateFormV.Warnings, templateSample.Name, ixTemplate.Name)
 

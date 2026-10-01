@@ -517,7 +517,8 @@ until you have looked.
   deleted while a template chains it. A linked peer's protocol block in the rendered
   config carries a comment naming its template. On the Changes page, identical lint
   findings about peers of one template fold into a single line attributed to the
-  template — thirty peers missing an import limit is one thing to fix, once.
+  template and naming the peers — thirty peers missing an import limit is one thing
+  to fix, once.
 
 In the rendered config a template is BIRD's own `template bgp NAME { … }`, carrying the
 session options every linked peer shares — multihop, passive, BFD and its timers, GTSM, graceful restart,

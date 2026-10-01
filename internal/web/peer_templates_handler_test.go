@@ -437,3 +437,186 @@ func TestPeerTemplateBFDTimersShowInListAndPreview(t *testing.T) {
 		t.Error("the template preview should render the BFD timers")
 	}
 }
+
+// BIRD has one namespace for protocols, templates and defines; a clash only
+// surfaced as "Symbol already defined" on the next apply. Both saves refuse it.
+func TestTemplateAndPeerNamesCannotShareABIRDSymbol(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+	peer := peerForm()
+	peer.Set("name", "TRANSIT")
+	if rec := env.do(t, "POST", "/peers/new", peer); rec.Code != http.StatusSeeOther {
+		t.Fatalf("peer create: %d %s", rec.Code, rec.Body)
+	}
+
+	for _, clash := range []struct{ name, owner string }{{"TRANSIT", "peer"}, {"BOGONS_V4", "prefix set"}, {"LOCAL_ASN", "birdy generates"}} {
+		form := templateForm(env, t)
+		form.Set("name", clash.name)
+		rec := env.do(t, "POST", "/peers/templates/new", form)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "already uses this name") || !strings.Contains(rec.Body.String(), clash.owner) {
+			t.Errorf("template %s should be refused for clashing with a %s: %d", clash.name, clash.owner, rec.Code)
+		}
+		if _, err := env.store.GetPeerTemplateByName(clash.name); err == nil {
+			t.Errorf("template %s must not be stored", clash.name)
+		}
+	}
+
+	// Saving a template under its own name is not a clash with itself.
+	tmpl := createTemplate(env, t)
+	form := templateForm(env, t)
+	form.Set("importLimit", "60000")
+	if rec := env.do(t, "POST", "/peers/templates/"+tmpl.Name+"/edit", form); rec.Code != http.StatusSeeOther {
+		t.Errorf("re-saving a template under its own name: %d", rec.Code)
+	}
+
+	// And from the other side: a peer cannot take a template's name.
+	peer.Set("name", tmpl.Name)
+	rec := env.do(t, "POST", "/peers/new", peer)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "already uses this name") {
+		t.Errorf("a peer named like a template should be refused: %d", rec.Code)
+	}
+	if _, err := env.store.GetPeerByName(tmpl.Name); err == nil {
+		t.Error("the clashing peer must not be stored")
+	}
+}
+
+// A template's community references are copied onto every peer linked later,
+// so a community only a template names is still in use: deleting it would
+// make the next attach render an undefined symbol.
+func TestCommunityUsedOnlyByATemplateCannotBeDeleted(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+	if rec := env.do(t, "POST", "/library/communities/new", url.Values{"name": {"NO_EXPORT_X"}, "value": {"65000:7"}}); rec.Code != http.StatusSeeOther {
+		t.Fatalf("community create: %d %s", rec.Code, rec.Body)
+	}
+	form := templateForm(env, t)
+	form.Set("exportCommunities", "NO_EXPORT_X")
+	if rec := env.do(t, "POST", "/peers/templates/new", form); rec.Code != http.StatusSeeOther {
+		t.Fatalf("template create: %d %s", rec.Code, rec.Body)
+	}
+
+	env.do(t, "POST", "/library/communities/NO_EXPORT_X/delete", nil)
+	if _, err := env.store.GetCommunityDefByName("NO_EXPORT_X"); err != nil {
+		t.Errorf("a community a template references must not be deleted: %v", err)
+	}
+	users, err := env.srv.communityInUse("NO_EXPORT_X")
+	if err != nil || len(users) != 1 || users[0] != "peer template IX_PEERS" {
+		t.Errorf("the template should be named as the user: %v %v", users, err)
+	}
+}
+
+// The template preview renders the shape on a sample neighbor. For an iBGP
+// template that neighbor has to be in our own AS, or the preview shows an eBGP
+// session and a false "marked iBGP but its remote AS is…" danger.
+func TestIBGPTemplatePreviewUsesOurOwnAS(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+	form := templateForm(env, t)
+	form.Set("name", "CORE")
+	form.Set("role", "ibgp")
+	form.Del("importPolicyIds")
+	form.Del("exportPolicyIds")
+	body := env.do(t, "POST", "/peers/templates/preview", form).Body.String()
+	if strings.Contains(body, "is marked iBGP but its remote AS") {
+		t.Errorf("an iBGP template preview must not flag its own sample peer:\n%s", body)
+	}
+	if !strings.Contains(body, "as 65551;") {
+		t.Errorf("the sample iBGP neighbor should be in our own AS:\n%s", body)
+	}
+}
+
+// BIRD names are at most 63 characters. The sample peer is named after the
+// template, so a long template name must still give the preview a valid one.
+func TestLongTemplateNamePreviews(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+	form := templateForm(env, t)
+	long := "T" + strings.Repeat("x", 59) // 60 characters: valid, but not with "_example" appended
+	form.Set("name", long)
+	body := env.do(t, "POST", "/peers/templates/preview", form).Body.String()
+	if strings.Contains(body, "Fix the errors above") || !strings.Contains(body, "protocol bgp ") {
+		t.Errorf("a valid long template name should still preview:\n%s", body)
+	}
+}
+
+// A rename that fails validation re-renders the form with the typed name, but
+// the record is still stored under the old one: the form must post back there,
+// or the corrected resubmit hits a 404 and the edit is lost.
+func TestFailedRenameStillPostsToTheStoredName(t *testing.T) {
+	env := newTestEnv(t, false)
+	createTemplate(env, t)
+	form := templateForm(env, t)
+	form.Set("name", "IX_RS")
+	form.Set("exportCommunities", "NO_SUCH_COMMUNITY")
+	body := env.do(t, "POST", "/peers/templates/IX_PEERS/edit", form).Body.String()
+	if !strings.Contains(body, `action="/peers/templates/IX_PEERS/edit"`) {
+		t.Errorf("a failed template rename should post back to the stored name")
+	}
+	if !strings.Contains(body, `value="IX_RS"`) {
+		t.Errorf("the form should keep what the operator typed")
+	}
+	if !strings.Contains(body, `/peers/new?template=IX_PEERS`) {
+		t.Errorf("the template's own links should use the stored name too")
+	}
+
+	peer := peerForm()
+	if rec := env.do(t, "POST", "/peers/new", peer); rec.Code != http.StatusSeeOther {
+		t.Fatalf("peer create: %d", rec.Code)
+	}
+	peer.Set("name", "transit2_v4")
+	peer.Set("multihop", "999")
+	body = env.do(t, "POST", "/peers/transit_v4/edit", peer).Body.String()
+	if !strings.Contains(body, `action="/peers/transit_v4/edit"`) {
+		t.Errorf("a failed peer rename should post back to the stored name")
+	}
+	if !strings.Contains(body, `/peers/templates/new?from=transit_v4`) {
+		t.Errorf("Save as template should start from the stored peer")
+	}
+}
+
+// Delete refuses a policy a template chains; the list must say so too, not
+// show "nothing" beside a policy that cannot be deleted.
+func TestPoliciesListCountsTemplateUse(t *testing.T) {
+	env := newTestEnv(t, false)
+	createTemplate(env, t) // chains IMPORT_SANITY and EXPORT_OWN, with no peers linked
+	body := env.do(t, "GET", "/policies", nil).Body.String()
+	if got := strings.Count(body, `<span class="badge badge-warning">1 template</span>`); got != 2 {
+		t.Errorf("both policies the template chains should show 1 template, found %d", got)
+	}
+}
+
+func TestDeletingALinkedTemplateSaysToDetachFirst(t *testing.T) {
+	env := newTestEnv(t, false)
+	tmpl := createTemplate(env, t)
+	peer := peerForm()
+	peer.Set("templateId", strconv.FormatInt(tmpl.ID, 10))
+	if rec := env.do(t, "POST", "/peers/new", peer); rec.Code != http.StatusSeeOther {
+		t.Fatalf("peer create: %d", rec.Code)
+	}
+	rec := env.do(t, "POST", "/peers/templates/IX_PEERS/delete", nil)
+	if flash := flashOf(rec); !strings.Contains(flash, "used by 1 peer(s): transit_v4") || !strings.Contains(flash, "Detach those peers first") {
+		t.Errorf("a linked template's delete should name the peers and say to detach them: %q", flash)
+	}
+}
+
+// Every library object that renders a BIRD symbol refuses a template's name at
+// save, not only at the next render.
+func TestLibraryObjectsCannotTakeATemplatesName(t *testing.T) {
+	env := newTestEnv(t, false)
+	createTemplate(env, t)
+	for _, c := range []struct {
+		route string
+		form  url.Values
+	}{
+		{"/library/prefix-sets/new", url.Values{"name": {"IX_PEERS"}, "family": {"ipv4"}, "entries": {"192.0.2.0/24"}}},
+		{"/library/as-sets/new", url.Values{"name": {"IX_PEERS"}, "entries": {"64600"}}},
+		{"/library/communities/new", url.Values{"name": {"IX_PEERS"}, "value": {"65000:1"}}},
+		{"/rpki/new", url.Values{"name": {"IX_PEERS"}, "host": {"rtr.example.net"}, "port": {"8282"}, "refresh": {"900"}, "expire": {"172800"}, "enabled": {"on"}}},
+		{"/bmp/new", url.Values{"name": {"IX_PEERS"}, "address": {"203.0.113.5"}, "port": {"1790"}, "enabled": {"on"}}},
+	} {
+		rec := env.do(t, "POST", c.route, c.form)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "already uses this name") {
+			t.Errorf("%s should refuse a template's name: %d", c.route, rec.Code)
+		}
+	}
+}

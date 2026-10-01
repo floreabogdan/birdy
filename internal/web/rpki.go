@@ -202,6 +202,10 @@ func (s *Server) handleRPKISave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	errs := srv.Validate()
+	if err := s.refuseTemplateName(srv.Name, errs); err != nil {
+		s.serverError(w, "check name", err)
+		return
+	}
 	// Disabling the last RTR server while a policy still validates would render
 	// a config in which nothing is checked. Refuse, and say why.
 	if len(errs) == 0 && !srv.Enabled {

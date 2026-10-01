@@ -250,7 +250,13 @@ func (s *Server) handleSeedSave(w http.ResponseWriter, r *http.Request) {
 				t.ApplyTo(&p)
 			}
 		}
-		if errs := p.Validate(); len(errs) > 0 {
+		errs := p.Validate()
+		// A session named like a template would declare that name twice.
+		if err := s.refuseTemplateName(p.Name, errs); err != nil {
+			s.serverError(w, "check peer name", err)
+			return
+		}
+		if len(errs) > 0 {
 			skipped = append(skipped, proto.Name)
 			continue
 		}

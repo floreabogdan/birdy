@@ -117,6 +117,10 @@ func (s *Server) handleASSetSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	errs := as.Validate()
+	if err := s.refuseTemplateName(as.Name, errs); err != nil {
+		s.serverError(w, "check name", err)
+		return
+	}
 	for k, v := range entryErrs {
 		errs[k] = v
 	}

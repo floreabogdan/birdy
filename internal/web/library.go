@@ -124,6 +124,10 @@ func (s *Server) handlePrefixSetSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	errs := ps.Validate()
+	if err := s.refuseTemplateName(ps.Name, errs); err != nil {
+		s.serverError(w, "check name", err)
+		return
+	}
 	if len(errs) == 0 {
 		var err error
 		if isNew {
