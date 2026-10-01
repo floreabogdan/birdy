@@ -135,9 +135,15 @@ func (s *Server) handleCommunityDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Refuse to delete a community a peer or policy still references by name, or
-	// the next render would emit an undefined symbol.
-	if users, err := s.communityInUse(cd.Name); err == nil && len(users) > 0 {
+	// Refuse to delete a community a peer, template or policy still references
+	// by name, or the next render would emit an undefined symbol. If the check
+	// itself fails, refuse too: deleting blind is how that happens.
+	users, err := s.communityInUse(cd.Name)
+	if err != nil {
+		s.serverError(w, "check community use", err)
+		return
+	}
+	if len(users) > 0 {
 		s.flashRedirect(w, r, "/library/communities", "Could not delete "+cd.Name+": still used by "+strings.Join(users, ", "), false)
 		return
 	}
