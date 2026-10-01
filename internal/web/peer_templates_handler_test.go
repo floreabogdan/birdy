@@ -555,6 +555,9 @@ func TestFailedRenameStillPostsToTheStoredName(t *testing.T) {
 	if !strings.Contains(body, `value="IX_RS"`) {
 		t.Errorf("the form should keep what the operator typed")
 	}
+	if !strings.Contains(body, `/peers/new?template=IX_PEERS`) {
+		t.Errorf("the template's own links should use the stored name too")
+	}
 
 	peer := peerForm()
 	if rec := env.do(t, "POST", "/peers/new", peer); rec.Code != http.StatusSeeOther {
@@ -565,6 +568,9 @@ func TestFailedRenameStillPostsToTheStoredName(t *testing.T) {
 	body = env.do(t, "POST", "/peers/transit_v4/edit", peer).Body.String()
 	if !strings.Contains(body, `action="/peers/transit_v4/edit"`) {
 		t.Errorf("a failed peer rename should post back to the stored name")
+	}
+	if !strings.Contains(body, `/peers/templates/new?from=transit_v4`) {
+		t.Errorf("Save as template should start from the stored peer")
 	}
 }
 

@@ -32,7 +32,7 @@
 				{{if and (not .IsTemplate) (not .IsNew)}}
 				<div class="page-header-actions">
 					{{if $inh}}<a class="btn" href="/peers/templates/{{.Peer.TemplateName}}/edit">{{template "icon-edit"}}Edit template {{.Peer.TemplateName}}</a>
-					{{else}}<a class="btn" href="/peers/templates/new?from={{.Peer.Name}}" title="Capture this peer's policy chains, limits and safeguards as a template other peers can link to">{{template "icon-copy"}}Save as template</a>{{end}}
+					{{else}}<a class="btn" href="/peers/templates/new?from={{or .StoredName .Peer.Name}}" title="Capture this peer's policy chains, limits and safeguards as a template other peers can link to">{{template "icon-copy"}}Save as template</a>{{end}}
 				</div>
 				{{end}}
 			</div>
@@ -55,9 +55,9 @@
 				<div class="panel-head">{{template "icon-info"}}{{if .Usage}}{{.Usage}} peer{{if ne .Usage 1}}s{{end}} linked{{else}}No peers linked yet{{end}}</div>
 				<div class="card-body">
 					{{if .Usage}}Saving this template rewrites the policy chains, limits and safeguards of
-					<a href="/peers?template={{.Peer.Name}}">{{if eq .Usage 1}}the peer linked to it{{else}}all {{.Usage}} peers linked to it{{end}}</a>.
+					<a href="/peers?template={{or .StoredName .Peer.Name}}">{{if eq .Usage 1}}the peer linked to it{{else}}all {{.Usage}} peers linked to it{{end}}</a>.
 					Nothing reaches the router until you review the result under <a href="/changes">Changes</a> and apply.
-					{{else}}Link peers to it from the <strong>Template</strong> field on each peer's form, or <a href="/peers/new?template={{.Peer.Name}}">add a new peer from it</a>.{{end}}
+					{{else}}Link peers to it from the <strong>Template</strong> field on each peer's form, or <a href="/peers/new?template={{or .StoredName .Peer.Name}}">add a new peer from it</a>.{{end}}
 				</div>
 			</div>
 			{{end}}
