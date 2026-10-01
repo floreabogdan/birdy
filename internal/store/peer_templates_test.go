@@ -626,8 +626,11 @@ func TestSymbolUsesFindsEveryOwnerOfAName(t *testing.T) {
 		{"LOCAL_ASN", "built-in"},
 		{"BOGON_ASNS", "built-in"},
 		{"kernel4", "built-in"},
-		{"imp_FOO_v4", "built-in"},
-		{"ebgp_in_edge_v4", "built-in"},
+		{"master4", "built-in"},
+		// Derived names clash only when what they derive from exists.
+		{"imp_IMPORT_SANITY_v4", "built-in"},
+		{"ebgp_in_TRANSIT", "built-in"},
+		{"originate_BOGONS_V4", "built-in"},
 	} {
 		uses, err := s.SymbolUses(tc.name)
 		if err != nil {
@@ -637,8 +640,10 @@ func TestSymbolUsesFindsEveryOwnerOfAName(t *testing.T) {
 			t.Errorf("%s: want one %s, got %+v", tc.name, tc.kind, uses)
 		}
 	}
-	if uses, err := s.SymbolUses("FREE_NAME"); err != nil || len(uses) != 0 {
-		t.Errorf("an unused name should have no owner: %+v %v", uses, err)
+	for _, free := range []string{"FREE_NAME", "imp_NO_SUCH_POLICY_v4", "exp_transit", "ebgp_in_nobody", "originate_NOTHING"} {
+		if uses, err := s.SymbolUses(free); err != nil || len(uses) != 0 {
+			t.Errorf("%s should have no owner: %+v %v", free, uses, err)
+		}
 	}
 	if uses, _ := s.SymbolUses("TRANSIT"); uses[0].String() != `peer "TRANSIT"` {
 		t.Errorf("an owner should describe itself for the form error, got %q", uses[0].String())

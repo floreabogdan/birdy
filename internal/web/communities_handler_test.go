@@ -106,7 +106,7 @@ func TestCommunityValidation(t *testing.T) {
 	env := applyReady(t)
 
 	body := env.do(t, "POST", "/library/communities/new", url.Values{"name": {"FROM_UPSTREAM"}, "value": {"65551:1"}}).Body.String()
-	if !strings.Contains(body, "built-in define") {
+	if !strings.Contains(body, "a name birdy or BIRD defines itself") {
 		t.Error("a reserved name should be rejected")
 	}
 	if _, err := env.store.GetCommunityDefByName("FROM_UPSTREAM"); err != store.ErrNotFound {

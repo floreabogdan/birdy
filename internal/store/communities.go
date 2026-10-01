@@ -28,20 +28,14 @@ func (cd CommunityDef) Value() Community {
 // Pattern renders the value the way BIRD writes it, e.g. "(65535, 666)".
 func (cd CommunityDef) Pattern() string { return cd.Value().BIRD() }
 
-// reservedSymbols are the define names birdy generates itself; a library
-// community must not shadow one, or the rendered config has two defines of the
-// same name.
-var reservedSymbols = map[string]bool{
-	"LOCAL_ASN": true, "FROM_UPSTREAM": true, "FROM_IX": true,
-	"FROM_CUSTOMER": true, "RPKI_INVALID": true,
-}
-
 // Validate checks the name and the community value, returning field-keyed errors.
 func (cd *CommunityDef) Validate() map[string]string {
 	name, errs := validateNameDesc(cd.Name, cd.Description)
 	cd.Name = name
-	if reservedSymbols[name] {
-		errs["name"] = name + " is a name birdy uses for a built-in define; pick another."
+	// A library community must not shadow a name birdy or BIRD defines itself,
+	// or the rendered config declares it twice.
+	if builtinSymbols[name] {
+		errs["name"] = name + " is a name birdy or BIRD defines itself; pick another."
 	}
 
 	parts := []int64{cd.A, cd.B}

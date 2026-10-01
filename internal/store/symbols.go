@@ -3,7 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
-	"strings"
+	"regexp"
 )
 
 // SymbolUse is one thing in the model that renders a BIRD symbol of a given
@@ -23,18 +23,28 @@ func (u SymbolUse) String() string {
 	return fmt.Sprintf("%s %q", u.Kind, u.Name)
 }
 
-// builtinSymbols are the names birdy renders on its own, outside any table.
+// builtinSymbols are the names birdy renders on its own, outside any table,
+// and the tables BIRD defines before reading the file.
 var builtinSymbols = map[string]bool{
 	"LOCAL_ASN": true, "FROM_UPSTREAM": true, "FROM_IX": true, "FROM_CUSTOMER": true, "RPKI_INVALID": true,
 	"BOGON_ASNS": true, "BOGON_ASNS_EXCEPT_PRIVATE": true,
 	"rpki4": true, "rpki6": true,
 	"device1": true, "direct1": true, "kernel4": true, "kernel6": true, "bfd1": true,
 	"static_v4": true, "static_v6": true,
+	"master4": true, "master6": true,
 }
 
-// generatedSymbolPrefixes start the names birdy derives from other objects:
-// policy functions, per-peer filters, originator protocols.
-var generatedSymbolPrefixes = []string{"imp_", "exp_", "ebgp_in_", "ebgp_out_", "ibgp_in_", "ibgp_out_", "originate_"}
+// derivedSymbols are the names birdy builds from another object's name —
+// policy functions, per-peer filters, originator protocols. Such a name is
+// taken only while the object it derives from exists.
+var derivedSymbols = []struct {
+	pattern *regexp.Regexp
+	table   string
+}{
+	{regexp.MustCompile(`^(?:imp|exp)_(.+)_v[46]$`), "policies"},
+	{regexp.MustCompile(`^(?:ebgp|ibgp)_(?:in|out)_(.+)$`), "peers"},
+	{regexp.MustCompile(`^originate_(.+)$`), "prefix_sets"},
+}
 
 // symbolTables are the tables whose rows each render a symbol named by their
 // name column.
@@ -56,10 +66,20 @@ func (s *Store) SymbolUses(name string) ([]SymbolUse, error) {
 	if builtinSymbols[name] {
 		out = append(out, SymbolUse{Kind: "built-in", Name: name})
 	}
-	for _, prefix := range generatedSymbolPrefixes {
-		if strings.HasPrefix(name, prefix) {
+	for _, d := range derivedSymbols {
+		m := d.pattern.FindStringSubmatch(name)
+		if m == nil {
+			continue
+		}
+		var one int
+		// The table name comes from the fixed list above, never from input.
+		err := s.db.QueryRow(`SELECT 1 FROM `+d.table+` WHERE name = ?`, m[1]).Scan(&one)
+		if err == nil {
 			out = append(out, SymbolUse{Kind: "built-in", Name: name})
 			break
+		}
+		if err != sql.ErrNoRows {
+			return nil, fmt.Errorf("store: symbol uses in %s: %w", d.table, err)
 		}
 	}
 	for _, st := range symbolTables {
