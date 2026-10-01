@@ -437,3 +437,45 @@ func TestPeerTemplateBFDTimersShowInListAndPreview(t *testing.T) {
 		t.Error("the template preview should render the BFD timers")
 	}
 }
+
+// BIRD has one namespace for protocols, templates and defines; a clash only
+// surfaced as "Symbol already defined" on the next apply. Both saves refuse it.
+func TestTemplateAndPeerNamesCannotShareABIRDSymbol(t *testing.T) {
+	env := newTestEnv(t, false)
+	withIdentity(t, env)
+	peer := peerForm()
+	peer.Set("name", "TRANSIT")
+	if rec := env.do(t, "POST", "/peers/new", peer); rec.Code != http.StatusSeeOther {
+		t.Fatalf("peer create: %d %s", rec.Code, rec.Body)
+	}
+
+	for _, clash := range []struct{ name, owner string }{{"TRANSIT", "peer"}, {"BOGONS_V4", "prefix set"}, {"LOCAL_ASN", "birdy generates"}} {
+		form := templateForm(env, t)
+		form.Set("name", clash.name)
+		rec := env.do(t, "POST", "/peers/templates/new", form)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "already uses this name") || !strings.Contains(rec.Body.String(), clash.owner) {
+			t.Errorf("template %s should be refused for clashing with a %s: %d", clash.name, clash.owner, rec.Code)
+		}
+		if _, err := env.store.GetPeerTemplateByName(clash.name); err == nil {
+			t.Errorf("template %s must not be stored", clash.name)
+		}
+	}
+
+	// Saving a template under its own name is not a clash with itself.
+	tmpl := createTemplate(env, t)
+	form := templateForm(env, t)
+	form.Set("importLimit", "60000")
+	if rec := env.do(t, "POST", "/peers/templates/"+tmpl.Name+"/edit", form); rec.Code != http.StatusSeeOther {
+		t.Errorf("re-saving a template under its own name: %d", rec.Code)
+	}
+
+	// And from the other side: a peer cannot take a template's name.
+	peer.Set("name", tmpl.Name)
+	rec := env.do(t, "POST", "/peers/new", peer)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "already uses this name") {
+		t.Errorf("a peer named like a template should be refused: %d", rec.Code)
+	}
+	if _, err := env.store.GetPeerByName(tmpl.Name); err == nil {
+		t.Error("the clashing peer must not be stored")
+	}
+}

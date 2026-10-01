@@ -186,6 +186,19 @@ func (s *Server) handlePeerTemplateSave(w http.ResponseWriter, r *http.Request) 
 	if msg := s.checkCommunityRefs(t.ImportCommunities); msg != "" {
 		errs["importCommunities"] = msg
 	}
+	// A template renders `template bgp NAME`, so its name must not already be a
+	// peer, a set, a community or anything birdy generates. Another template
+	// with it is the unique index's to report.
+	if _, taken := errs["name"]; !taken {
+		msg, err := s.symbolClash(t.Name, func(u store.SymbolUse) bool { return u.Kind != "peer template" })
+		if err != nil {
+			s.serverError(w, "check template name", err)
+			return
+		}
+		if msg != "" {
+			errs["name"] = msg
+		}
+	}
 
 	var rewrote int
 	if len(errs) == 0 {

@@ -599,3 +599,42 @@ func TestMigrateBFDTimersFromV38(t *testing.T) {
 		t.Errorf("the template save should reach the linked peer: %+v", p)
 	}
 }
+
+// BIRD keeps protocols, templates, defines and functions in one namespace, so
+// a template named like a peer, a set or a community fails `bird -p` with
+// "Symbol already defined" — after the save, on the next apply. SymbolUses is
+// how a save finds out first.
+func TestSymbolUsesFindsEveryOwnerOfAName(t *testing.T) {
+	s := openTest(t)
+	tmpl, _, _, _ := seedTemplateFixture(t, s)
+	p := validPeer()
+	p.Name = "TRANSIT"
+	if _, err := s.CreatePeer(p); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct{ name, kind string }{
+		{"TRANSIT", "peer"},
+		{tmpl.Name, "peer template"},
+		{"BOGONS_V4", "prefix set"},
+		{"LOCAL_ASN", "built-in"},
+		{"BOGON_ASNS", "built-in"},
+		{"kernel4", "built-in"},
+		{"imp_FOO_v4", "built-in"},
+		{"ebgp_in_edge_v4", "built-in"},
+	} {
+		uses, err := s.SymbolUses(tc.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(uses) != 1 || uses[0].Kind != tc.kind {
+			t.Errorf("%s: want one %s, got %+v", tc.name, tc.kind, uses)
+		}
+	}
+	if uses, err := s.SymbolUses("FREE_NAME"); err != nil || len(uses) != 0 {
+		t.Errorf("an unused name should have no owner: %+v %v", uses, err)
+	}
+	if uses, _ := s.SymbolUses("TRANSIT"); uses[0].String() != `peer "TRANSIT"` {
+		t.Errorf("an owner should describe itself for the form error, got %q", uses[0].String())
+	}
+}

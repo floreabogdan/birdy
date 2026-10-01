@@ -146,3 +146,20 @@ func tabParam(r *http.Request, allowed ...string) string {
 func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
+
+// symbolClash returns the form error for a name the config could not load
+// with: BIRD keeps protocols, templates and defines in one namespace, so a
+// second owner fails `bird -p` with "Symbol already defined". counts picks
+// which existing owners matter to this save; "" means the name is free.
+func (s *Server) symbolClash(name string, counts func(store.SymbolUse) bool) (string, error) {
+	uses, err := s.store.SymbolUses(name)
+	if err != nil {
+		return "", err
+	}
+	for _, u := range uses {
+		if counts(u) {
+			return "BIRD keeps every name in one namespace, and " + u.String() + " already uses this name.", nil
+		}
+	}
+	return "", nil
+}
