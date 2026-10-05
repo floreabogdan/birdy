@@ -55,9 +55,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The peer form's role-specific checkbox group for the *other* role (the iBGP
   switches on an eBGP peer, and vice versa) was visible, greyed out, instead of
   hidden: the group's flex layout overrode the `hidden` attribute.
-- A peer rename that failed validation re-rendered the form posting to the new
-  name, so the corrected resubmit hit "not found" and the edit was lost. The form
-  now posts back to the name the peer is stored under.
+- **A rename that failed validation could overwrite another object.** The peer,
+  prefix set, AS set, community, RPKI server, BMP station and policy forms
+  re-rendered posting to the name the operator had typed. If that name was free,
+  the corrected resubmit hit "not found" and the edit was lost; if it was taken —
+  the usual reason a rename is refused — the resubmit saved over the object that
+  held it, replacing its contents, and left the one being edited as it was. Every
+  form now posts back to the name the object is stored under.
 - **Two objects with one BIRD name are caught before BIRD is.** BIRD keeps
   defines, filters, functions, templates and protocols in one namespace, so a peer
   and a prefix set (or community, AS set, RPKI server, BMP station) of the same

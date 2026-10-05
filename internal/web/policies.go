@@ -37,6 +37,9 @@ type policyFormView struct {
 	PreviewErr string
 	// Communities feed the match-community input's autocomplete datalist.
 	Communities []store.CommunityDef
+	// StoredName is the name the policy is saved under. A form re-rendered
+	// after a failed rename posts back to it, not to the name the operator typed.
+	StoredName string
 }
 
 func (s *Server) handlePoliciesList(w http.ResponseWriter, r *http.Request) {
@@ -229,7 +232,7 @@ func (s *Server) handlePolicySave(w http.ResponseWriter, r *http.Request) {
 		s.flashRedirect(w, r, "/policies", "Saved "+p.Name, false)
 		return
 	}
-	s.renderPolicyForm(w, policyFormView{Active: "policies", ReadOnly: s.readOnly, IsNew: isNew, Policy: p, Errs: errs})
+	s.renderPolicyForm(w, policyFormView{Active: "policies", ReadOnly: s.readOnly, IsNew: isNew, StoredName: r.PathValue("name"), Policy: p, Errs: errs})
 }
 
 func (s *Server) handlePolicyDelete(w http.ResponseWriter, r *http.Request) {

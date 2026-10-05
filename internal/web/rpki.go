@@ -71,6 +71,9 @@ type rpkiFormView struct {
 	IsNew    bool
 	Server   store.RPKIServer
 	Errs     map[string]string
+	// StoredName is the name the server is saved under. A form re-rendered
+	// after a failed rename posts back to it, not to the name the operator typed.
+	StoredName string
 }
 
 func (s *Server) handleRPKIPage(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +237,7 @@ func (s *Server) handleRPKISave(w http.ResponseWriter, r *http.Request) {
 		s.flashRedirect(w, r, "/rpki", "Saved "+srv.Name, false)
 		return
 	}
-	render(w, s.log, "rpki_form.html", rpkiFormView{Active: "rpki", ReadOnly: s.readOnly, IsNew: isNew, Server: srv, Errs: errs})
+	render(w, s.log, "rpki_form.html", rpkiFormView{Active: "rpki", ReadOnly: s.readOnly, IsNew: isNew, StoredName: r.PathValue("name"), Server: srv, Errs: errs})
 }
 
 // lastEnabledServerGuard returns a message when turning this server off would

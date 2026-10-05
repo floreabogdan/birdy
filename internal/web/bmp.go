@@ -24,6 +24,9 @@ type bmpFormView struct {
 	IsNew    bool
 	Station  store.BMPStation
 	Errs     map[string]string
+	// StoredName is the name the station is saved under. A form re-rendered
+	// after a failed rename posts back to it, not to the name the operator typed.
+	StoredName string
 }
 
 func (s *Server) handleBMPPage(w http.ResponseWriter, r *http.Request) {
@@ -110,7 +113,7 @@ func (s *Server) handleBMPSave(w http.ResponseWriter, r *http.Request) {
 		s.flashRedirect(w, r, "/bmp", "Saved "+st.Name, false)
 		return
 	}
-	render(w, s.log, "bmp_form.html", bmpFormView{Active: "bmp", ReadOnly: s.readOnly, IsNew: isNew, Station: st, Errs: errs})
+	render(w, s.log, "bmp_form.html", bmpFormView{Active: "bmp", ReadOnly: s.readOnly, IsNew: isNew, StoredName: r.PathValue("name"), Station: st, Errs: errs})
 }
 
 func (s *Server) handleBMPDelete(w http.ResponseWriter, r *http.Request) {
