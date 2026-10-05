@@ -84,9 +84,10 @@ func TestSeedDetectsIBGP(t *testing.T) {
 	}
 }
 
-// A live session named like a template cannot be imported as a peer: the model
-// would then declare that name twice. It is skipped, not created.
-func TestSeedSkipsASessionNamedLikeATemplate(t *testing.T) {
+// templateNamedLikeSession is the fake router's live edge_v4 session plus a
+// peer template that already took the name edge_v4.
+func templateNamedLikeSession(t *testing.T) *testEnv {
+	t.Helper()
 	env := applyReady(t)
 	env.fc.details["edge_v4"] = seedDetail("edge_v4", "198.51.100.1", "64500", "65551", "external")
 	tmpl := store.PeerTemplate{Name: "edge_v4", Role: store.RoleUpstream, ImportLimitAction: "restart"}
@@ -96,6 +97,23 @@ func TestSeedSkipsASessionNamedLikeATemplate(t *testing.T) {
 	if _, err := env.store.CreatePeerTemplate(tmpl, nil, nil); err != nil {
 		t.Fatal(err)
 	}
+	return env
+}
+
+// The seed page says up front that such a session cannot be imported, rather
+// than offering it and skipping it on save.
+func TestSeedPageFlagsASessionNamedLikeATemplate(t *testing.T) {
+	env := templateNamedLikeSession(t)
+	body := env.do(t, "GET", "/peers/seed", nil).Body.String()
+	if !strings.Contains(body, "can't import") || !strings.Contains(body, `peer template &#34;edge_v4&#34; already uses this name`) {
+		t.Errorf("the seed page should flag a session named like a template, body:\n%s", body)
+	}
+}
+
+// A live session named like a template cannot be imported as a peer: the model
+// would then declare that name twice. It is skipped, not created.
+func TestSeedSkipsASessionNamedLikeATemplate(t *testing.T) {
+	env := templateNamedLikeSession(t)
 
 	env.do(t, "POST", "/peers/seed", url.Values{"include": {"edge_v4"}, "role_edge_v4": {"upstream"}})
 	if _, err := env.store.GetPeerByName("edge_v4"); err != store.ErrNotFound {

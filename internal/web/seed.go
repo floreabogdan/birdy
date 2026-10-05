@@ -165,7 +165,12 @@ func (s *Server) discoverSeedRows(ctx context.Context) ([]seedRow, string) {
 		row.Role, row.Multihop, row.Note = p.Role, p.Multihop, note
 		row.V6 = p.IsV6()
 		probe := p
-		if errs := probe.Validate(); len(errs) > 0 {
+		errs := probe.Validate()
+		// The save skips a session named like a template, so say so here
+		// rather than offer it.
+		if err := s.refuseTemplateName(p.Name, errs); err != nil {
+			row.Invalid = "could not check the name: " + err.Error()
+		} else if len(errs) > 0 {
 			row.Invalid = firstFieldError(errs)
 		}
 		rows = append(rows, row)
