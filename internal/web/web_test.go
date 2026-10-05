@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"io"
 	"log/slog"
@@ -244,6 +245,20 @@ func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
 		}
 	}
 	return nil
+}
+
+// sabotageDB runs stmt against the test env's database behind the store's back,
+// to make a store call fail where no input can.
+func sabotageDB(t *testing.T, env *testEnv, stmt string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(filepath.Dir(env.confPath), "birdy.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(stmt); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // flashOf decodes the one-shot flash message from a response's birdy_flash cookie

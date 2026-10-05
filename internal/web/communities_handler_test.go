@@ -101,6 +101,22 @@ func TestCommunityReferenceGuards(t *testing.T) {
 	}
 }
 
+// The in-use check is what keeps a delete from leaving an undefined symbol
+// behind; when the check cannot run, the delete must not go ahead blind.
+func TestCommunityDeleteRefusesWhenTheUseCheckFails(t *testing.T) {
+	env := newTestEnv(t, false)
+	if rec := env.do(t, "POST", "/library/communities/new", url.Values{"name": {"CUST_TAG"}, "value": {"65000:7"}}); rec.Code != 303 {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	sabotageDB(t, env, `ALTER TABLE peer_templates RENAME TO peer_templates_gone`)
+	if rec := env.do(t, "POST", "/library/communities/CUST_TAG/delete", nil); rec.Code == 303 {
+		t.Errorf("the delete went ahead although the in-use check failed: %q", flashOf(rec))
+	}
+	if _, err := env.store.GetCommunityDefByName("CUST_TAG"); err != nil {
+		t.Errorf("the community should still exist: %v", err)
+	}
+}
+
 // A reserved name and a malformed value are rejected without creating anything.
 func TestCommunityValidation(t *testing.T) {
 	env := applyReady(t)
