@@ -19,7 +19,7 @@ than a large one that broadens the project's scope. If you disagree with the opi
 
 ## Development
 
-Requires Go 1.25+. There is no frontend build step — the UI is server-rendered `html/template`
+Requires Go 1.26+. There is no frontend build step — the UI is server-rendered `html/template`
 with `go:embed` and a little vanilla JavaScript, and there will not be a node toolchain.
 
 ```sh

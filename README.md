@@ -137,7 +137,7 @@ uses OpenRC, so you supply your own service under it.)
 <details>
 <summary><b>go install</b></summary>
 
-Requires Go 1.25+. The binary is static (`CGO_ENABLED=0`); SQLite is
+Requires Go 1.26+. The binary is static (`CGO_ENABLED=0`); SQLite is
 [modernc.org/sqlite](https://modernc.org/sqlite), so there is nothing to link against.
 
 ```sh

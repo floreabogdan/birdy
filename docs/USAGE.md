@@ -70,7 +70,7 @@ over a local Unix control socket. It is not a controller for a fleet.
 
 **Build (only if you compile birdy yourself):**
 
-- **Go 1.25+**. The binary is fully static: `CGO_ENABLED=0`, and SQLite is the
+- **Go 1.26+**. The binary is fully static: `CGO_ENABLED=0`, and SQLite is the
   pure-Go [modernc.org/sqlite](https://modernc.org/sqlite), so there is nothing to
   link against and nothing to install at runtime.
 
@@ -112,7 +112,7 @@ begin with a public endpoint. birdy never dials RTR itself — it configures BIR
 
 ### Go (only to build from source)
 
-Install Go 1.25+ from [go.dev/dl](https://go.dev/dl/). Not needed if you download a
+Install Go 1.26+ from [go.dev/dl](https://go.dev/dl/). Not needed if you download a
 prebuilt binary or use Docker.
 
 ---

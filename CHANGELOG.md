@@ -50,6 +50,9 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The peer names `new`, `seed`, `preview`, `templates` and `attach` are refused:
   each is a page under `/peers/` that the router serves before the peer-name
   wildcard, so a peer so named could be created but never opened.
+- Building from source needs **Go 1.26** or later: the SQLite driver and
+  `golang.org/x/crypto` now require it. Release binaries and packages are
+  unaffected.
 
 ### Fixed
 - The peer form's role-specific checkbox group for the *other* role (the iBGP
