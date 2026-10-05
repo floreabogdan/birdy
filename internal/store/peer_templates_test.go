@@ -2,11 +2,13 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Every field of Peer is either identity — it stays the peer's own — or shape,
@@ -376,6 +378,11 @@ func TestDeleteGuardsNameWhatStandsInTheWay(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "1 peer(s): edge_v4") {
 		t.Errorf("deleting a linked template should refuse and name the peer, got %v", err)
 	}
+	// Typed, so the UI can tell "detach these first" from any other failure.
+	var inUse *TemplateInUseError
+	if !errors.As(err, &inUse) || len(inUse.Peers) != 1 || inUse.Peers[0] != "edge_v4" {
+		t.Errorf("the refusal should be a TemplateInUseError naming edge_v4, got %#v", err)
+	}
 	// NO_DEFAULT is in the template's chain and, through it, the peer's.
 	err = s.DeletePolicy(noDefault.ID)
 	if err == nil || !strings.Contains(err.Error(), "1 peer(s) and 1 peer template(s)") {
@@ -597,5 +604,189 @@ func TestMigrateBFDTimersFromV38(t *testing.T) {
 	}
 	if p, _ = st.GetPeerByName("nav_v4"); p.BFDInterval != 300 || p.BFDMultiplier != 10 {
 		t.Errorf("the template save should reach the linked peer: %+v", p)
+	}
+}
+
+// BIRD keeps protocols, templates, defines and functions in one namespace, so
+// a template named like a peer, a set or a community fails `bird -p` with
+// "Symbol already defined" — after the save, on the next apply. SymbolUses is
+// how a save finds out first.
+func TestSymbolUsesFindsEveryOwnerOfAName(t *testing.T) {
+	s := openTest(t)
+	tmpl, _, _, _ := seedTemplateFixture(t, s)
+	p := validPeer()
+	p.Name = "TRANSIT"
+	if _, err := s.CreatePeer(p); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct{ name, kind string }{
+		{"TRANSIT", "peer"},
+		{tmpl.Name, "peer template"},
+		{"BOGONS_V4", "prefix set"},
+		{"LOCAL_ASN", "built-in"},
+		{"BOGON_ASNS", "built-in"},
+		{"kernel4", "built-in"},
+		{"master4", "built-in"},
+		// Derived names clash only when what they derive from exists.
+		{"imp_IMPORT_SANITY_v4", "built-in"},
+		{"ebgp_in_TRANSIT", "built-in"},
+		{"originate_BOGONS_V4", "built-in"},
+	} {
+		uses, err := s.SymbolUses(tc.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(uses) != 1 || uses[0].Kind != tc.kind {
+			t.Errorf("%s: want one %s, got %+v", tc.name, tc.kind, uses)
+		}
+	}
+	for _, free := range []string{"FREE_NAME", "imp_NO_SUCH_POLICY_v4", "exp_transit", "ebgp_in_nobody", "originate_NOTHING"} {
+		if uses, err := s.SymbolUses(free); err != nil || len(uses) != 0 {
+			t.Errorf("%s should have no owner: %+v %v", free, uses, err)
+		}
+	}
+	if uses, _ := s.SymbolUses("TRANSIT"); uses[0].String() != `peer "TRANSIT"` {
+		t.Errorf("an owner should describe itself for the form error, got %q", uses[0].String())
+	}
+}
+
+// Drain is an eBGP signal; validateShape clears it when a peer is iBGP. A
+// template can make a peer iBGP without the peer form ever running, so the
+// shape write clears it too — or the iBGP filters would carry graceful
+// shutdown and local-pref 0, from a switch the form then hides.
+func TestTemplatePathsClearDrainWhenThePeerBecomesIBGP(t *testing.T) {
+	s := openTest(t)
+	ibgp := PeerTemplate{Name: "CORE", Role: RoleIBGP, ImportLimitAction: "restart"}
+	if errs := ibgp.Validate(); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	id, err := s.CreatePeerTemplate(ibgp, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := validPeer()
+	p.Drained = true
+	pid, err := s.CreatePeer(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkPeerToTemplate(pid, id); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetPeer(pid); got.Role != RoleIBGP || got.Drained {
+		t.Errorf("linking to an iBGP template should clear the drain: %+v", got)
+	}
+
+	// The same through a template save that changes the role.
+	ix, sanity, _, _ := seedTemplateFixture(t, s)
+	q := validPeer()
+	q.Name, q.Drained = "rs1_v4", true
+	qid, err := s.CreatePeer(q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkPeerToTemplate(qid, ix.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetPeer(qid); !got.Drained {
+		t.Fatalf("an eBGP template should leave the drain alone: %+v", got)
+	}
+	ix.Role = RoleIBGP
+	if errs := ix.Validate(); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if _, err := s.UpdatePeerTemplate(ix, []int64{sanity.ID}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetPeer(qid); got.Drained {
+		t.Errorf("a template turned iBGP should clear its peers' drain: %+v", got)
+	}
+}
+
+// A bulk attach is all or nothing: one peer that cannot be linked leaves every
+// other peer in the request as it was, instead of half the selection rewritten.
+func TestAttachPeersIsAllOrNothing(t *testing.T) {
+	s := openTest(t)
+	tmpl, _, _, _ := seedTemplateFixture(t, s)
+	var ids []int64
+	for _, name := range []string{"rs1_v4", "rs2_v4"} {
+		p := validPeer()
+		p.Name, p.ImportLimit = name, 7
+		id, err := s.CreatePeer(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, id)
+	}
+
+	if err := s.AttachPeers([]int64{ids[0], 9999}, tmpl.ID); err != ErrNotFound {
+		t.Fatalf("attaching a missing peer should be ErrNotFound, got %v", err)
+	}
+	if p, _ := s.GetPeer(ids[0]); p.TemplateID.Valid || p.ImportLimit != 7 {
+		t.Errorf("a failed bulk attach must not have linked anyone: %+v", p)
+	}
+
+	if err := s.AttachPeers(ids, tmpl.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if p, _ := s.GetPeer(id); !p.TemplateID.Valid || p.ImportLimit != 50000 {
+			t.Errorf("both peers should be linked with the template's shape: %+v", p)
+		}
+	}
+	if err := s.AttachPeers(ids, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if p, _ := s.GetPeer(id); p.TemplateID.Valid || p.ImportLimit != 50000 {
+			t.Errorf("detaching keeps the values and drops the link: %+v", p)
+		}
+	}
+	if err := s.AttachPeers(ids, 9999); err != ErrNotFound {
+		t.Errorf("attaching to a missing template should be ErrNotFound, got %v", err)
+	}
+}
+
+// Everything AttachPeers reads goes through its transaction. A read through the
+// pool while the transaction holds a connection waits for a second one, and
+// with the pool exhausted that wait never ends.
+func TestAttachPeersReadsOnlyThroughItsTransaction(t *testing.T) {
+	s := openTest(t)
+	tmpl, _, _, _ := seedTemplateFixture(t, s) // its chain has an export policy
+	id, err := s.CreatePeer(validPeer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.db.SetMaxOpenConns(1)
+	done := make(chan error, 1)
+	go func() { done <- s.AttachPeers([]int64{id}, tmpl.ID) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("AttachPeers blocked on a second connection while holding its transaction")
+	}
+}
+
+// Template 0 means "detach" only to AttachPeers, which says so. Linking to an
+// unset template is a caller's mistake, not a detach.
+func TestLinkingToTemplateZeroIsNotADetach(t *testing.T) {
+	s := openTest(t)
+	tmpl, _, _, _ := seedTemplateFixture(t, s)
+	id, err := s.CreatePeer(validPeer())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkPeerToTemplate(id, tmpl.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkPeerToTemplate(id, 0); err != ErrNotFound {
+		t.Errorf("linking to template 0 should be ErrNotFound, got %v", err)
+	}
+	if p, _ := s.GetPeer(id); !p.TemplateID.Valid {
+		t.Error("a failed link must leave the peer linked as it was")
 	}
 }

@@ -61,7 +61,7 @@ func TestLintFoldsIdenticalFindingsByTemplate(t *testing.T) {
 	var folded, perPeer, ownLines, private int
 	for _, w := range ws {
 		switch {
-		case w.Peer == "IX_PEERS (3 peers)" && strings.HasPrefix(w.Message, "No import limit"):
+		case w.Peer == "IX_PEERS: rs1_v4, rs2_v4, rs3_v4" && strings.HasPrefix(w.Message, "No import limit"):
 			folded++
 		case strings.HasPrefix(w.Peer, "rs") && strings.HasPrefix(w.Message, "No import limit"):
 			perPeer++
@@ -262,5 +262,31 @@ func TestTemplateBlockCarriesBFDTimers(t *testing.T) {
 	}
 	if blk := block(t, out, "protocol bgp rs1_v4 from IX_PEERS {"); strings.Contains(blk, "bfd") {
 		t.Errorf("a linked peer must leave BFD to the template:\n%s", blk)
+	}
+}
+
+// A folded line still has to say which sessions it is about: the finding may be
+// one the template cannot fix (a drain, a link-local neighbor), and the
+// operator has to find the peers. It folds by distinct peer, so one peer that
+// trips the same check twice is not "2 peers".
+func TestFoldNamesThePeersAndCountsThemOnce(t *testing.T) {
+	var peers []store.Peer
+	for _, n := range []string{"rs1_v4", "rs2_v4", "rs3_v4", "rs4_v4", "rs5_v4", "rs6_v4", "rs7_v4"} {
+		peers = append(peers, store.Peer{Name: n, TemplateName: "IX_PEERS"})
+	}
+	w := func(peer string) Warning { return Warning{Severity: "warning", Peer: peer, Message: "same thing"} }
+
+	if got := foldByTemplate([]Warning{w("rs1_v4"), w("rs1_v4")}, peers); len(got) != 2 || got[0].Peer != "rs1_v4" {
+		t.Errorf("one peer's repeated finding must not fold as if it were two peers: %+v", got)
+	}
+	if got := foldByTemplate([]Warning{w("rs1_v4"), w("rs1_v4"), w("rs2_v4")}, peers); len(got) != 1 || got[0].Peer != "IX_PEERS: rs1_v4, rs2_v4" {
+		t.Errorf("two distinct peers should fold into one line naming both: %+v", got)
+	}
+	var all []Warning
+	for _, p := range peers {
+		all = append(all, w(p.Name))
+	}
+	if got := foldByTemplate(all, peers); len(got) != 1 || got[0].Peer != "IX_PEERS: rs1_v4, rs2_v4, rs3_v4, rs4_v4, rs5_v4 and 2 more" {
+		t.Errorf("a long group should name the first five and count the rest: %+v", got)
 	}
 }

@@ -92,6 +92,10 @@ func (s *Server) handleCommunitySave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	errs := cd.Validate()
+	if err := s.refuseTemplateName(cd.Name, errs); err != nil {
+		s.serverError(w, "check name", err)
+		return
+	}
 	if valueErr != "" {
 		errs["value"] = valueErr
 	}
@@ -131,9 +135,15 @@ func (s *Server) handleCommunityDelete(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	// Refuse to delete a community a peer or policy still references by name, or
-	// the next render would emit an undefined symbol.
-	if users, err := s.communityInUse(cd.Name); err == nil && len(users) > 0 {
+	// Refuse to delete a community a peer, template or policy still references
+	// by name, or the next render would emit an undefined symbol. If the check
+	// itself fails, refuse too: deleting blind is how that happens.
+	users, err := s.communityInUse(cd.Name)
+	if err != nil {
+		s.serverError(w, "check community use", err)
+		return
+	}
+	if len(users) > 0 {
 		s.flashRedirect(w, r, "/library/communities", "Could not delete "+cd.Name+": still used by "+strings.Join(users, ", "), false)
 		return
 	}
@@ -173,7 +183,9 @@ func (s *Server) checkCommunityRefs(text string) string {
 	return "Unknown community: " + strings.Join(missing, ", ") + ". Define it under Library → Communities."
 }
 
-// communityInUse lists the peers and policies that reference a community by name.
+// communityInUse lists the peers, peer templates and policies that reference a
+// community by name. A template counts even with no peers linked: attaching one
+// later copies its references onto the peer.
 func (s *Server) communityInUse(name string) ([]string, error) {
 	var users []string
 	peers, err := s.store.ListPeers()
@@ -186,6 +198,16 @@ func (s *Server) communityInUse(name string) ([]string, error) {
 		}
 		if slices.Contains(store.NamedCommunityRefs(p.ImportCommunities), name) {
 			users = append(users, "peer "+p.Name)
+		}
+	}
+	templates, err := s.store.ListPeerTemplates()
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range templates {
+		if slices.Contains(store.NamedCommunityRefs(t.ExportCommunities), name) ||
+			slices.Contains(store.NamedCommunityRefs(t.ImportCommunities), name) {
+			users = append(users, "peer template "+t.Name)
 		}
 	}
 	policies, err := s.store.ListPolicies()

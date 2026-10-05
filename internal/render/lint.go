@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"net/netip"
+	"slices"
 	"strings"
 
 	"github.com/floreabogdan/birdy/internal/store"
@@ -387,14 +388,25 @@ func foldByTemplate(ws []Warning, peers []store.Peer) []Warning {
 	folded := map[int]Warning{} // first member's index -> the one finding that replaces the group
 	drop := map[int]bool{}
 	for k, idx := range members {
-		if len(idx) < 2 {
+		// Fold by distinct peer: one peer tripping the same check twice is not a
+		// pattern across the template.
+		var names []string
+		for _, i := range idx {
+			if !slices.Contains(names, ws[i].Peer) {
+				names = append(names, ws[i].Peer)
+			}
+		}
+		if len(names) < 2 {
 			continue
 		}
-		folded[idx[0]] = Warning{
-			Severity: k.severity,
-			Peer:     fmt.Sprintf("%s (%d peers)", k.template, len(idx)),
-			Message:  k.message,
+		// The line still names its peers: the finding may be one the template
+		// cannot fix (a drain, a link-local neighbor), and the operator has to
+		// find the sessions either way.
+		label := k.template + ": " + strings.Join(names[:min(len(names), 5)], ", ")
+		if len(names) > 5 {
+			label += fmt.Sprintf(" and %d more", len(names)-5)
 		}
+		folded[idx[0]] = Warning{Severity: k.severity, Peer: label, Message: k.message}
 		for _, i := range idx[1:] {
 			drop[i] = true
 		}

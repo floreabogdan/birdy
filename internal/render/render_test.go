@@ -1143,3 +1143,34 @@ func TestOnlyVetoRejectsCarryAMessage(t *testing.T) {
 		}
 	}
 }
+
+// BIRD keeps defines, functions, filters, templates and protocols in one
+// namespace. Two of them sharing a name pass every per-object check but fail
+// `bird -p` with "Symbol already defined"; the renderer is the one place that
+// sees every symbol, so it refuses the model with a message naming both.
+func TestRenderRefusesTwoSymbolsOfOneName(t *testing.T) {
+	in := baseInput()
+	p := ebgpPeer()
+	p.Name = "TRANSIT"
+	in.PrefixSets = append(bogonSets(), store.PrefixSet{ID: 40, Name: "TRANSIT", Family: store.FamilyV4,
+		Entries: []store.PrefixEntry{{Prefix: "192.0.2.0/24"}}})
+	in.Peers = []store.Peer{p}
+	_, err := Config(in)
+	if err == nil || !strings.Contains(err.Error(), `"TRANSIT"`) || !strings.Contains(err.Error(), "define") || !strings.Contains(err.Error(), "protocol bgp") {
+		t.Fatalf("a peer and a prefix set of one name should be refused, naming both: %v", err)
+	}
+
+	// BIRD's own implicit tables count too.
+	p.Name = "master4"
+	in.PrefixSets, in.Peers = bogonSets(), []store.Peer{p}
+	if _, err := Config(in); err == nil || !strings.Contains(err.Error(), "master4") {
+		t.Errorf("a peer named like BIRD's master4 table should be refused: %v", err)
+	}
+
+	// Raw config is BIRD's to judge: a commented-out block there is not a clash.
+	p.Name = "edge_v4"
+	in.Peers, in.RawConfig = []store.Peer{p}, "/*\ndefine LOCAL_ASN = 1;\n*/"
+	if _, err := Config(in); err != nil {
+		t.Errorf("raw config must not be scanned for symbols: %v", err)
+	}
+}

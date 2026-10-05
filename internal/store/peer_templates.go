@@ -180,14 +180,25 @@ func (s *Store) GetPeerTemplateByName(name string) (PeerTemplate, error) {
 }
 
 func (s *Store) getTemplate(query string, arg any) (PeerTemplate, error) {
-	t, err := scanTemplate(s.db.QueryRow(query, arg))
+	return s.getTemplateIn(s.db, query, arg)
+}
+
+// rowQuerier is querier plus single-row reads, so a template or a peer can be
+// read inside the transaction that is about to write from it.
+type rowQuerier interface {
+	querier
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+func (s *Store) getTemplateIn(q rowQuerier, query string, arg any) (PeerTemplate, error) {
+	t, err := scanTemplate(q.QueryRow(query, arg))
 	if err == sql.ErrNoRows {
 		return PeerTemplate{}, ErrNotFound
 	}
 	if err != nil {
 		return PeerTemplate{}, fmt.Errorf("store: get peer template: %w", err)
 	}
-	if t.ImportPolicies, t.ExportPolicies, err = s.chainFor(s.db, "template_policies", "template_id", t.ID); err != nil {
+	if t.ImportPolicies, t.ExportPolicies, err = s.chainFor(q, "template_policies", "template_id", t.ID); err != nil {
 		return PeerTemplate{}, err
 	}
 	return t, nil
@@ -293,40 +304,69 @@ func (s *Store) UpdatePeerTemplate(t PeerTemplate, importIDs, exportIDs []int64)
 // template's shape over the peer's own. Overrides are cleared: a peer that
 // changes template takes the new template's word for everything.
 func (s *Store) LinkPeerToTemplate(peerID, templateID int64) error {
-	t, err := s.GetPeerTemplate(templateID)
-	if err != nil {
-		return err
+	if templateID == 0 {
+		return ErrNotFound // 0 is AttachPeers' "detach", never a template
 	}
-	p, err := s.GetPeer(peerID)
-	if err != nil {
-		return err
-	}
-	p.TemplateOverrides = ""
-	t.ApplyTo(&p)
+	return s.AttachPeers([]int64{peerID}, templateID)
+}
+
+// AttachPeers links every peer to a template — or, with templateID 0, detaches
+// them — in one transaction. The template and each peer are read inside it, so
+// a template save that commits meanwhile cannot leave a peer linked to the
+// shape it replaced, and one peer that cannot be linked leaves the rest as
+// they were rather than half the selection rewritten.
+func (s *Store) AttachPeers(peerIDs []int64, templateID int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if err := updatePeerShape(tx, p); err != nil {
-		return err
+	var t PeerTemplate
+	if templateID != 0 {
+		// Write before reading: SQLite takes the write lock at the first write,
+		// and a transaction that read first cannot upgrade once another
+		// connection has committed since (SQLITE_BUSY_SNAPSHOT, which
+		// busy_timeout does not retry). Touching the template's own row takes
+		// the lock, waiting its turn, and proves the template exists.
+		res, err := tx.Exec(`UPDATE peer_templates SET updated_at = updated_at WHERE id = ?`, templateID)
+		if err != nil {
+			return fmt.Errorf("store: lock peer template: %w", err)
+		}
+		if err := affectedOne(res); err != nil {
+			return err
+		}
+		if t, err = s.getTemplateIn(tx, `SELECT `+templateCols+` FROM peer_templates WHERE id = ?`, templateID); err != nil {
+			return err
+		}
 	}
-	if err := replaceChain(tx, "peer_policies", "peer_id", p.ID, PolicyIDs(t.ImportPolicies), PolicyIDs(t.ExportPolicies)); err != nil {
-		return err
+	for _, id := range peerIDs {
+		if templateID == 0 {
+			res, err := tx.Exec(`UPDATE peers SET template_id = NULL, template_overrides = '', updated_at = ? WHERE id = ?`, now(), id)
+			if err != nil {
+				return fmt.Errorf("store: detach peer: %w", err)
+			}
+			if err := affectedOne(res); err != nil {
+				return err
+			}
+			continue
+		}
+		p, err := scanPeer(tx.QueryRow(`SELECT `+peerCols+` FROM peers WHERE id = ?`, id))
+		if err == sql.ErrNoRows {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("store: get peer: %w", err)
+		}
+		p.TemplateOverrides = ""
+		t.ApplyTo(&p)
+		if err := updatePeerShape(tx, p); err != nil {
+			return err
+		}
+		if err := replaceChain(tx, "peer_policies", "peer_id", p.ID, PolicyIDs(t.ImportPolicies), PolicyIDs(t.ExportPolicies)); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
-}
-
-// DetachPeer clears a peer's link and its overrides, leaving every value it
-// inherited in place: the peer now owns the shape it had. The bulk "detach"
-// on the peers list and nothing else goes through here; the form detaches by
-// saving the peer with no template.
-func (s *Store) DetachPeer(peerID int64) error {
-	res, err := s.db.Exec(`UPDATE peers SET template_id = NULL, template_overrides = '', updated_at = ? WHERE id = ?`, now(), peerID)
-	if err != nil {
-		return fmt.Errorf("store: detach peer: %w", err)
-	}
-	return affectedOne(res)
 }
 
 // PolicyIDs lists a chain's ids in order, for the chain writers.
@@ -376,6 +416,37 @@ func (s *Store) TemplateUsage() (map[int64]int, error) {
 	return out, rows.Err()
 }
 
+// TemplatePolicyUsage counts, per policy id, the templates whose chain holds it.
+func (s *Store) TemplatePolicyUsage() (map[int64]int, error) {
+	rows, err := s.db.Query(`SELECT policy_id, COUNT(*) FROM template_policies GROUP BY policy_id`)
+	if err != nil {
+		return nil, fmt.Errorf("store: template policy usage: %w", err)
+	}
+	defer rows.Close()
+	out := map[int64]int{}
+	for rows.Next() {
+		var id int64
+		var n int
+		if err := rows.Scan(&id, &n); err != nil {
+			return nil, err
+		}
+		out[id] = n
+	}
+	return out, rows.Err()
+}
+
+// TemplateInUseError is DeletePeerTemplate refusing a template that peers
+// still link to — the one failure the operator fixes by detaching them.
+type TemplateInUseError struct{ Peers []string }
+
+func (e *TemplateInUseError) Error() string {
+	shown := e.Peers
+	if len(shown) > 5 {
+		shown = append(shown[:5:5], "…")
+	}
+	return fmt.Sprintf("store: template is used by %d peer(s): %s", len(e.Peers), strings.Join(shown, ", "))
+}
+
 // DeletePeerTemplate refuses while any peer still links to the template:
 // detaching them silently would leave thirty sessions owning a shape nobody
 // chose for them on purpose. The foreign key is the backstop; this is the
@@ -386,11 +457,7 @@ func (s *Store) DeletePeerTemplate(id int64) error {
 		return err
 	}
 	if len(users) > 0 {
-		shown := users
-		if len(shown) > 5 {
-			shown = append(shown[:5:5], "…")
-		}
-		return fmt.Errorf("store: template is used by %d peer(s): %s", len(users), strings.Join(shown, ", "))
+		return &TemplateInUseError{Peers: users}
 	}
 	res, err := s.db.Exec(`DELETE FROM peer_templates WHERE id = ?`, id)
 	if err != nil {

@@ -36,6 +36,10 @@ type peerFormView struct {
 	// ClonedFrom names the peer a new form was pre-filled from, so the operator
 	// knows the shape came from somewhere and only the identity needs its values.
 	ClonedFrom string
+	// StoredName is the name the record is saved under, which the form posts
+	// back to. It differs from the shown name only when a rename failed
+	// validation and the form re-renders with what the operator typed.
+	StoredName string
 	// PeeringDB reports whether the PeeringDB lookup is enabled, so the form can
 	// show the "look up ASN" button.
 	PeeringDB bool
@@ -300,6 +304,12 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 	if msg := s.checkCommunityRefs(p.ImportCommunities); msg != "" {
 		errs["importCommunities"] = msg
 	}
+	// Another peer with the name is the unique index's to report; a template
+	// with it would be a second `bgp` symbol of the same name.
+	if err := s.refuseTemplateName(p.Name, errs); err != nil {
+		s.serverError(w, "check peer name", err)
+		return
+	}
 
 	if len(errs) == 0 {
 		var err error
@@ -336,7 +346,7 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 	if all, aerr := s.store.ListPolicies(); aerr == nil {
 		p.ImportPolicies, p.ExportPolicies = s.resolvePolicies(all, importIDs), s.resolvePolicies(all, exportIDs)
 	}
-	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: isNew, Peer: p, Errs: errs})
+	s.renderPeerForm(w, peerFormView{Active: "peers", ReadOnly: s.readOnly, IsNew: isNew, StoredName: r.PathValue("name"), Peer: p, Errs: errs})
 }
 
 // handlePeersAttach links every selected peer to one template — or, with no
@@ -355,10 +365,19 @@ func (s *Server) handlePeersAttach(w http.ResponseWriter, r *http.Request) {
 		s.flashRedirect(w, r, "/peers", "Select at least one peer first.", true)
 		return
 	}
+	// The action is explicit: "detach", or a template id. An empty choice is
+	// the select's placeholder, and must never fall through to either.
+	choice := r.FormValue("templateId")
+	if choice == "" {
+		s.flashRedirect(w, r, "/peers", "Choose whether to attach the selected peers to a template or detach them.", true)
+		return
+	}
 	var tmpl store.PeerTemplate
-	if id := formNullInt(r, "templateId"); id.Valid {
-		t, err := s.store.GetPeerTemplate(id.Int64)
-		if err == store.ErrNotFound {
+	if choice != "detach" {
+		id, perr := strconv.ParseInt(choice, 10, 64)
+		var err error
+		tmpl, err = s.store.GetPeerTemplate(id)
+		if perr != nil || err == store.ErrNotFound {
 			s.flashRedirect(w, r, "/peers", "That template no longer exists.", true)
 			return
 		}
@@ -366,10 +385,10 @@ func (s *Server) handlePeersAttach(w http.ResponseWriter, r *http.Request) {
 			s.serverError(w, "get peer template", err)
 			return
 		}
-		tmpl = t
 	}
 
 	var done, missing []string
+	var ids []int64
 	for _, name := range names {
 		p, err := s.store.GetPeerByName(name)
 		if err == store.ErrNotFound {
@@ -380,16 +399,23 @@ func (s *Server) handlePeersAttach(w http.ResponseWriter, r *http.Request) {
 			s.serverError(w, "get peer", err)
 			return
 		}
-		if tmpl.ID != 0 {
-			err = s.store.LinkPeerToTemplate(p.ID, tmpl.ID)
-		} else {
-			err = s.store.DetachPeer(p.ID)
-		}
-		if err != nil {
-			s.serverError(w, "attach peer to template", err)
+		ids, done = append(ids, p.ID), append(done, name)
+	}
+	// One transaction for the whole selection: either every peer moves, or —
+	// on any error — none does, so a failure never leaves a half-attached,
+	// unaudited group.
+	if len(ids) > 0 {
+		err := s.store.AttachPeers(ids, tmpl.ID)
+		if err == store.ErrNotFound {
+			// A peer or the template was deleted between the lookups above and
+			// the transaction; it rolled back, so say so rather than fail.
+			s.flashRedirect(w, r, "/peers", "A selected peer or the template was deleted meanwhile, so nothing was changed. Try again.", true)
 			return
 		}
-		done = append(done, name)
+		if err != nil {
+			s.serverError(w, "attach peers to template", err)
+			return
+		}
 	}
 
 	var msg string
@@ -510,7 +536,7 @@ func (s *Server) renderPeerForm(w http.ResponseWriter, v peerFormView) {
 		// declared "from" the template as it is on the form right now.
 		t := store.TemplateFromPeer(v.Peer)
 		t.Name, t.Description = v.Peer.Name, v.Peer.Description
-		subject, templates = samplePeer(t), []store.PeerTemplate{t}
+		subject, templates = samplePeer(t, s.localASN()), []store.PeerTemplate{t}
 	}
 	var perr error
 	if v.Preview, v.PreviewErr, v.Warnings, perr = s.previewWithLibrary(subject, policies, templates); perr != nil {

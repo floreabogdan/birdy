@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
+	"github.com/floreabogdan/birdy/internal/store"
 )
 
 // seedDetail is the fake client's ProtocolDetail for a discovered session.
@@ -80,5 +81,24 @@ func TestSeedDetectsIBGP(t *testing.T) {
 	}
 	if !p.NextHopSelf {
 		t.Error("a seeded iBGP peer should default to next-hop-self")
+	}
+}
+
+// A live session named like a template cannot be imported as a peer: the model
+// would then declare that name twice. It is skipped, not created.
+func TestSeedSkipsASessionNamedLikeATemplate(t *testing.T) {
+	env := applyReady(t)
+	env.fc.details["edge_v4"] = seedDetail("edge_v4", "198.51.100.1", "64500", "65551", "external")
+	tmpl := store.PeerTemplate{Name: "edge_v4", Role: store.RoleUpstream, ImportLimitAction: "restart"}
+	if errs := tmpl.Validate(); len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if _, err := env.store.CreatePeerTemplate(tmpl, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	env.do(t, "POST", "/peers/seed", url.Values{"include": {"edge_v4"}, "role_edge_v4": {"upstream"}})
+	if _, err := env.store.GetPeerByName("edge_v4"); err != store.ErrNotFound {
+		t.Errorf("a session named like a template must not be imported: %v", err)
 	}
 }

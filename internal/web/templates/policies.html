@@ -61,7 +61,7 @@
 								{{if eq .BogonASNs "all"}}<span class="chip">no bogon ASNs</span>
 								{{else if eq .BogonASNs "except_private"}}<span class="chip chip-info">private ASNs ok</span>{{end}}
 							</td>
-							<td>{{$n := index $.InUse .ID}}{{if $n}}<span class="badge badge-warning">{{$n}} peer{{if ne $n 1}}s{{end}}</span>{{else}}<span class="text-muted">nothing</span>{{end}}</td>
+							<td>{{$n := index $.InUse .ID}}{{$tn := index $.TemplateUse .ID}}{{if $n}}<span class="badge badge-warning">{{$n}} peer{{if ne $n 1}}s{{end}}</span>{{end}}{{if $tn}}{{if $n}} {{end}}<span class="badge badge-warning">{{$tn}} template{{if ne $tn 1}}s{{end}}</span>{{end}}{{if not (or $n $tn)}}<span class="text-muted">nothing</span>{{end}}</td>
 							<td class="row-actions">
 								<a class="icon-action a-primary" href="/policies/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
 								<form method="post" action="/policies/{{.Name}}/delete" data-confirm="Delete policy {{.Name}}?">
@@ -105,7 +105,7 @@
 									{{if .AnnounceFromCustomer}}<span class="chip">from customers</span>{{end}}
 								{{end}}
 							</td>
-							<td>{{$n := index $.InUse .ID}}{{if $n}}<span class="badge badge-warning">{{$n}} peer{{if ne $n 1}}s{{end}}</span>{{else}}<span class="text-muted">nothing</span>{{end}}</td>
+							<td>{{$n := index $.InUse .ID}}{{$tn := index $.TemplateUse .ID}}{{if $n}}<span class="badge badge-warning">{{$n}} peer{{if ne $n 1}}s{{end}}</span>{{end}}{{if $tn}}{{if $n}} {{end}}<span class="badge badge-warning">{{$tn}} template{{if ne $tn 1}}s{{end}}</span>{{end}}{{if not (or $n $tn)}}<span class="text-muted">nothing</span>{{end}}</td>
 							<td class="row-actions">
 								<a class="icon-action a-primary" href="/policies/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
 								<form method="post" action="/policies/{{.Name}}/delete" data-confirm="Delete policy {{.Name}}?">

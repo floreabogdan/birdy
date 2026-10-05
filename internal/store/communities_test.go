@@ -17,3 +17,14 @@ func TestParseMatchCommunity(t *testing.T) {
 		t.Error("out-of-range should be rejected")
 	}
 }
+
+// A community renders `define NAME`, so it cannot take any name birdy defines
+// itself — the same list the template check uses, not a shorter copy of it.
+func TestCommunityCannotTakeABuiltinName(t *testing.T) {
+	for _, name := range []string{"LOCAL_ASN", "BOGON_ASNS", "rpki4", "master6"} {
+		cd := CommunityDef{Name: name, A: 65000, B: 1}
+		if _, bad := cd.Validate()["name"]; !bad {
+			t.Errorf("a community named %s should be refused", name)
+		}
+	}
+}

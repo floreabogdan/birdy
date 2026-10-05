@@ -499,18 +499,26 @@ func (s *Store) UpdatePeer(p Peer) error {
 // and the link itself. It is how a template save and a link reach into a peer
 // without touching its identity, password or operational state, and it runs
 // inside the caller's transaction so thirty peers change together or not at all.
+//
+// The one exception to "shape only" is the drain. It is the peer's own switch,
+// but an eBGP one: validateShape clears it on an iBGP peer, and a template can
+// make a peer iBGP without the peer form ever running, so the shape write
+// clears it too rather than leave graceful shutdown on an internal session.
 func updatePeerShape(tx *sql.Tx, p Peer) error {
+	if p.IsIBGP() {
+		p.Drained = false
+	}
 	res, err := tx.Exec(`
 		UPDATE peers SET role = ?, multihop = ?, passive = ?, import_limit = ?, import_limit_action = ?,
 		                 import_communities = ?, export_communities = ?, prepend_count = ?,
 		                 enforce_first_as = ?, origin_peer_only = ?, bgp_role = ?, gtsm = ?, bfd = ?, bfd_interval = ?, bfd_multiplier = ?, graceful_restart = ?,
-		                 next_hop_self = ?, rr_client = ?, ibgp_export_default = ?,
+		                 next_hop_self = ?, rr_client = ?, ibgp_export_default = ?, drained = ?,
 		                 template_id = ?, template_overrides = ?, updated_at = ?
 		WHERE id = ?`,
 		p.Role, p.Multihop, p.Passive, p.ImportLimit, p.ImportLimitAction,
 		p.ImportCommunities, p.ExportCommunities, p.PrependCount,
 		p.EnforceFirstAS, p.OriginPeerOnly, p.BGPRole, p.GTSM, p.BFD, p.BFDInterval, p.BFDMultiplier, p.GracefulRestart,
-		p.NextHopSelf, p.RRClient, p.IBGPExportDefault,
+		p.NextHopSelf, p.RRClient, p.IBGPExportDefault, p.Drained,
 		p.TemplateID, p.TemplateOverrides, now(), p.ID)
 	if err != nil {
 		return fmt.Errorf("store: update peer shape: %w", err)
