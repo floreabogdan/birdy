@@ -599,6 +599,21 @@ func TestDeletingALinkedTemplateSaysToDetachFirst(t *testing.T) {
 	}
 }
 
+// Only a template peers link to is fixed by detaching them; a delete that fails
+// for another reason must not send the operator off to detach peers.
+func TestAnUnlinkedTemplatesFailedDeleteDoesNotSayDetach(t *testing.T) {
+	env := newTestEnv(t, false)
+	createTemplate(env, t) // no peers linked
+	sabotageDB(t, env, `CREATE TRIGGER keep_templates BEFORE DELETE ON peer_templates BEGIN SELECT RAISE(ABORT, 'disk on fire'); END`)
+	flash := flashOf(env.do(t, "POST", "/peers/templates/IX_PEERS/delete", nil))
+	if !strings.Contains(flash, "disk on fire") {
+		t.Fatalf("the delete should fail and say why: %q", flash)
+	}
+	if strings.Contains(flash, "Detach") {
+		t.Errorf("an unlinked template's failed delete should not say to detach peers: %q", flash)
+	}
+}
+
 // Every library object that renders a BIRD symbol refuses a template's name at
 // save, not only at the next render.
 func TestLibraryObjectsCannotTakeATemplatesName(t *testing.T) {

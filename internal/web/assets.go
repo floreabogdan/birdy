@@ -29,6 +29,9 @@ type asSetFormView struct {
 	Errs       map[string]string
 	Preview    string
 	PreviewErr string
+	// StoredName is the name the set is saved under. A form re-rendered after
+	// a failed rename posts back to it, not to the name the operator typed.
+	StoredName string
 }
 
 func (s *Server) handleASSetsList(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +149,8 @@ func (s *Server) handleASSetSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderASSetForm(w, asSetFormView{
-		Active: "library", ReadOnly: s.readOnly, IsNew: isNew, Set: as, EntryText: entryText, Errs: errs,
+		Active: "library", ReadOnly: s.readOnly, IsNew: isNew, StoredName: r.PathValue("name"),
+		Set: as, EntryText: entryText, Errs: errs,
 	})
 }
 

@@ -26,6 +26,9 @@ type communityFormView struct {
 	Value   string
 	Errs    map[string]string
 	Preview string
+	// StoredName is the name the community is saved under. A form re-rendered
+	// after a failed rename posts back to it, not to the name the operator typed.
+	StoredName string
 }
 
 func (s *Server) handleCommunitiesList(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +128,7 @@ func (s *Server) handleCommunitySave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.renderCommunityForm(w, communityFormView{
-		Active: "library", ReadOnly: s.readOnly, IsNew: isNew, Def: cd,
+		Active: "library", ReadOnly: s.readOnly, IsNew: isNew, StoredName: r.PathValue("name"), Def: cd,
 		Value: r.FormValue("value"), Errs: errs,
 	})
 }

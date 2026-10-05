@@ -26,6 +26,9 @@ type prefixSetFormView struct {
 	Preview    string
 	PreviewErr string
 	Bgpq4      bool // whether IRR expansion is enabled
+	// StoredName is the name the set is saved under. A form re-rendered after
+	// a failed rename posts back to it, not to the name the operator typed.
+	StoredName string
 }
 
 func (s *Server) handlePrefixSetsList(w http.ResponseWriter, r *http.Request) {
@@ -148,7 +151,7 @@ func (s *Server) handlePrefixSetSave(w http.ResponseWriter, r *http.Request) {
 		s.flashRedirect(w, r, "/library/prefix-sets", "Saved "+ps.Name, false)
 		return
 	}
-	s.renderPrefixSetForm(w, prefixSetFormView{Active: "library", ReadOnly: s.readOnly, IsNew: isNew, Set: ps, Errs: errs})
+	s.renderPrefixSetForm(w, prefixSetFormView{Active: "library", ReadOnly: s.readOnly, IsNew: isNew, StoredName: r.PathValue("name"), Set: ps, Errs: errs})
 }
 
 func (s *Server) handlePrefixSetDelete(w http.ResponseWriter, r *http.Request) {
