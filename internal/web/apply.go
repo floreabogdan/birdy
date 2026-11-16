@@ -155,9 +155,31 @@ func hashBytes(b []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// syncFile flushes an open file or directory to stable storage. A variable so a
+// test can see what is synced, and in which order.
+var syncFile = func(f *os.File) error { return f.Sync() }
+
+// syncDir flushes a directory, making a rename inside it durable. Best-effort:
+// some filesystems cannot sync a directory and say so with an error, and by
+// then the rename has happened and the file's own content is already flushed.
+func syncDir(dir string) {
+	d, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	defer d.Close()
+	_ = syncFile(d)
+}
+
 // atomicWriteFile writes content to path via a temp file in the same directory
 // and a rename, so a reader never sees a half-written file. 0640 keeps session
 // passwords readable only by birdy and BIRD's group.
+//
+// The temp file is synced before the rename and the directory after it. Without
+// the first, a power cut shortly after the rename can leave the new name
+// pointing at an empty or truncated file; without the second, the rename itself
+// may not have reached the disk. Either way BIRD would come back up on a config
+// nobody applied, or fail to start.
 func atomicWriteFile(path, content string, perm os.FileMode) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".birdy-tmp-*")
 	if err != nil {
@@ -173,10 +195,18 @@ func atomicWriteFile(path, content string, perm os.FileMode) error {
 		tmp.Close()
 		return err
 	}
+	if err := syncFile(tmp); err != nil {
+		tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, path)
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	syncDir(filepath.Dir(path))
+	return nil
 }
 
 // writeFileSet writes bird.conf and its birdy.d/ includes. Includes are written
@@ -188,7 +218,19 @@ func atomicWriteFile(path, content string, perm os.FileMode) error {
 //
 // The write is not atomic across the whole set, but nothing reads it until birdy
 // itself asks BIRD to reconfigure, which happens only after this returns.
+//
+// Include names are paths relative to the config directory, and a set can come
+// from the database (a stored version, a pending apply), so every name is
+// checked against what the renderer produces before the first file is written:
+// one bad name refuses the whole set. Stored sets are verified more thoroughly
+// where they are read (fileSetFor); this is the check at the point of the write,
+// which holds whatever path a set took to get here.
 func (s *Server) writeFileSet(set birdconf.FileSet) error {
+	for _, f := range set.Includes {
+		if err := birdconf.ValidIncludeName(f.Name); err != nil {
+			return err
+		}
+	}
 	keep := make(map[string]bool, len(set.Includes))
 	for _, f := range set.Includes {
 		abs := filepath.Join(s.configDir(), filepath.FromSlash(f.Name))
@@ -268,17 +310,45 @@ func (s *Server) snapshotConfig(now time.Time) (string, error) {
 	return dest, nil
 }
 
+// checkBackupPath refuses a backup path that is not one snapshotConfig could
+// have returned. The path of a pending apply's backup is stored in the database
+// and later read from and copied over bird.conf, so a database restored from a
+// crafted backup could otherwise point it at any file birdy can read. Every
+// backup birdy has ever made sits directly in the backup directory under a name
+// starting "bird.": a snapshot directory "bird.<time>" today, a single file
+// "bird.conf.<time>.bak" before the split layout. Empty is valid and means
+// there was no config to back up.
+//
+// The comparison is on cleaned paths, so "<backup dir>/../x" does not pass, and
+// it is lexical on purpose: the directory is birdy's own, and what is being
+// kept out is a path from the database, not a symlink planted on the router.
+func (s *Server) checkBackupPath(backup string) error {
+	if backup == "" {
+		return nil
+	}
+	clean := filepath.Clean(backup)
+	if filepath.Dir(clean) != filepath.Clean(s.birdBackupDir) || !strings.HasPrefix(filepath.Base(clean), "bird.") {
+		return fmt.Errorf("backup path %q is not one of birdy's backups in %s", backup, s.birdBackupDir)
+	}
+	return nil
+}
+
 // restoreConfig makes the live config match a backup, undoing a write. It handles
 // both new-style snapshot directories (bird.conf + birdy.d/) and older single
 // .bak files. An empty path means the backed-up state was "no config", so
-// bird.conf and birdy.d are removed.
+// bird.conf and birdy.d are removed. A path that is not one of birdy's own
+// backups is refused before anything is read or written.
 func (s *Server) restoreConfig(backup string) error {
+	if err := s.checkBackupPath(backup); err != nil {
+		return err
+	}
 	if backup == "" {
 		if err := os.Remove(s.birdConfPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 		return s.pruneIncludeDir(nil)
 	}
+	backup = filepath.Clean(backup) // the path that was checked
 	info, err := os.Stat(backup)
 	if err != nil {
 		return err
@@ -410,12 +480,27 @@ const revertGrace = 5 * time.Second
 // apply this unblocks would stack on the armed config and make it BIRD's undo
 // target. Late only means the panel shows 0s for a few seconds; a confirm in
 // that window gets BIRD's "nothing to do" and is recorded as reverted.
+//
+// This runs on a page view, so it is reachable in read-only mode, where birdy
+// must neither write BIRD's files nor send BIRD commands. There it only records
+// the revert — BIRD did that on its own whether or not anyone records it — and
+// says in the record that the files and filters were left as they were.
 func (s *Server) reconcilePending() error {
 	pending, ok, err := s.store.PendingConfigVersion()
 	if err != nil || !ok {
 		return err
 	}
 	if !pending.Expired(time.Now().Add(-revertGrace)) {
+		return nil
+	}
+	if s.readOnly {
+		if err := s.store.ResolveConfigVersion(pending.ID, store.ConfigReverted,
+			"Auto-reverted: the apply was not confirmed within the safety timeout."+
+				" The config files were not restored and the filters were not re-run because birdy is read-only;"+
+				" check from a read-write birdy that bird.conf on disk is the previous config."); err != nil {
+			return err
+		}
+		s.emitEvent(store.EventConfigRevert, "", "Config apply auto-reverted (not confirmed in time)")
 		return nil
 	}
 	// The auto-revert reconcile is self-healing, not tied to one request, so it
@@ -762,14 +847,24 @@ func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Both the files to write and the backup to fall back on come from the
+	// pending row. If either is not something birdy stored, stop before the first
+	// write: BIRD is untouched and still armed, the previous config is on disk,
+	// and a rollback (or BIRD's own timeout) clears it.
+	set, err := s.fileSetFor(pending)
+	if err == nil {
+		err = s.checkBackupPath(pending.BackupPath)
+	}
+	if err != nil {
+		s.log.Error("pending apply failed its checks at confirm", "version", pending.ID, "error", err)
+		s.redirectChanges(w, r, "This apply cannot be confirmed: what birdy stored for it does not pass its checks ("+
+			err.Error()+"). Nothing was written. Roll back to clear it.")
+		return
+	}
+
 	// Write the new config to disk first, so if confirm fails we can roll the
 	// files back and leave nothing half-applied. On success this is what BIRD is
 	// already running from memory.
-	set, err := fileSetFor(pending)
-	if err != nil {
-		s.serverError(w, "decode pending file set", err)
-		return
-	}
 	if err := s.writeFileSet(set); err != nil {
 		// Some files may already be the new ones; a BIRD restart must not load
 		// that mix. BIRD is untouched and still armed, so the apply stays pending.
@@ -874,12 +969,20 @@ func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
 // fileSetFor reconstructs the on-disk layout a stored version should write. A
 // version saved with the split layout carries the exact set; an older
 // single-file version falls back to writing its text as bird.conf alone.
-func fileSetFor(v store.ConfigVersion) (birdconf.FileSet, error) {
+//
+// The set is data from the database, and it is about to become file names and
+// file contents, so it is verified here: its names are ones the renderer
+// produces, and it says the same thing as the version's config text — the text
+// `bird -p` checks and the operator sees. See FileSet.Verify.
+func (s *Server) fileSetFor(v store.ConfigVersion) (birdconf.FileSet, error) {
 	if v.ConfigFiles == "" {
 		return birdconf.FileSet{Entry: v.ConfigText}, nil
 	}
 	var set birdconf.FileSet
 	if err := json.Unmarshal([]byte(v.ConfigFiles), &set); err != nil {
+		return birdconf.FileSet{}, fmt.Errorf("decode the stored file set: %w", err)
+	}
+	if err := set.Verify(v.ConfigText, s.configDir()); err != nil {
 		return birdconf.FileSet{}, err
 	}
 	return set, nil
