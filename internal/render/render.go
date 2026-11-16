@@ -15,7 +15,8 @@
 // Nothing here escapes or quotes untrusted input. Every value that reaches the
 // output has already been checked by store.Peer.Validate, store.Policy.Validate
 // or store.PrefixSet.Validate; names are restricted to BIRD symbols and
-// addresses are re-serialised from netip.
+// addresses are re-serialised from netip, which is safe only because the store
+// refuses an IPv6 zone: netip keeps whatever follows "%" verbatim.
 package render
 
 import (
@@ -597,7 +598,9 @@ func kernelProtectedAddrs(in Input, v4 bool) []netip.Addr {
 	add := func(raw string) {
 		addr, err := netip.ParseAddr(strings.TrimSpace(raw))
 		if err == nil && addr.Is4() == v4 {
-			seen[addr] = true
+			// A peer saved before the store refused zones may still say
+			// "fe80::1%eth0", which BIRD does not parse as a filter operand.
+			seen[addr.WithZone("")] = true
 		}
 	}
 	if v4 {

@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 )
 
@@ -455,5 +456,74 @@ func TestPeerValidatesBFDTimers(t *testing.T) {
 	}
 	if p.BFDInterval != 0 || p.BFDMultiplier != 0 {
 		t.Errorf("timers should be cleared when BFD is off: %+v", p)
+	}
+}
+
+// netip accepts any non-empty zone after "%" and String() hands it back
+// verbatim, so a zone is free text that every address validator would carry
+// straight into bird.conf. The first value is a working route leak: it closes
+// the neighbor line, opens an import-all/export-all channel and a second
+// session. The second is the honest form, which still breaks the parse once
+// the kernel filter quotes the address back. Every validator that writes an
+// address into the config must refuse both.
+func TestConfigAddressesRefuseZones(t *testing.T) {
+	zoned := []string{
+		"2001:db8::1%x as 64497;\n\tipv6 { import all; export all; };\n}\nprotocol bgp edge_shadow {",
+		"fe80::1%eth0",
+	}
+	for _, z := range zoned {
+		checks := []struct {
+			name, field string
+			errs        func() map[string]string
+		}{
+			{"peer neighbor", "neighborIp", func() map[string]string {
+				p := validPeer()
+				p.NeighborIP, p.Interface = z, "eth0"
+				return p.Validate()
+			}},
+			{"peer local address", "localIp", func() map[string]string {
+				p := validPeer()
+				p.NeighborIP, p.LocalIP = "2001:db8::2", z
+				return p.Validate()
+			}},
+			{"peer tunnel endpoint", "transportEndpoint", func() map[string]string {
+				p := validPeer()
+				p.TransportEndpoint = z
+				return p.Validate()
+			}},
+			{"static next hop", "nextHop", func() map[string]string {
+				r := StaticRoute{Prefix: "2001:db8:1::/48", Action: StaticVia, NextHop: z}
+				return r.Validate()
+			}},
+			{"RPKI server", "host", func() map[string]string {
+				s := RPKIServer{Name: "rtr", Host: z, Port: 323}
+				return s.Validate()
+			}},
+			{"BMP station", "address", func() map[string]string {
+				b := BMPStation{Name: "bmp", Address: z, Port: 1790}
+				return b.Validate()
+			}},
+			{"kernel preferred source", "prefsrc", func() map[string]string {
+				st := Settings{KernelPrefSrcV6: z}
+				if msg := st.ValidateKernelPrefSrcV6(); msg != "" {
+					return map[string]string{"prefsrc": msg}
+				}
+				return nil
+			}},
+		}
+		for _, c := range checks {
+			if msg := c.errs()[c.field]; msg == "" {
+				t.Errorf("%s accepted the zoned address %q", c.name, z)
+			} else if !strings.Contains(msg, "%zone") {
+				t.Errorf("%s: the message should say the zone is the problem, got %q", c.name, msg)
+			}
+		}
+	}
+
+	// A link-local peer still works the supported way: the interface in its field.
+	p := validPeer()
+	p.NeighborIP, p.Interface = "fe80::1", "eth0"
+	if errs := p.Validate(); len(errs) != 0 {
+		t.Fatalf("a link-local neighbor with an interface should validate: %v", errs)
 	}
 }

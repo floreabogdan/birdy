@@ -58,6 +58,35 @@ var ibgpExportDefaults = map[string]bool{IBGPExportAll: true, IBGPExportNone: tr
 // not a plain BIRD symbol is rejected at the model boundary, not escaped.
 var birdIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 
+// errAddrZone marks an address that parsed only because it carries an IPv6
+// zone ("fe80::1%eth0").
+var errAddrZone = errors.New("store: address carries a zone")
+
+// Messages for a zoned address. A peer has a field for the interface, so it is
+// told where the name goes; nothing else that takes an address has a use for one.
+const (
+	zoneMsg     = "Enter the address without a %zone suffix."
+	peerZoneMsg = "Enter the address without a %zone suffix; put the interface in the Interface field."
+)
+
+// parseConfigAddr parses an IP address that will be written into bird.conf.
+// netip accepts any non-empty zone after "%" — spaces, quotes, semicolons,
+// braces, newlines — and String() hands it back unchanged, so a zone is free
+// text that would otherwise ride a validated address into the config and close
+// the statement around it. Zones are refused outright rather than vetted: birdy
+// renders the interface from its own field, and a zone repeated in a filter
+// expression does not parse even when it is an honest interface name.
+func parseConfigAddr(s string) (netip.Addr, error) {
+	addr, err := netip.ParseAddr(strings.TrimSpace(s))
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	if addr.Zone() != "" {
+		return netip.Addr{}, errAddrZone
+	}
+	return addr, nil
+}
+
 // reservedPeerNames are path segments the router serves under /peers/ before
 // the {name} wildcard gets a look in, so a peer called "new" could be created
 // but never opened. Refuse them at the model boundary rather than let the URL
@@ -254,16 +283,21 @@ func (p *Peer) Validate() map[string]string {
 		p.TemplateOverrides = ""
 	}
 
-	neighbor, err := netip.ParseAddr(strings.TrimSpace(p.NeighborIP))
-	if err != nil || !neighbor.IsValid() {
+	neighbor, err := parseConfigAddr(p.NeighborIP)
+	switch {
+	case errors.Is(err, errAddrZone):
+		errs["neighborIp"] = peerZoneMsg
+	case err != nil:
 		errs["neighborIp"] = "Enter a valid IPv4 or IPv6 address."
-	} else {
+	default:
 		p.NeighborIP = neighbor.String()
 	}
 
 	if p.LocalIP = strings.TrimSpace(p.LocalIP); p.LocalIP != "" {
-		local, localErr := netip.ParseAddr(p.LocalIP)
+		local, localErr := parseConfigAddr(p.LocalIP)
 		switch {
+		case errors.Is(localErr, errAddrZone):
+			errs["localIp"] = peerZoneMsg
 		case localErr != nil:
 			errs["localIp"] = "Enter a valid IP address, or leave blank to let BIRD pick."
 		case neighbor.IsValid() && local.Is4() != neighbor.Is4():
@@ -285,10 +319,13 @@ func (p *Peer) Validate() map[string]string {
 	}
 	p.TransportEndpoint = strings.TrimSpace(p.TransportEndpoint)
 	if p.TransportEndpoint != "" {
-		endpoint, endpointErr := netip.ParseAddr(p.TransportEndpoint)
-		if endpointErr != nil || !endpoint.IsValid() || endpoint.IsUnspecified() {
+		endpoint, endpointErr := parseConfigAddr(p.TransportEndpoint)
+		switch {
+		case errors.Is(endpointErr, errAddrZone):
+			errs["transportEndpoint"] = zoneMsg
+		case endpointErr != nil || endpoint.IsUnspecified():
 			errs["transportEndpoint"] = "Enter the tunnel's outer IPv4 or IPv6 endpoint."
-		} else {
+		default:
 			p.TransportEndpoint = endpoint.String()
 		}
 	}

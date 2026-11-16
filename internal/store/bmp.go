@@ -53,7 +53,9 @@ func (b *BMPStation) Validate() map[string]string {
 		errs["address"] = "BIRD's BMP station takes an IP address, not a hostname."
 	default:
 		// Re-serialise so the rendered config carries a canonical form.
-		if addr, err := netip.ParseAddr(b.Address); err == nil {
+		if addr, err := parseConfigAddr(b.Address); err != nil {
+			errs["address"] = zoneMsg
+		} else {
 			b.Address = addr.String()
 		}
 	}

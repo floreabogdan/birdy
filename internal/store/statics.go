@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/netip"
 	"strings"
@@ -81,8 +82,10 @@ func (r *StaticRoute) Validate() map[string]string {
 		return errs
 	}
 
-	hop, err := netip.ParseAddr(strings.TrimSpace(r.NextHop))
+	hop, err := parseConfigAddr(r.NextHop)
 	switch {
+	case errors.Is(err, errAddrZone):
+		errs["nextHop"] = zoneMsg
 	case err != nil:
 		errs["nextHop"] = "Enter the address of the router that should receive this traffic."
 	case hop.IsUnspecified() || hop.IsMulticast():
