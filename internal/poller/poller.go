@@ -11,6 +11,7 @@ import (
 	"maps"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
@@ -133,6 +134,12 @@ type Poller struct {
 	lastGoodPoll   time.Time
 	lastStatus     birdc.Status
 	lastStatusAt   time.Time
+
+	// RPKI feed state (see rpki.go): rpki is replaced under mu by the poll
+	// goroutine; lastRPKI is touched only there; rpkiRefresh may be set from any.
+	rpki        map[string]RPKIFeed
+	lastRPKI    time.Time
+	rpkiRefresh atomic.Bool
 }
 
 // SetNotifier attaches an alert sink. Call before Run.
@@ -432,6 +439,8 @@ func (p *Poller) poll(ctx context.Context) {
 	p.initialized = true
 	p.snap = Snapshot{Status: status, Protocols: protocols, States: next, TotalRoutes: prev.TotalRoutes, UpdatedAt: now}
 	p.mu.Unlock()
+
+	p.refreshRPKI(ctx, protocols, p.clock())
 
 	now = p.clock()
 	if p.lastRouteCount.IsZero() || now.Sub(p.lastRouteCount) >= routeCountInterval {

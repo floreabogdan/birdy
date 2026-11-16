@@ -201,6 +201,8 @@ func (s *Server) renderInput(mask bool) (birdconf.Input, string, error) {
 		Version:           buildinfo.Version,
 		Generated:         time.Now(),
 		MaskSecrets:       mask,
+
+		KernelNetlinkRxBufferMB: settings.KernelNetlinkRxBufferMB,
 	}
 	switch {
 	case !ok:

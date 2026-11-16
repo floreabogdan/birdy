@@ -102,6 +102,9 @@ type Input struct {
 	KernelPrefSrcV6   string
 	KernelExportBGPV4 bool
 	KernelExportBGPV6 bool
+	// KernelNetlinkRxBufferMB, when set, raises the netlink receive buffer on both
+	// kernel protocols (see store.Settings). 0 renders nothing.
+	KernelNetlinkRxBufferMB int
 	// RawConfig is appended verbatim at the end of the file. birdy neither
 	// parses it nor knows what it does.
 	RawConfig string
@@ -492,6 +495,9 @@ func writeRPKIProtocols(b *strings.Builder, enabled []store.RPKIServer) {
 		if srv.Expire > 0 {
 			fmt.Fprintf(b, "\texpire keep %d;\n", srv.Expire)
 		}
+		if srv.MaxVersion > 0 {
+			fmt.Fprintf(b, "\tmax version %d;\n", srv.MaxVersion)
+		}
 		b.WriteString("}\n\n")
 	}
 }
@@ -540,7 +546,9 @@ protocol direct direct1 {
 # Kernel route installation is opt-in. Never learn from the FIB, and never
 # install imported BGP routes into it by default.
 protocol kernel kernel4 {
-	ipv4 {
+`)
+	writeNetlinkRxBuffer(b, in.KernelNetlinkRxBufferMB)
+	b.WriteString(`	ipv4 {
 		import none;
 `)
 	writeKernelExport(b, in.KernelPrefSrcV4, in.KernelExportBGPV4, kernelProtectedAddrs(in, true))
@@ -548,7 +556,9 @@ protocol kernel kernel4 {
 }
 
 protocol kernel kernel6 {
-	ipv6 {
+`)
+	writeNetlinkRxBuffer(b, in.KernelNetlinkRxBufferMB)
+	b.WriteString(`	ipv6 {
 		import none;
 `)
 	writeKernelExport(b, in.KernelPrefSrcV6, in.KernelExportBGPV6, kernelProtectedAddrs(in, false))
@@ -556,6 +566,16 @@ protocol kernel kernel6 {
 }
 
 `)
+}
+
+// writeNetlinkRxBuffer emits the kernel protocol's netlink receive buffer. BIRD
+// applies the largest value across its kernel protocols to the one netlink
+// socket, so both carry the same line rather than leaving it to whichever is
+// read first.
+func writeNetlinkRxBuffer(b *strings.Builder, mb int) {
+	if mb > 0 {
+		fmt.Fprintf(b, "\tnetlink rx buffer %d;\n", mb*1024*1024)
+	}
 }
 
 // writeKernelExport admits only explicitly selected route sources. Birdy-

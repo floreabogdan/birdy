@@ -105,6 +105,7 @@ func (s *Server) renderSettings(w http.ResponseWriter, v SettingsView) {
 			stored.KernelPrefSrcV6 = v.Settings.KernelPrefSrcV6
 			stored.KernelExportBGPV4 = v.Settings.KernelExportBGPV4
 			stored.KernelExportBGPV6 = v.Settings.KernelExportBGPV6
+			stored.KernelNetlinkRxBufferMB = v.Settings.KernelNetlinkRxBufferMB
 			v.Settings = stored
 		}
 	}
@@ -287,6 +288,8 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 		KernelPrefSrcV6:   r.FormValue("kernelPrefsrcV6"),
 		KernelExportBGPV4: r.FormValue("kernelExportBgpV4") == "on",
 		KernelExportBGPV6: r.FormValue("kernelExportBgpV6") == "on",
+
+		KernelNetlinkRxBufferMB: formInt(r, "kernelNetlinkRxBufferMb"),
 	}
 	if msg := probe.ValidateRRClusterID(); msg != "" {
 		errs["rrClusterId"] = msg
@@ -296,6 +299,9 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 	}
 	if msg := probe.ValidateKernelPrefSrcV6(); msg != "" {
 		errs["kernelPrefsrcV6"] = msg
+	}
+	if msg := probe.ValidateKernelNetlinkRxBuffer(); msg != "" {
+		errs["kernelNetlinkRxBufferMb"] = msg
 	}
 
 	if len(errs) > 0 {
@@ -308,6 +314,7 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 		v.Settings.KernelPrefSrcV6 = probe.KernelPrefSrcV6
 		v.Settings.KernelExportBGPV4 = probe.KernelExportBGPV4
 		v.Settings.KernelExportBGPV6 = probe.KernelExportBGPV6
+		v.Settings.KernelNetlinkRxBufferMB = probe.KernelNetlinkRxBufferMB
 		s.renderSettings(w, v)
 		return
 	}
@@ -320,6 +327,7 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 	settings.KernelPrefSrcV6 = probe.KernelPrefSrcV6
 	settings.KernelExportBGPV4 = probe.KernelExportBGPV4
 	settings.KernelExportBGPV6 = probe.KernelExportBGPV6
+	settings.KernelNetlinkRxBufferMB = probe.KernelNetlinkRxBufferMB
 	if err := s.store.SaveSettings(settings); err != nil {
 		s.serverError(w, "save settings", err)
 		return

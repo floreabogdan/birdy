@@ -37,7 +37,18 @@ type RPKIServer struct {
 	Refresh int
 	Retry   int
 	Expire  int
+	// MaxVersion caps the RTR protocol version BIRD offers: 1 or 2, or
+	// RTRVersionDefault (0, the zero value) to leave it to BIRD. BIRD 2.16+ starts
+	// at version 2 and steps down when a cache answers "unsupported version"; a
+	// cache that drops the connection instead keeps the session from ever coming
+	// up, and pinning 1 is the way out. Pinning 0 is not offered: BIRD already
+	// steps down to it, and making 0 mean "default" keeps an unset field from
+	// ever rendering a pin. Needs BIRD 2.16 or later when set.
+	MaxVersion int
 }
+
+// RTRVersionDefault leaves the RTR version to BIRD: no "max version" line.
+const RTRVersionDefault = 0
 
 // IsIP reports whether Host is an address literal rather than a name; BIRD
 // wants the former unquoted and the latter quoted.
@@ -78,14 +89,17 @@ func (s *RPKIServer) Validate() map[string]string {
 	if s.Expire > 0 && s.Refresh > 0 && s.Expire <= s.Refresh {
 		errs["expire"] = "Expire must be longer than refresh, or the ROA table will time out between updates."
 	}
+	if s.MaxVersion < 0 || s.MaxVersion > 2 {
+		errs["max_version"] = "Choose RTR version 1 or 2, or leave it to BIRD."
+	}
 	return errs
 }
 
-const rpkiCols = `id, name, description, host, port, enabled, refresh, retry, expire`
+const rpkiCols = `id, name, description, host, port, enabled, refresh, retry, expire, max_version`
 
 func scanRPKI(sc scanner) (RPKIServer, error) {
 	var s RPKIServer
-	err := sc.Scan(&s.ID, &s.Name, &s.Description, &s.Host, &s.Port, &s.Enabled, &s.Refresh, &s.Retry, &s.Expire)
+	err := sc.Scan(&s.ID, &s.Name, &s.Description, &s.Host, &s.Port, &s.Enabled, &s.Refresh, &s.Retry, &s.Expire, &s.MaxVersion)
 	return s, err
 }
 
@@ -118,9 +132,9 @@ func (s *Store) GetRPKIServerByName(name string) (RPKIServer, error) {
 func (s *Store) CreateRPKIServer(srv RPKIServer) (int64, error) {
 	ts := now()
 	res, err := s.db.Exec(`
-		INSERT INTO rpki_servers (name, description, host, port, enabled, refresh, retry, expire, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		srv.Name, srv.Description, srv.Host, srv.Port, srv.Enabled, srv.Refresh, srv.Retry, srv.Expire, ts, ts)
+		INSERT INTO rpki_servers (name, description, host, port, enabled, refresh, retry, expire, max_version, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		srv.Name, srv.Description, srv.Host, srv.Port, srv.Enabled, srv.Refresh, srv.Retry, srv.Expire, srv.MaxVersion, ts, ts)
 	if err != nil {
 		return 0, fmt.Errorf("store: create RPKI server: %w", err)
 	}
@@ -130,9 +144,9 @@ func (s *Store) CreateRPKIServer(srv RPKIServer) (int64, error) {
 func (s *Store) UpdateRPKIServer(srv RPKIServer) error {
 	res, err := s.db.Exec(`
 		UPDATE rpki_servers SET name = ?, description = ?, host = ?, port = ?, enabled = ?,
-		                        refresh = ?, retry = ?, expire = ?, updated_at = ?
+		                        refresh = ?, retry = ?, expire = ?, max_version = ?, updated_at = ?
 		WHERE id = ?`,
-		srv.Name, srv.Description, srv.Host, srv.Port, srv.Enabled, srv.Refresh, srv.Retry, srv.Expire, now(), srv.ID)
+		srv.Name, srv.Description, srv.Host, srv.Port, srv.Enabled, srv.Refresh, srv.Retry, srv.Expire, srv.MaxVersion, now(), srv.ID)
 	if err != nil {
 		return fmt.Errorf("store: update RPKI server: %w", err)
 	}

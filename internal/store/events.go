@@ -23,6 +23,7 @@ const (
 	EventModelChange   = "model_change"     // an operator created/edited/deleted a model object
 	EventInstanceDown  = "instance_down"
 	EventInstanceUp    = "instance_up"
+	EventRPKIRestart   = "rpki_restart" // an operator restarted an RTR session
 )
 
 // Event is one entry on the timeline: a session transition, flap, import-limit

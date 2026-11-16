@@ -15,6 +15,7 @@
 		model_change: ["badge", "change"],
 		bird_unreachable: ["badge-danger", "bird down"],
 		bird_reachable: ["badge-success", "bird up"],
+		rpki_restart: ["badge-info", "rpki"],
 	};
 
 	function esc(s) {

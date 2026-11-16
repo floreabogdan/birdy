@@ -6,6 +6,110 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+> **Upgrading:** birdy now answers a browser only when it is addressed by IP, as
+> `localhost`, or by a name under Settings → Access control → **Allowed host names**.
+> If you browse to birdy by name, reach it once by IP or SSH tunnel and add the name.
+> A chain that honours blackholes now needs an accept-only set (see Changed).
+> Schema versions 40 and 41 add defaulted columns only.
+
+### Added
+- **Is the RPKI data moving?** Each running RTR session on the RPKI page now shows
+  its session ID, serial, RTR version, the ROAs it holds, and how long birdy has seen
+  its serial stand still. BIRD's own "last update" is the last successful *refresh*,
+  so a cache that keeps answering "nothing new" — a stale backend behind an anycast
+  RTR address, seen in production for days — looks healthy there while its ROA table
+  stands still. The same numbers are on `/metrics` (`birdy_rpki_roas`,
+  `birdy_rpki_serial`, `birdy_rpki_serial_unchanged_seconds`,
+  `birdy_rpki_feed_established`), so monitoring that sees several routers can alert on
+  a feed falling behind the others on the same cache. A **Restart** action reconnects
+  one RTR session (BGP untouched, recorded on the timeline, refused read-only). birdy
+  does not restart on a timer: a healthy session has been seen going hours without a
+  new serial.
+- **Highest RTR version** per RTR server (BIRD's default, 2 or 1), rendered as
+  `max version N;`, for a cache that will not let BIRD 2.16+ step down from version 2.
+  It replaces hand-editing the rendered RPKI file, which the next apply erased.
+  (Schema version 41; needs BIRD 2.16+ when set.)
+- **Netlink receive buffer** under Settings (MiB), rendered as `netlink rx buffer` on
+  both kernel protocols, for the "Kernel dropped some netlink messages, will resync on
+  next scan" a full-table router logs. Linux and BIRD 2.0.9+; 0 keeps BIRD's default.
+- **`--event-retain`** (default 90 days) prunes the event timeline, which used to grow
+  without bound. Operator actions are kept as the audit trail.
+
+### Changed
+- **A blackhole request must pass the whole import chain.** It used to be accepted
+  inside the one policy that allowed it, which ended the filter. Now it must pass every
+  policy in the chain, with only the length limits and RPKI waived, and fall inside
+  every accept-only set. A chain with *Accept blackhole* but no accept-only set now
+  honours none, and lint says so: the set is birdy's only record of which addresses
+  the peer may null-route.
+- Names are capped so every symbol birdy derives from them fits BIRD's 64 characters
+  (peer 55, policy 57, prefix set 54). A longer name saved fine but failed every
+  apply; it is now refused on save.
+- A library community cannot be renamed while something references it, as it
+  already could not be deleted.
+
+### Security
+- **The login lockout holds under parallel and distributed guessing.** A failure was
+  recorded only after bcrypt, so parallel guesses were all checked (60 against a
+  limit of 5), and each IPv6 address in a /64 got its own five. Attempts are now
+  counted before the check, IPv6 clients are keyed on their /64, at most two checks
+  run at once, and guesses spread over many addresses meet a router-wide budget.
+  Loopback and recently signed-in addresses are never charged against it, so an
+  attack cannot lock the admin out.
+- **DNS rebinding is refused** (see Upgrading). Token reads from other birdy instances
+  and `/metrics` scrapes are unaffected. (Schema version 40.)
+- **IPv6 zones are refused in every address birdy writes to `bird.conf`.** A `%zone`
+  passed validation verbatim and could inject config — an import-all, export-all
+  session that `bird -p` accepted. An honest `fe80::1%eth0` broke every apply once
+  BGP kernel export was on.
+- **A stolen session can no longer brute-force the password or rename the account.**
+  The profile's password check uses the login limits, and changing the username needs
+  the current password.
+- **A failed webhook delivery no longer exposes the webhook URL** — for Slack and
+  Discord, the credential — in the log or the Test button's error.
+- **STARTTLS mode no longer falls back to plaintext** when the server does not offer
+  STARTTLS (or an attacker strips the offer); the send is refused.
+- **Passwords are masked wherever they appear on a line** in Changes, history and the
+  config-backup email, not only at the start of one.
+- A remote birdy instance can no longer inject attributes or markup into the
+  dashboard, and a PeeringDB lookup reads at most 1 MiB.
+
+### Fixed
+- **A busy BIRD no longer raises false alerts.** While BIRD reloads ROA tables,
+  `show protocols` can come back empty, short of rows, or with rows missing words, and
+  birdy paged "BIRD unreachable", "Session down", "flapped" and "prefix dropped to 0"
+  for sessions that never moved. It now keeps its last good reading for up to a minute
+  before believing such a reply.
+- **Import-limit alerts fire.** BIRD marks a triggered limit `1000 [HIT]`, which birdy
+  failed to read, so `limit_hit` never fired and the limit bars vanished exactly then.
+  A birdy restart no longer re-sends limits already hit.
+- **A newly applied or renamed peer no longer pages "Session down", then "flapping"**,
+  while it connects, and a session that comes up just after birdy restarts is not a flap.
+- **Confirm no longer keeps a config BIRD is not running.** With nothing armed (the
+  timeout had fired, BIRD restarted, or someone ran `birdc configure`), BIRD answers
+  "Nothing to do", and birdy recorded the config as kept. It now restores the previous
+  config on disk and records the apply as reverted.
+- **One cancelled page load no longer freezes the dashboard.** A cancel racing BIRD's
+  reply left the shared control-socket connection closed but in use until restart.
+- **Auto-revert is recorded only after BIRD has reverted.** The deadline is now counted
+  from BIRD's answer, with a 5 s grace, so filters are never re-run under the still-armed
+  config and a new apply cannot stack on it.
+- **Peers a reload could not refresh are named.** BIRD reports "reload failed" per
+  protocol inside a successful reply.
+- **Edits to `bird.conf` itself count as drift.** A protocol added there went unnoticed
+  and was deleted by the next apply.
+- **An apply BIRD may have armed is always recorded** — after a lost reply, a failed
+  file restore or a failed database write — and a failed write at confirm no longer
+  leaves a mix of old and new files.
+- **A mailserver that stopped answering stopped every alert.** Each SMTP exchange now
+  has a deadline, and each destination its own queue, so a slow one delays only itself.
+- **The alert cooldown could leave the last alert out of date** (down, flap, down again
+  left "flapping"). The newest held-back state is sent when the window closes, and
+  remote-instance down/up alerts now honour the cooldown.
+- **The config diff no longer needs gigabytes on large configs** (it was quadratic in
+  memory; IRR-expanded configs could exhaust the router's RAM).
+- Saving a peer while its template is being saved no longer leaves the peer stale.
+
 ## [0.6.0] - 2026-10-05
 
 ### Added

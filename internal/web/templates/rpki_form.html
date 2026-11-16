@@ -77,6 +77,20 @@
 						</div>
 						{{with index .Errs "expire"}}<div class="field-error">{{.}}</div>{{end}}
 					</div>
+					<div class="field">
+						<label for="maxVersion">Highest RTR version</label>
+						<select id="maxVersion" name="maxVersion">
+							<option value="0"{{if eq .Server.MaxVersion 0}} selected{{end}}>Let BIRD choose</option>
+							<option value="2"{{if eq .Server.MaxVersion 2}} selected{{end}}>2</option>
+							<option value="1"{{if eq .Server.MaxVersion 1}} selected{{end}}>1</option>
+						</select>
+						<div class="hint">
+							BIRD 2.16 and later offer RTR version 2 first and step down when the cache answers that it does not
+							support it. If the session never comes up against a cache that only speaks version 1 &mdash; seen with
+							Cloudflare's public RTR &mdash; pin <span class="mono">1</span>. Needs BIRD 2.16 or later.
+						</div>
+						{{with index .Errs "max_version"}}<div class="field-error">{{.}}</div>{{end}}
+					</div>
 
 					<div class="checks">
 						<label class="check"><input type="checkbox" name="enabled" {{if .Server.Enabled}}checked{{end}}> Enabled</label>

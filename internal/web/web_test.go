@@ -56,6 +56,13 @@ type fakeClient struct {
 	// armed the config, to break something in the steps that follow.
 	timeoutErr   error
 	afterTimeout func()
+	// restarts records the protocols RestartProtocol was asked to bounce.
+	restarts []string
+}
+
+func (f *fakeClient) RestartProtocol(_ context.Context, name string) error {
+	f.restarts = append(f.restarts, name)
+	return nil
 }
 
 func (f *fakeClient) result(ok bool, msg string) (birdc.ConfigureResult, error) {

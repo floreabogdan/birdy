@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 40
+const schemaVersion = 41
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -500,6 +500,22 @@ func migrate(db *sql.DB) error {
 		// browsed by name gets in by IP or tunnel and adds the name — a default
 		// that guessed names would be the hole this closes.
 		if err := ensureColumn(tx, "settings", "allowed_hosts", `ALTER TABLE settings ADD COLUMN allowed_hosts TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
+	if version < 41 {
+		// Two production fixes, both rendered only when set so every existing
+		// config stays byte-for-byte the same:
+		//   - an RTR server's highest protocol version (0: BIRD's default), for a
+		//     cache that refuses RTR v2 without the error report that would let
+		//     BIRD step down;
+		//   - the kernel protocols' netlink receive buffer in MiB (0: BIRD's
+		//     default), for a full-table router whose kernel drops netlink messages.
+		if err := ensureColumn(tx, "rpki_servers", "max_version", `ALTER TABLE rpki_servers ADD COLUMN max_version INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if err := ensureColumn(tx, "settings", "kernel_netlink_rx_buffer_mb", `ALTER TABLE settings ADD COLUMN kernel_netlink_rx_buffer_mb INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return err
 		}
 	}

@@ -299,6 +299,11 @@ startup log and flags it on that settings page. The unauthenticated `/metrics` e
 too — no cookie can protect a Prometheus scrape, so
 it stays closed until the list is narrowed, and starts serving the moment it is.
 
+birdy answers a browser only when it is addressed by **IP, `localhost`, or a host name listed under
+Settings → Access control → Allowed host names** — a defence against DNS rebinding, where a hostile
+page points its own name at birdy to reach it from your trusted address. If you browse to birdy by
+name, add that name (reach it by IP or SSH tunnel first; the refusal page explains how).
+
 That is not encryption. On a public address the login and session cookie cross the network in the
 clear, and an allow-list does nothing about interception — only about who may connect. Either
 terminate TLS in birdy itself — pass a PEM certificate and key (`--tls-cert`/`--tls-key`) and it

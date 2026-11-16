@@ -51,7 +51,14 @@ Some properties are documented and by design, not vulnerabilities:
   SSH tunnel. Behind a reverse proxy every request arrives from the proxy (loopback for a local one), so
   the per-IP login lockout and the allow-list see the proxy, not the real client. In that setup, either
   enforce access control and rate-limiting at the proxy, or prefer birdy's own native TLS
-  (`--tls-cert`/`--tls-key`) so it is exposed directly and sees real client addresses.
+  (`--tls-cert`/`--tls-key`) so it is exposed directly and sees real client addresses. The lockout
+  counts an attempt before the password is checked, keys IPv6 clients on their /64, runs at most two
+  checks at once, and puts guesses from many addresses against a router-wide budget that loopback and
+  recently signed-in addresses are never charged.
+- **birdy refuses browser requests whose Host is not an IP address, `localhost` or a listed name**
+  (Settings → Access control → Allowed host names), as protection against DNS rebinding. Behind a
+  reverse proxy, list the proxy's public name or have it send `Host: 127.0.0.1`. Token reads from
+  other birdy instances and `/metrics` scrapes without browser Fetch Metadata are exempt.
 
 Reports that amount to "you can do damage if you already have the birdy database, the login
 cookie, or root on the router" are out of scope — those are equivalent to already controlling

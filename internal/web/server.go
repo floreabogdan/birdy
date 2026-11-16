@@ -51,6 +51,9 @@ type birdClient interface {
 	// Reload re-runs filters on existing routes without restarting protocols;
 	// birdy pairs it with a soft reconfigure so a filter change actually applies.
 	Reload(ctx context.Context) (birdc.ConfigureResult, error)
+	// RestartProtocol bounces one protocol without touching the config — used to
+	// give an RTR session a fresh connection to its cache.
+	RestartProtocol(ctx context.Context, name string) error
 }
 
 // Server is birdy's HTTP handler: it holds the store, the BIRD client, the
@@ -442,6 +445,7 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /rpki/{name}/edit", s.requireAuth(s.handleRPKIEdit))
 	s.mux.Handle("POST /rpki/{name}/edit", s.requireAuth(s.handleRPKISave))
 	s.mux.Handle("POST /rpki/{name}/delete", s.requireAuth(s.handleRPKIDelete))
+	s.mux.Handle("POST /rpki/{name}/restart", s.requireAuth(s.handleRPKIRestart))
 
 	// BMP monitoring stations
 	s.mux.Handle("GET /bmp", s.requireAuth(s.handleBMPPage))

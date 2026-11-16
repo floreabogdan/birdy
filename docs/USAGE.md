@@ -316,7 +316,7 @@ Runs the web UI and the background poller.
 | `--snapshot-interval` | `24h` | How often to take a nightly snapshot. |
 | `--snapshot-retain` | `14` | How many nightly snapshots to keep. |
 | `--connect-timeout` | `30s` | How long to retry connecting to BIRD at startup. |
-| `--alert-cooldown` | `5m` | Suppress a repeat alert for the same session within this window (`0` disables). |
+| `--alert-cooldown` | `5m` | Suppress a repeat alert for the same session or remote instance within this window; the latest held-back state is sent when the window closes (`0` disables). |
 | `--prefix-drop-ratio` | `0.5` | Alert when a session's imported routes fall to this fraction of the previous poll (`0` disables). |
 | `--metrics` | `true` | Serve the Prometheus `/metrics` endpoint. It is **unauthenticated**, so it returns 403 until the access list is narrowed from allow-all. `--metrics=false` disables it entirely. |
 | `--peeringdb` | `true` | PeeringDB lookups on the peer form (dials out to peeringdb.com). `--peeringdb=false` disables it. |
@@ -325,6 +325,7 @@ Runs the web UI and the background poller.
 | `--drift-check-interval` | `30s` | How often to check whether `bird.conf` changed outside birdy, alerting if it did (`0` disables). Inert until birdy owns a config. |
 | `--sample-interval` | `1m` | How often to record a per-session route-count point for the dashboard history sparklines (`0` disables). |
 | `--sample-retain` | `168h` | How long to keep route-count history samples. |
+| `--event-retain` | `2160h` | How long to keep timeline events (session changes, alerts, BIRD reachability). Operator actions are always kept as the audit trail. `0` keeps everything. |
 | `--irr-refresh-interval` | `24h` | How often to re-expand auto-refresh prefix sets and AS sets from IRR via `bgpq4` (`0` disables; requires `--bgpq4`). |
 
 ### `birdy version`
@@ -445,7 +446,7 @@ apply to the role you pick.
 | **Enabled** | all | Off renders BIRD's `disabled`, so BIRD makes **no connection attempts at all**. Toggle it straight from the peers list (the power button) — like every edit it changes the model, so the row reads *pending apply* until you apply. A disabled peer shows as **disabled**, not *down*, and raises no down/flap alerts: switching it off is a decision, not an outage. |
 | **Role** | all | The relationship: **upstream** (sells you transit), **IX peer** (settlement-free), **customer** (buys transit from you), or **iBGP** (inside your AS). Routes learned from a peer are tagged with its role via a large community, so export policies can say "announce what my customers sent me" without knowing their prefixes. iBGP also switches the session to internal. |
 | **Enabled** | all | Unchecked renders `disabled;` — the session is configured but not brought up. |
-| **Neighbor address** | all | The peer's IP. Its family decides whether the session carries an ipv4 or ipv6 channel. |
+| **Neighbor address** | all | The peer's IP. Its family decides whether the session carries an ipv4 or ipv6 channel. Write a link-local address without a `%zone` (`fe80::1`, not `fe80::1%eth0`) and put the interface in the peer's interface field. |
 | **Local address** | all | Your side of the session. Blank lets BIRD choose. |
 | **Remote AS** | all | The peer's AS number (1–4294967295; reserved numbers are rejected). |
 | **Multihop TTL** | all | `0` for a directly connected peer; otherwise the TTL for a multihop session (e.g. an upstream a couple of hops away). |
@@ -554,7 +555,7 @@ be attached to many peers.
 | **Set local preference** | Rewrite `bgp_local_pref` on accepted routes to steer your outbound path selection. |
 | **Reject bogon prefixes** | Drop routes for bogon address space (also available on exports). Uses the editable bogon prefix lists in Settings. |
 | **Match community** | Reject a route carrying a specific community — the "customer signals don't-accept" pattern. |
-| **Accept blackhole** | Accept RFC 7999 blackhole (`/32` or `/128`) routes from this peer, for customer-triggered RTBH. |
+| **Accept blackhole** | Discard RFC 7999 host routes (`/32` or `/128`) the peer tags BLACKHOLE, for customer-triggered RTBH. Each request must pass *every* import policy in the chain, with only the length limits and RPKI waived, and fall inside every accept-only set. A chain without an accept-only set honours none: it is birdy's only record of which addresses the peer may null-route. |
 
 **Export policies:**
 
@@ -610,7 +611,7 @@ not a blank page.
   communities or a policy's match-community field (mixed with literals), and the
   rendered filter reads by name — `bgp_community.add(BLACKHOLE)` rather than a bare
   tuple. An unknown name is caught when you save, and a community cannot be deleted
-  while a peer or policy still references it. The well-known `BLACKHOLE` (RFC 7999)
+  or renamed while a peer or policy still references it. The well-known `BLACKHOLE` (RFC 7999)
   and `GRACEFUL_SHUTDOWN` (RFC 8326) are seeded.
 - **Static routes** — reachability nothing discovers on its own: a subnet behind a
   non-BGP device, or a route to a far router's loopback so an iBGP session peering
@@ -626,6 +627,32 @@ validation. Running a local validator (Routinator, StayRTR, rpki-client) is the
 usual production answer; a public RTR endpoint is fine to start with. Timers left
 at `0` mean "leave BIRD's default alone". Validation itself is turned on per
 import policy via the **RPKI ROV** knob (log-only or drop-invalid).
+
+**Highest RTR version** is normally left to BIRD. BIRD 2.16 and later offer RTR
+version 2 first and step down when the cache answers that it does not support it.
+A cache that does not answer that way keeps the session from ever coming up; it has
+been seen with Cloudflare's public RTR. Pin `1` for such a cache (rendered as
+`max version 1;`, BIRD 2.16+ only).
+
+**Is the data moving?** Each running RTR session's row shows its session ID,
+serial, RTR version, the ROAs it holds (IPv4 + IPv6), and how long birdy has seen
+its serial stand still. That last number exists because BIRD's own "last update" is
+the last successful *refresh*: a cache that keeps answering "nothing new" (a stale
+backend behind an anycast address) resets it every refresh interval, and the expire
+timer with it, while the ROA table stands still for days. The age alone does not mean
+stale, since a healthy cache can go hours without a new serial. The reliable sign is
+a feed whose ROA count falls behind another router on the same cache. The same numbers
+are on `/metrics` (`birdy_rpki_roas`, `birdy_rpki_serial`,
+`birdy_rpki_serial_unchanged_seconds`, `birdy_rpki_feed_established`), so a monitoring
+system that sees several routers can alert on exactly that. **Restart** (the circular
+arrow) drops the RTR session and reconnects: a new TCP connection, which against an
+anycast cache may land on a healthier backend. BGP sessions are not touched, the
+config is not changed, and the restart is recorded on the timeline. Not offered
+read-only.
+
+The more robust fix for a single misbehaving cache is a second, independent one:
+each RTR server is its own `protocol rpki` filling the same `rpki4`/`rpki6` tables, so
+two feeds back each other up.
 
 **Which policies validate** is a table of every import policy: its RPKI mode, what
 that does to an invalid route, and — the part that matters before you enforce — the
@@ -677,7 +704,10 @@ Session events (a session dropping, recovering, flapping, hitting its import
 limit, a sharp drop in accepted prefixes, or a config being applied/reverted) are
 delivered to any number of **destinations**: Slack, Discord, email (SMTP), or a
 generic JSON webhook. Each destination can filter which event kinds it wants, and
-repeats for the same session are suppressed within `--alert-cooldown`. birdy also
+repeats for the same session or remote instance are held back within `--alert-cooldown`
+(the latest held-back state is sent once the window closes, so your last alert is never
+out of date). Each destination delivers on its own, so a dead mailserver or webhook
+delays only itself. birdy also
 alerts when **BIRD itself becomes unreachable** — the one failure a
 session-watching alert can't catch on its own. Two more kinds fire from the
 background loops: **config drift** when `bird.conf` changes outside birdy (a hand
@@ -719,6 +749,13 @@ button.
     that keep the BGP control plane reachable. The default route (0.0.0.0/0,
     ::/0) is exempt from these guards — it covers every address by definition
     and is not a targeted control-plane hijack.
+  - **Netlink receive buffer (MiB)** — if BIRD logs *Kernel dropped some netlink
+    messages, will resync on next scan*, its netlink socket overflowed during a burst
+    of route changes (typical when full tables go into the kernel), and the FIB was
+    out of step with BIRD until the next scan. Raise it: 16–64 MiB is a common fix.
+    `0` keeps BIRD's default (the host's `net.core.rmem_default`, a few hundred KiB).
+    Rendered as `netlink rx buffer` on both kernel protocols; Linux and BIRD 2.0.9+
+    only. BIRD sets it with `SO_RCVBUFFORCE`, so `net.core.rmem_max` does not cap it.
   - For a BGP session carried over GRE, WireGuard, or IPsec, set **Tunnel
     endpoint** on the peer to the remote outer address. Birdy then rejects every
     imported BGP route covering that address from kernel export. Keep an OS-level
@@ -743,6 +780,20 @@ button.
   spoofable `X-Forwarded-For`. **You cannot lock yourself out**: loopback is always
   allowed, so an SSH tunnel (`ssh -L 8080:127.0.0.1:8080`) always works, and the page
   shows your connecting IP so you can add it before restricting.
+- **Allowed host names** — birdy answers a browser only when it is addressed by an IP
+  address, as `localhost`, or by a name listed here. Any other name could be a hostile
+  web page pointing its own name at birdy (DNS rebinding) to reach it from your
+  allow-listed address or open tunnel, so it is refused with a page explaining how to
+  get in. If you browse to birdy by name (`rt1.example.net:8080`), add that name. IP
+  addresses, `localhost` and the SSH tunnel always work. Other birdy instances reading
+  this one with a token, and `/metrics` scrapes, are not affected. Behind a reverse
+  proxy, list the proxy's public name or have it send `Host: 127.0.0.1`.
+- **Sign-in limits** — wrong passwords lock out the address after 5 tries (an IPv6
+  client counts per /64), at most two password checks run at once, and guesses spread
+  over many addresses meet a router-wide budget. Loopback (the SSH tunnel) and an
+  address that signed in recently are never charged against that budget, so an
+  attack cannot lock you out. The profile page's current-password check uses the same
+  limits, and changing your username needs your current password.
 - **Database snapshots** — birdy's entire state is one SQLite file. A consistent
   snapshot is taken nightly and can be downloaded on demand; the **backup bundle**
   also includes the rendered config. A snapshot can be staged for restore (applied
