@@ -1,9 +1,12 @@
 .git
 .github
 dist
-*.db
-*.db-shm
-*.db-wal
+# A birdy database (and its restore leftovers) holds BGP session passwords in
+# the clear; keep every one out of the build context, at any depth.
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/*.db.*
 /snapshots/
 /preview/
 birdy

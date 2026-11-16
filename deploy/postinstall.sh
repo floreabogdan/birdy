@@ -44,8 +44,10 @@ fi
 # write, which is the login, and the UI says "internal error". Newer birdy hands
 # the file over at init time and refuses to start on an unwritable database, but
 # an upgrade must also repair an install that already went wrong.
+# -h: never follow a symlink out of the tree; the tree belongs to the service
+# account and this runs as root.
 mkdir -p /var/lib/birdy
-chown -R birdy:birdy /var/lib/birdy 2>/dev/null || true
+chown -hR birdy:birdy /var/lib/birdy 2>/dev/null || true
 chmod 750 /var/lib/birdy
 
 if command -v systemctl >/dev/null 2>&1; then

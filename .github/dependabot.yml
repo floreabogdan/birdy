@@ -16,3 +16,11 @@ updates:
       interval: weekly
     commit-message:
       prefix: "ci"
+
+  # Base images in the Dockerfile (pinned by digest).
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "docker"
