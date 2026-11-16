@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
-	"github.com/floreabogdan/birdy/internal/federation"
 	"github.com/floreabogdan/birdy/internal/poller"
 	"github.com/floreabogdan/birdy/internal/store"
 )
@@ -258,7 +257,7 @@ func (s *Server) selectedDashboardView(r *http.Request) DashboardView {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
-	body, err := (federation.Client{BaseURL: instance.BaseURL, Token: instance.Token}).FetchDashboard(ctx)
+	body, err := s.remote(instance.BaseURL, instance.Token).FetchDashboard(ctx)
 	if err != nil {
 		v := DashboardView{Active: "dashboard", InstanceName: instance.Name, InstanceRemote: true, PollErr: err.Error()}
 		v.StatusText, v.StatusOK = sessionVerdict(v.PollErr, 0, 0, 0)

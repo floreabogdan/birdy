@@ -86,6 +86,12 @@ type Server struct {
 	listenAddr string
 	tls        bool
 
+	// instanceHTTP is the HTTP client remote Birdy instances are read with. nil
+	// everywhere but in tests, which means the federation package's guarded
+	// default. Tests set it because their stand-in remotes are httptest servers
+	// on 127.0.0.1, an address that client refuses to connect to.
+	instanceHTTP *http.Client
+
 	// applyMu serialises everything that touches bird.conf and the pending-apply
 	// record. HTTP handlers run concurrently, and two applies at once could both
 	// pass the no-pending check, both back up and overwrite the file, and leave

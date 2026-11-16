@@ -122,7 +122,7 @@ func (c *Client) check(ctx context.Context, channel, currentVersion, currentComm
 			return result, err
 		}
 		result.LatestVersion = strings.TrimPrefix(release.TagName, "v")
-		result.URL = release.HTMLURL
+		result.URL = pinnedURL(release.HTMLURL)
 		result.Available = stableAvailable(currentVersion, result.LatestVersion)
 		return result, nil
 	}
@@ -135,10 +135,31 @@ func (c *Client) check(ctx context.Context, channel, currentVersion, currentComm
 		return result, err
 	}
 	result.LatestCommit = commit.SHA
-	result.URL = commit.HTMLURL
+	result.URL = pinnedURL(commit.HTMLURL)
 	result.Available = currentCommit == "" || currentCommit == "unknown" ||
 		!strings.HasPrefix(commit.SHA, currentCommit)
 	return result, nil
+}
+
+// repoURLPrefix is where every link birdy shows for an update must lead, and
+// releasesURL is what it shows when the API response offers anything else.
+const (
+	repoURLPrefix = "https://github.com/floreabogdan/birdy/"
+	releasesURL   = repoURLPrefix + "releases"
+)
+
+// pinnedURL keeps the html_url from an API response only when it points into
+// birdy's own repository. The updates page renders it as a link the operator is
+// invited to follow, and the response is only as trustworthy as the path to
+// GitHub: a proxy, a redirected API base or a tampered answer must not be able
+// to put an arbitrary destination behind "View release". A path that climbs
+// back out of the repository ("..") is refused with the rest.
+func pinnedURL(raw string) string {
+	if !strings.HasPrefix(raw, repoURLPrefix) || strings.Contains(raw, "..") ||
+		strings.ContainsFunc(raw, func(r rune) bool { return r <= ' ' || r == '\\' || r == 0x7f }) {
+		return releasesURL
+	}
+	return raw
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, dst any) error {
