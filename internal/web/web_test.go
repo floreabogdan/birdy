@@ -49,6 +49,9 @@ type fakeClient struct {
 	// the whole config first); timeoutReturned is when the answer came back.
 	timeoutDelay    time.Duration
 	timeoutReturned time.Time
+	// reloadFailed is what BIRD lists as "8006-<proto>: reload failed" inside an
+	// otherwise accepted reload.
+	reloadFailed []string
 }
 
 func (f *fakeClient) result(ok bool, msg string) (birdc.ConfigureResult, error) {
@@ -92,7 +95,9 @@ func (f *fakeClient) Reload(_ context.Context) (birdc.ConfigureResult, error) {
 	if f.cfgReloadFail {
 		msg = "edge1: BGP neighbor does not support route refresh"
 	}
-	return f.result(!f.cfgReloadFail, msg)
+	res, err := f.result(!f.cfgReloadFail, msg)
+	res.Failed = f.reloadFailed
+	return res, err
 }
 
 func (f *fakeClient) Status(_ context.Context) (birdc.Status, error) {

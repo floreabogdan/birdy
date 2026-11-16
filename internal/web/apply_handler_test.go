@@ -598,6 +598,33 @@ func TestApplySoftReloadIssueSurfaced(t *testing.T) {
 	}
 }
 
+// BIRD reports a peer it cannot refresh on a line of its own and still answers
+// the reload with an ordinary success code, so the failure has to be read from
+// the per-protocol list. direct1 is in every config birdy renders and BIRD can
+// never reload a direct protocol, so it is not news and must not cry wolf.
+func TestApplySoftReloadNamesPeersBirdCouldNotRefresh(t *testing.T) {
+	env := applyReady(t)
+	env.fc.reloadFailed = []string{"direct1"}
+	rec := env.do(t, "POST", "/apply", url.Values{"soft": {"on"}, "ackRisks": {"on"}})
+	if loc := flashOf(rec); strings.Contains(loc, "Heads up") {
+		t.Errorf("direct1 always fails to reload; it must not raise a warning, flash=%q", loc)
+	}
+	env.do(t, "POST", "/apply/rollback", nil)
+
+	env.fc.reloadFailed = []string{"direct1", "edge1", "edge2"}
+	rec = env.do(t, "POST", "/apply", url.Values{"soft": {"on"}, "ackRisks": {"on"}})
+	loc := flashOf(rec)
+	if !strings.Contains(loc, "restart") || !strings.Contains(loc, "edge1, edge2") {
+		t.Errorf("the operator should be told which peers could not be refreshed, flash=%q", loc)
+	}
+	if strings.Contains(loc, "direct1") {
+		t.Errorf("direct1 should not be listed, flash=%q", loc)
+	}
+	if _, ok, _ := env.store.PendingConfigVersion(); !ok {
+		t.Error("a peer that cannot be refreshed must not roll the apply back")
+	}
+}
+
 func TestReapplyIsSoft(t *testing.T) {
 	env := applyReady(t)
 	env.do(t, "POST", "/apply", nil)

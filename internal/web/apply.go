@@ -420,12 +420,17 @@ func (s *Server) recordBirdRevert(ctx context.Context, id int64, reason, message
 	return nil
 }
 
+// alwaysUnreloadable is the protocol birdy renders into every config that BIRD
+// can never reload: a direct protocol has no import to re-run, so `reload all`
+// lists it as failed every time (verified on BIRD 2.17.5).
+const alwaysUnreloadable = "direct1"
+
 // reloadFilters re-runs import/export filters on the routes already in the table,
 // so a soft reconfigure's filter changes actually take hold without restarting —
 // and so without bouncing — any session. It is best-effort: a peer that does not
 // support route-refresh cannot be re-imported without a restart, which BIRD
 // reports per protocol while reloading the rest, so a non-OK result is a warning,
-// not a failure — the config birdy applied stands either way. Returns BIRD's note
+// not a failure — the config birdy applied stands either way. Returns a note
 // when something was off, for the operator-facing flash.
 func (s *Server) reloadFilters(ctx context.Context, reason string) (ok bool, note string) {
 	res, err := s.client.Reload(ctx)
@@ -435,8 +440,19 @@ func (s *Server) reloadFilters(ctx context.Context, reason string) (ok bool, not
 	}
 	if !res.OK {
 		s.log.Warn("reload reported an issue", "when", reason, "message", res.Message)
+		return false, res.Message
 	}
-	return res.OK, res.Message
+	var failed []string
+	for _, p := range res.Failed {
+		if p != alwaysUnreloadable {
+			failed = append(failed, p)
+		}
+	}
+	if len(failed) > 0 {
+		s.log.Warn("BIRD could not reload some protocols", "when", reason, "protocols", failed)
+		return false, "BIRD could not reload " + strings.Join(failed, ", ")
+	}
+	return true, ""
 }
 
 // canStartApply gathers the gates every apply shares: not read-only, no stale

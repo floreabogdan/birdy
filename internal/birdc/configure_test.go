@@ -5,6 +5,7 @@ import (
 	"context"
 	"net"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +71,32 @@ func TestConfigureConfirmOnlyAcceptsConfirmed(t *testing.T) {
 					tc.reply, res.OK, res.Code, tc.wantOK, tc.wantCode)
 			}
 		})
+	}
+}
+
+// BIRD reports a protocol it cannot reload — a BGP peer without route refresh,
+// or any direct protocol — on a line of its own inside the reply, and still ends
+// the reply with an ordinary 0000. Consecutive lines with the same code arrive as
+// continuation lines of one block. Raw capture from BIRD 2.17.5, with a second
+// failure appended to show the continuation form.
+func TestReloadReportsFailedProtocols(t *testing.T) {
+	reply := "0015-device1: reloading\n" +
+		"8006-direct1: reload failed\n" +
+		"0015-st1: reloading\n" +
+		" b_rr: reloading\n" +
+		"8006-b_norr: reload failed\n" +
+		" edge2: reload failed\n" +
+		"0000 \n"
+	c := &Client{path: scriptedServer(t, reply)}
+	res, err := c.Reload(context.Background())
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if !res.OK {
+		t.Errorf("BIRD accepted the reload; OK should be true, message %q", res.Message)
+	}
+	want := []string{"direct1", "b_norr", "edge2"}
+	if strings.Join(res.Failed, ",") != strings.Join(want, ",") {
+		t.Fatalf("Failed = %v, want %v", res.Failed, want)
 	}
 }
