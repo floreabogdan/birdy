@@ -510,9 +510,17 @@ func scanPeer(sc scanner) (Peer, error) {
 	return p, err
 }
 
-func (s *Store) CreatePeer(p Peer) (int64, error) {
+// execer is the slice of *sql.DB and *sql.Tx the peer writers need, so the
+// same INSERT and UPDATE serve a plain save and SavePeer's transaction.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func (s *Store) CreatePeer(p Peer) (int64, error) { return createPeer(s.db, p) }
+
+func createPeer(q execer, p Peer) (int64, error) {
 	ts := now()
-	res, err := s.db.Exec(`
+	res, err := q.Exec(`
 		INSERT INTO peers (name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		                   interface, transport_endpoint, multihop, passive, password, import_limit, import_limit_action,
 		                   enforce_first_as, origin_peer_only, next_hop_self, rr_client,
@@ -530,8 +538,10 @@ func (s *Store) CreatePeer(p Peer) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *Store) UpdatePeer(p Peer) error {
-	res, err := s.db.Exec(`
+func (s *Store) UpdatePeer(p Peer) error { return updatePeer(s.db, p) }
+
+func updatePeer(q execer, p Peer) error {
+	res, err := q.Exec(`
 		UPDATE peers SET name = ?, description = ?, role = ?, enabled = ?, neighbor_ip = ?,
 		                 remote_asn = ?, local_ip = ?, interface = ?, transport_endpoint = ?, multihop = ?, passive = ?,
 		                 password = ?, import_limit = ?, import_limit_action = ?, enforce_first_as = ?,

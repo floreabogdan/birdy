@@ -791,3 +791,70 @@ func TestLinkingToTemplateZeroIsNotADetach(t *testing.T) {
 		t.Error("a failed link must leave the peer linked as it was")
 	}
 }
+
+// The peer form reads the template, applies it to the posted peer, and then
+// writes the peer and its chain. A template save that commits in between
+// rewrites the linked peers — and is then undone by the form's write of the
+// shape it had read before, leaving a linked peer that no longer matches its
+// template until the template is saved again. SavePeer re-reads the template
+// inside its own transaction, so the newer template wins.
+func TestSavePeerAppliesTheTemplateAsItStandsWhenSaving(t *testing.T) {
+	s := openTest(t)
+	tmpl, sanity, _, own := seedTemplateFixture(t, s)
+	p := validPeer()
+	p.Role = RoleIXPeer
+	id, err := s.CreatePeer(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.LinkPeerToTemplate(id, tmpl.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The form handler loads the peer and the template, and applies it...
+	posted, err := s.GetPeer(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	posted.Description = "edited on the form"
+	stale, err := s.GetPeerTemplate(tmpl.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale.ApplyTo(&posted)
+
+	// ...while a template save commits: a new limit, and one import policy fewer.
+	newer := tmpl
+	newer.ImportLimit = 70000
+	if _, err := s.UpdatePeerTemplate(newer, []int64{sanity.ID}, []int64{own.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.SavePeer(posted, PolicyIDs(stale.ImportPolicies), PolicyIDs(stale.ExportPolicies)); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetPeer(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imports, _, err := s.PeerPolicies(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ImportLimit != 70000 || len(imports) != 1 || imports[0].ID != sanity.ID {
+		t.Errorf("the linked peer kept the template it was read with: limit %d, %d import policies", got.ImportLimit, len(imports))
+	}
+	if got.Description != "edited on the form" {
+		t.Errorf("the peer's own edit was lost: %q", got.Description)
+	}
+
+	// A template deleted before the save is said so, and nothing is written.
+	gone := validPeer()
+	gone.Name, gone.TemplateID = "late_v4", sql.NullInt64{Int64: 9999, Valid: true}
+	if _, err := s.SavePeer(gone, nil, nil); !errors.Is(err, ErrTemplateGone) {
+		t.Errorf("want ErrTemplateGone, got %v", err)
+	}
+	if _, err := s.GetPeerByName("late_v4"); err != ErrNotFound {
+		t.Errorf("nothing should be written for a vanished template: %v", err)
+	}
+}

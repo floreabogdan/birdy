@@ -248,10 +248,8 @@ func (s *Server) handleSeedSave(w http.ResponseWriter, r *http.Request) {
 		// A template wins over the row's role and brings its chains along — the
 		// one thing a plain seed never had, since BIRD's socket says nothing about
 		// what the session's filters were meant to do.
-		var tmpl store.PeerTemplate
 		if id := formNullInt(r, "template_"+proto.Name); id.Valid {
 			if t, ok := templateByID[id.Int64]; ok {
-				tmpl = t
 				t.ApplyTo(&p)
 			}
 		}
@@ -265,16 +263,11 @@ func (s *Server) handleSeedSave(w http.ResponseWriter, r *http.Request) {
 			skipped = append(skipped, proto.Name)
 			continue
 		}
-		id, err := s.store.CreatePeer(p)
-		if err != nil {
+		// The peer and a linked template's chains land together or not at all;
+		// SavePeer takes the chains from the template as it stands then.
+		if _, err := s.store.SavePeer(p, nil, nil); err != nil {
 			skipped = append(skipped, proto.Name)
 			continue
-		}
-		if tmpl.ID != 0 {
-			if err := s.store.SetPeerPolicies(id, store.PolicyIDs(tmpl.ImportPolicies), store.PolicyIDs(tmpl.ExportPolicies)); err != nil {
-				s.serverError(w, "attach template chains", err)
-				return
-			}
 		}
 		created = append(created, proto.Name)
 	}
