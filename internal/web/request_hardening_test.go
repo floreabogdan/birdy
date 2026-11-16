@@ -324,14 +324,13 @@ func TestStartupWithoutSettingsRowStillAllowsAll(t *testing.T) {
 // allow-list never matched the clients it was written for.
 func TestAllowListMatchesLinkLocalClients(t *testing.T) {
 	env := newTestEnv(t, false)
-	if err := env.store.SaveAccessWhitelist("fe80::/10\n::ffff:10.0.0.0/104"); err != nil {
+	if err := env.store.SaveAccessWhitelist("fe80::/10"); err != nil {
 		t.Fatal(err)
 	}
 	env.srv.reloadAccess()
 	for addr, want := range map[string]int{
 		"[fe80::1%eth0]:4000":    http.StatusOK,
 		"[fe80::1]:4000":         http.StatusOK,
-		"10.20.30.40:4000":       http.StatusOK, // the IPv4-mapped prefix, unmapped
 		"[2001:db8::1%eth0]:400": http.StatusForbidden,
 		"11.0.0.1:4000":          http.StatusForbidden,
 	} {

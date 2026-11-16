@@ -65,29 +65,27 @@ func TestAccessAllowedIgnoresZone(t *testing.T) {
 	}
 }
 
-// Clients are matched in their plain IPv4 form, so an entry written in
-// IPv4-mapped IPv6 form is stored as the IPv4 prefix it means.
-func TestParseAccessWhitelistUnmapsIPv4MappedPrefixes(t *testing.T) {
+// An entry written in IPv4-mapped IPv6 form matched no client in 0.7.0
+// (clients are compared in plain IPv4 form), and it must go on matching none:
+// reading ::ffff:0:0/96 as 0.0.0.0/0 would turn an inert line into allow-all
+// on upgrade. Such entries are kept exactly as written.
+func TestParseAccessWhitelistLeavesIPv4MappedPrefixesAlone(t *testing.T) {
 	for in, want := range map[string]string{
-		"::ffff:10.0.0.0/104":    "10.0.0.0/8",
-		"::ffff:203.0.113.4/128": "203.0.113.4/32",
-		"::ffff:203.0.113.4":     "203.0.113.4/32",
-		"::ffff:10.1.2.3/104":    "10.0.0.0/8", // host bits masked as for any prefix
-		"::ffff:0.0.0.0/96":      "0.0.0.0/0",
-		"::ffff:0:0/90":          "::ffc0:0:0/90", // wider than the mapped range: stays IPv6 (masked as ever)
-		"2001:db8::/32":          "2001:db8::/32",
+		"::ffff:10.0.0.0/104": "::ffff:10.0.0.0/104",
+		"::ffff:0.0.0.0/96":   "::ffff:0.0.0.0/96",
 	} {
 		list, errs := ParseAccessWhitelist(in)
-		if len(errs) != 0 || len(list) != 1 {
-			t.Errorf("%s: list=%v errs=%v", in, list, errs)
+		if len(errs) != 0 || len(list) != 1 || list[0].String() != want {
+			t.Errorf("%s: list=%v errs=%v, want %s", in, list, errs, want)
 			continue
 		}
-		if list[0].String() != want {
-			t.Errorf("%s parsed as %s, want %s", in, list[0], want)
+		for _, client := range []string{"10.9.8.7", "198.51.100.5", "2001:db8::1"} {
+			if AccessAllowed(list, netip.MustParseAddr(client)) {
+				t.Errorf("%s must not start admitting %s", in, client)
+			}
 		}
-	}
-	list, _ := ParseAccessWhitelist("::ffff:10.0.0.0/104")
-	if !AccessAllowed(list, netip.MustParseAddr("10.9.8.7")) || AccessAllowed(list, netip.MustParseAddr("11.0.0.1")) {
-		t.Error("::ffff:10.0.0.0/104 should allow exactly 10.0.0.0/8")
+		if !AccessRestricted(list) {
+			t.Errorf("%s must still count as a restricting list", in)
+		}
 	}
 }

@@ -141,8 +141,13 @@ func (s *Store) CountEvents() (int, error) {
 // snapshot grow with it. Operator actions (rows with an actor) are kept
 // whatever their age: they are the audit trail of who changed what, and they
 // arrive at human speed, so they never were the growth.
+//
+// Rows of kind auth are the exception among rows with an actor, and age out
+// with the rest. A sign-in changes nothing on the router, and it does not
+// arrive at human speed: a script that logs in on a timer writes one per run.
 func (s *Store) PruneEvents(before time.Time) (int64, error) {
-	res, err := s.db.Exec(`DELETE FROM events WHERE ts < ? AND actor = ''`, before.UTC().Format(time.RFC3339Nano))
+	res, err := s.db.Exec(`DELETE FROM events WHERE ts < ? AND (actor = '' OR kind = ?)`,
+		before.UTC().Format(time.RFC3339Nano), EventAuth)
 	if err != nil {
 		return 0, fmt.Errorf("store: prune events: %w", err)
 	}

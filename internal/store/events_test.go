@@ -1,6 +1,7 @@
 package store
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -101,5 +102,49 @@ func TestPruneEvents(t *testing.T) {
 	}
 	if len(left) != 2 || left[0] != "old apply" || left[1] != "new up" {
 		t.Errorf("left %q, want the audit row and the recent event", left)
+	}
+}
+
+// Sign-ins and sign-outs carry an actor, but they are not the audit trail of
+// who changed what: a script that logs in on a timer writes one per run,
+// forever. Rows of kind auth age out with the system events; every other
+// operator action is kept whatever its age.
+func TestPruneEventsAgesOutAuthRows(t *testing.T) {
+	s := openTest(t)
+	for _, e := range []struct{ kind, msg string }{
+		{EventAuth, "old signed in"},
+		{EventAuth, "old signed out"},
+		{EventModelChange, "old created peer cust_a"},
+		{EventBackup, "old downloaded a database snapshot"},
+		{EventConfigApply, "old apply"},
+		{EventAuth, "new signed in"},
+	} {
+		if err := s.InsertAudit("alice", e.kind, e.msg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-100 * 24 * time.Hour).UTC().Format(time.RFC3339Nano)
+	if _, err := s.db.Exec(`UPDATE events SET ts = ? WHERE message LIKE 'old %'`, old); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.PruneEvents(time.Now().Add(-90 * 24 * time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("pruned %d events, want the 2 old auth rows", n)
+	}
+	events, err := s.ListEvents(10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	for _, e := range events {
+		left = append(left, e.Message)
+	}
+	want := []string{"new signed in", "old apply", "old downloaded a database snapshot", "old created peer cust_a"}
+	if strings.Join(left, "|") != strings.Join(want, "|") {
+		t.Errorf("left %q, want %q", left, want)
 	}
 }

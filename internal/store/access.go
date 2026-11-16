@@ -41,14 +41,11 @@ func ParseAccessWhitelist(text string) ([]netip.Prefix, []string) {
 
 func parseCIDROrIP(tok string) (netip.Prefix, string) {
 	if p, err := netip.ParsePrefix(tok); err == nil {
-		// Clients are matched in plain IPv4 form (AccessAllowed unmaps them), so
-		// a prefix written in IPv4-mapped IPv6 form, ::ffff:10.0.0.0/104, would
-		// never match anyone. Store the IPv4 prefix it means: the mapped range
-		// is ::ffff:0:0/96, so the IPv4 length is the IPv6 one less 96. Anything
-		// shorter than /96 covers more than mapped addresses and is left alone.
-		if p.Addr().Is4In6() && p.Bits() >= 96 {
-			p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
-		}
+		// A prefix written in IPv4-mapped IPv6 form (::ffff:10.0.0.0/104) is
+		// kept as written, although clients are matched in plain IPv4 form and
+		// so it matches none of them. It never did, and reading it as the IPv4
+		// prefix it resembles would widen access on upgrade — ::ffff:0:0/96
+		// would become 0.0.0.0/0, which allows everything.
 		return p.Masked(), ""
 	}
 	if a, err := netip.ParseAddr(tok); err == nil {
