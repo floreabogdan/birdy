@@ -124,3 +124,73 @@ func TestUnreadableRepliesPastTheGraceAreReported(t *testing.T) {
 		t.Fatalf("events = %v, want %v", kinds, want)
 	}
 }
+
+// A row missing from one reply is not a protocol that went away: nothing about
+// it may be forgotten. Before, the up session came back as "established", the
+// down one as "went down", and the limit already reported was reported again.
+func TestProtocolMissingFromOneReplyKeepsItsState(t *testing.T) {
+	st := openTestStore(t)
+	upV4 := bgp("edge_v4", "up", "Established")
+	downV6 := bgp("edge_v6", "start", "Connect")
+	fc := &fakeClient{
+		polls: [][]birdc.ProtocolSummary{
+			{upV4, downV6}, // baseline
+			{upV4, downV6}, // edge_v4 reaches its limit: one limit_hit
+			{},             // placeholder, replaced below
+			{upV4, downV6}, // both rows are back
+		},
+		detail: map[string]birdc.ProtocolDetail{
+			"edge_v4": {Channels: []birdc.ChannelDetail{{AFI: "ipv4", ImportLimit: "10", RoutesImported: 5}}},
+		},
+	}
+	// The third reply lists only the device protocol: both sessions missing.
+	fc.polls[2] = []birdc.ProtocolSummary{{Name: "device1", Proto: "Device", Table: "---", State: "up", Since: "12:00:00.124"}}
+	n := &capturingNotifier{}
+	p := New(fc, st, time.Second, nil)
+	p.SetNotifier(n)
+	clk := withClock(p)
+
+	p.poll(context.Background())
+	fc.detail["edge_v4"] = birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10}}}
+	for range 3 {
+		clk.advance(5 * time.Second)
+		p.poll(context.Background())
+	}
+
+	if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventLimitHit {
+		t.Fatalf("events = %v, want only the one limit_hit", kinds)
+	}
+}
+
+// Carried forward is not kept forever: a peer removed by an apply, or renamed,
+// leaves the poller's state once the grace has passed.
+func TestProtocolGoneForLongerThanTheGraceIsForgotten(t *testing.T) {
+	st := openTestStore(t)
+	device := birdc.ProtocolSummary{Name: "device1", Proto: "Device", Table: "---", State: "up", Since: "12:00:00.124"}
+	fc := &fakeClient{polls: [][]birdc.ProtocolSummary{
+		{device, bgp("edge_v4", "up", "Established")},
+		{device},
+	}}
+	p := New(fc, st, time.Second, nil)
+	clk := withClock(p)
+
+	p.poll(context.Background())
+	clk.advance(5 * time.Second)
+	p.poll(context.Background())
+	if st, ok := p.Snapshot().States["edge_v4"]; !ok || !st.Up {
+		t.Fatalf("a protocol missing from one reply must be carried forward, got %+v (present %v)", st, ok)
+	}
+	if got := len(p.Snapshot().Protocols); got != 1 {
+		t.Errorf("the published rows are what BIRD reported (1), got %d", got)
+	}
+	for range 12 {
+		clk.advance(5 * time.Second)
+		p.poll(context.Background())
+	}
+	if _, ok := p.Snapshot().States["edge_v4"]; ok {
+		t.Fatal("a protocol gone for longer than the grace must be forgotten")
+	}
+	if kinds := eventKinds(t, st); len(kinds) != 0 {
+		t.Fatalf("a protocol leaving BIRD's list is not a session event, got %v", kinds)
+	}
+}

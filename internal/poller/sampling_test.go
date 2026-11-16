@@ -64,3 +64,21 @@ func TestPollerSamplingDisabled(t *testing.T) {
 		t.Errorf("disabled sampling must not write, got %d", len(samples))
 	}
 }
+
+// A session carried forward because one reply lacked its row has no fresh
+// counts, so it must not add a point to its history line.
+func TestPollerDoesNotSampleACarriedSession(t *testing.T) {
+	st := openTestStore(t)
+	fc := upSessionWithCounts()
+	device := birdc.ProtocolSummary{Name: "device1", Proto: "Device", Table: "---", State: "up", Since: "12:00:00.124"}
+	fc.polls = [][]birdc.ProtocolSummary{{device, bgp("edge_v4", "up", "Established")}, {device}}
+	p := New(fc, st, time.Second, nil)
+	p.SetSampling(time.Nanosecond, time.Hour)
+	p.poll(context.Background())
+	p.poll(context.Background()) // edge_v4 missing from the reply
+
+	samples, _ := st.ListSamples("edge_v4", time.Now().Add(-time.Hour))
+	if len(samples) != 1 {
+		t.Errorf("want only the sample from the poll that saw the session, got %d", len(samples))
+	}
+}

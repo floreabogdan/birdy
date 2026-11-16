@@ -63,6 +63,9 @@ type ProtoState struct {
 	// such a protocol as simply "down", which is indistinguishable from a session
 	// that failed — the model is the only place that knows the difference.
 	Disabled bool
+	// staleSince is set while this state is carried forward because the latest
+	// reply had no usable row for the protocol; zero when the row was read.
+	staleSince time.Time
 }
 
 // Snapshot is the latest poll result, safe to read concurrently via Poller.Snapshot.
@@ -182,6 +185,9 @@ func (p *Poller) maybeSample(states map[string]ProtoState, now time.Time) {
 	for name, st := range states {
 		if st.Summary.Proto != "BGP" || !st.Up || len(st.Channels) == 0 {
 			continue // down sessions leave a gap in the line, which is the point
+		}
+		if !st.staleSince.IsZero() {
+			continue // carried forward: these counts are not a fresh reading
 		}
 		imported, exported := 0, 0
 		for _, ch := range st.Channels {
@@ -353,6 +359,25 @@ func (p *Poller) poll(ctx context.Context) {
 		}
 
 		next[proto.Name] = state
+	}
+
+	// A protocol in the last reply but not in this one is far more often a reply
+	// that lost rows than a protocol that went away. Forgetting it loses the Up,
+	// LastChange and LimitHit its next row is compared against, and that row then
+	// pages "established", "went down" or "limit reached" all over again. So carry
+	// it forward unchanged until it has been absent for hiccupGrace; a protocol an
+	// apply removed, or a peer that was renamed, is forgotten after that. It is
+	// not published as a row meanwhile: the table shows what BIRD said.
+	for name, prior := range prevStates {
+		if _, ok := next[name]; ok {
+			continue
+		}
+		if prior.staleSince.IsZero() {
+			prior.staleSince = now
+		}
+		if now.Sub(prior.staleSince) < hiccupGrace {
+			next[name] = prior
+		}
 	}
 
 	// Publish session state before the expensive whole-RIB count. On a router
