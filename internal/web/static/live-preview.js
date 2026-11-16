@@ -18,6 +18,11 @@
 		return d.innerHTML;
 	}
 
+	// esc() leaves quotes alone, so it cannot be used inside an attribute value.
+	function escAttr(s) {
+		return esc(s).replace(/"/g, "&quot;");
+	}
+
 	function renderCode(data) {
 		if (data.err) {
 			body.innerHTML = '<div class="card-body text-muted">' + esc(data.err) + "</div>";
@@ -35,7 +40,7 @@
 		}
 		var items = warnings.map(function (w) {
 			var peer = w.Peer ? '<span class="chip">' + esc(w.Peer) + "</span> " : "";
-			return '<li class="lint-' + esc(w.Severity) + '">' + peer + esc(w.Message) + "</li>";
+			return '<li class="lint-' + escAttr(w.Severity) + '">' + peer + esc(w.Message) + "</li>";
 		});
 		warnBox.innerHTML =
 			'<div class="card panel-warning"><div class="panel-head">' +

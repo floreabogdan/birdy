@@ -241,6 +241,30 @@
 						</form>
 					</div>
 				</div>
+				<div class="card">
+					<div class="card-header"><span class="card-title">{{template "icon-key"}}Allowed host names</span></div>
+					<div class="card-body">
+						<p style="margin-top:0">
+							A browser is answered only when it reaches birdy by <strong>IP address</strong>, as
+							<span class="mono">localhost</span>, or by a name listed here. Any other name is refused, so a hostile
+							web page that points its own name at birdy (DNS rebinding) gets nowhere, even from an allowed IP or
+							through your SSH tunnel. List the names you type into the address bar.
+						</p>
+						<p class="hint" style="margin-bottom:14px">
+							Machine clients are not affected: other birdy instances reading this one with a token, and
+							Prometheus scraping <span class="mono">/metrics</span>, work by any name.
+						</p>
+						{{if .HostsErr}}<div class="error-text" style="white-space:pre-line">{{.HostsErr}}</div>{{end}}
+						<form method="post" action="/settings/hosts">
+							<div class="field">
+								<label for="allowedHosts">Host names</label>
+								<textarea id="allowedHosts" name="allowedHosts" rows="3" class="mono" spellcheck="false" placeholder="router1.example.net">{{.AllowedHosts}}</textarea>
+								<div class="hint">One per line or comma-separated, without scheme or port. IP addresses and <code class="mono">localhost</code> are always accepted. Blank lines and <code class="mono">#</code> comments are ignored.</div>
+							</div>
+							<button type="submit" class="btn btn-primary">Save host names</button>
+						</form>
+					</div>
+				</div>
 			</section>
 
 			<section data-tab-panel="alerts" {{if ne .Tab "alerts"}}hidden{{end}} class="tab-panel">

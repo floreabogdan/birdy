@@ -98,9 +98,11 @@ type Server struct {
 	login *loginLimiter
 
 	// accessMu guards accessList, the parsed access whitelist cached from
-	// settings so the per-request gate never hits the database.
-	accessMu   sync.RWMutex
-	accessList []netip.Prefix
+	// settings so the per-request gate never hits the database, and
+	// allowedHosts, the host names the browser UI answers to (host_check.go).
+	accessMu     sync.RWMutex
+	accessList   []netip.Prefix
+	allowedHosts map[string]bool
 
 	// histMu guards a short-lived cache of the dashboard's per-session route
 	// history. Recomputing it rescans the whole sample window; the samples only
@@ -237,6 +239,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	secure := s.cookieSecure(r)
 	setSecurityHeaders(w, secure)
+	if !s.hostAllowed(r) {
+		s.refuseHost(w, r)
+		return
+	}
 	if !sameOriginWrite(r, secure) {
 		http.Error(w, "cross-origin write rejected", http.StatusForbidden)
 		return
@@ -274,11 +280,17 @@ func sameOriginWrite(r *http.Request, secure bool) bool {
 // startup and whenever the whitelist is edited.
 func (s *Server) reloadAccess() {
 	var list []netip.Prefix
+	hosts := map[string]bool{}
 	if settings, ok, err := s.store.GetSettings(); err == nil && ok {
 		list, _ = store.ParseAccessWhitelist(settings.AccessWhitelist)
+		names, _ := store.ParseAllowedHosts(settings.AllowedHosts)
+		for _, name := range names {
+			hosts[name] = true
+		}
 	}
 	s.accessMu.Lock()
 	s.accessList = list
+	s.allowedHosts = hosts
 	s.accessMu.Unlock()
 }
 
@@ -469,6 +481,7 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /settings/bogons", s.requireAuth(s.handleSettingsBogons))
 	s.mux.Handle("POST /settings/raw", s.requireAuth(s.handleSettingsRaw))
 	s.mux.Handle("POST /settings/access", s.requireAuth(s.handleSettingsAccess))
+	s.mux.Handle("POST /settings/hosts", s.requireAuth(s.handleSettingsHosts))
 	s.mux.Handle("POST /settings/instance-token", s.requireAuth(s.handleSettingsInstanceToken))
 	s.mux.Handle("POST /settings/instance-token/revoke", s.requireAuth(s.handleSettingsInstanceTokenRevoke))
 	s.mux.Handle("POST /settings/instance-token/{id}/revoke", s.requireAuth(s.handleSettingsInstanceTokenRevokeOne))

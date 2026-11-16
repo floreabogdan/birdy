@@ -216,6 +216,15 @@ func newTestEnv(t *testing.T, readOnly bool, opts ...func(*Config)) *testEnv {
 	for _, o := range opts {
 		o(&cfg)
 	}
+	// httptest addresses every request to example.com, which the DNS-rebinding
+	// host check would refuse; list it the way an operator lists their router's
+	// name. That needs the settings row a real install gets from birdy init.
+	if err := st.SaveSettings(store.Settings{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveAllowedHosts("example.com"); err != nil {
+		t.Fatal(err)
+	}
 	srv := New(cfg)
 
 	hash, err := HashPassword("correct horse battery staple")
