@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -152,9 +153,20 @@ func TestBuildEmail(t *testing.T) {
 // as Notify, but delivers inline, one destination after another, so a test can
 // assert on the result as soon as it returns.
 func (d *Dispatcher) deliverAllSync(kind, protocol, message string) {
-	if d.throttle(kind, protocol) {
+	if d.throttle(notification{kind: kind, protocol: protocol, message: message}) {
 		return
 	}
+	d.deliverInline(kind, protocol, message)
+}
+
+// deliverHeldSync is the routing worker's held-back check, delivered inline.
+func (d *Dispatcher) deliverHeldSync() {
+	for _, n := range d.takeHeld() {
+		d.deliverInline(n.kind, n.protocol, n.message)
+	}
+}
+
+func (d *Dispatcher) deliverInline(kind, protocol, message string) {
 	for _, j := range d.route(kind, protocol, message) {
 		d.deliverOne(j)
 	}
@@ -316,5 +328,161 @@ func TestDeliveryErrorsHideWebhookURL(t *testing.T) {
 				t.Errorf("log should name the destination: %s", logs.String())
 			}
 		})
+	}
+}
+
+// eventRecorder is a webhook that records the event kind of every alert it
+// receives, in order.
+type eventRecorder struct {
+	*httptest.Server
+	mu       sync.Mutex
+	kinds    []string
+	messages []string
+	arrived  chan struct{}
+}
+
+func newEventRecorder(t *testing.T) *eventRecorder {
+	t.Helper()
+	rec := &eventRecorder{arrived: make(chan struct{}, 64)}
+	rec.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		rec.mu.Lock()
+		rec.kinds = append(rec.kinds, fmt.Sprint(body["event"]))
+		rec.messages = append(rec.messages, fmt.Sprint(body["message"]))
+		rec.mu.Unlock()
+		rec.arrived <- struct{}{}
+		w.WriteHeader(200)
+	}))
+	t.Cleanup(rec.Close)
+	return rec
+}
+
+func (rec *eventRecorder) got() []string {
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	return append([]string(nil), rec.kinds...)
+}
+
+// The cooldown may delay news but must not lose it. down (sent), flap (sent),
+// down again (inside the down window, so held back), then nothing: the
+// operator's last alert said "flapping" while the session sat down, and no
+// later transition would ever correct it. Once the window closes, the held-back
+// state has to go out.
+func TestCooldownDeliversHeldBackStateWhenWindowCloses(t *testing.T) {
+	rec := newEventRecorder(t)
+	st := openStore(t)
+	if _, err := st.CreateAlertDestination(store.Destination{Name: "w", Type: store.AlertWebhook, Enabled: true, URL: rec.URL}); err != nil {
+		t.Fatal(err)
+	}
+	d := NewDispatcher(st, nil, 500*time.Millisecond)
+	d.Notify(store.EventSessionDown, "edge_v4", "edge_v4 went down")
+	d.Notify(store.EventFlap, "edge_v4", "edge_v4 is flapping")
+	d.Notify(store.EventSessionDown, "edge_v4", "edge_v4 went down")
+
+	want := []string{store.EventSessionDown, store.EventFlap, store.EventSessionDown}
+	timeout := time.After(5 * time.Second)
+	for range want {
+		select {
+		case <-rec.arrived:
+		case <-timeout:
+			t.Fatalf("operator was last told %v; the session is down", rec.got())
+		}
+	}
+	if got := rec.got(); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("alerts = %v, want %v", got, want)
+	}
+}
+
+// What the cooldown holds back is delivered only once its window has closed,
+// and only when it would change what the operator was last told. Driven on a
+// fake clock through the same throttle and held-back check the worker runs.
+func TestCooldownHeldBackRules(t *testing.T) {
+	const (
+		down = store.EventSessionDown
+		up   = store.EventSessionUp
+		flap = store.EventFlap
+		// check runs the held-back check instead of raising an event.
+		check = ""
+	)
+	type step struct {
+		at   time.Duration // since the first event; the cooldown is 5 minutes
+		kind string
+		sent int // for a check: how many alerts the operator should have by now
+	}
+	for _, tc := range []struct {
+		name  string
+		steps []step
+		want  []string
+	}{
+		{"a held state that differs goes out when its window closes", []step{
+			{0, down, 0}, {time.Minute, flap, 0}, {2 * time.Minute, down, 0},
+			{4 * time.Minute, check, 2}, // down's window is still open
+			{5*time.Minute + time.Second, check, 3},
+			{6 * time.Minute, check, 3}, // and only once
+		}, []string{down, flap, down}},
+		{"a held state the operator was last told is dropped", []step{
+			{0, down, 0}, {time.Minute, up, 0}, {2 * time.Minute, down, 0}, {3 * time.Minute, up, 0},
+			{5*time.Minute + time.Second, check, 2}, {7 * time.Minute, check, 2},
+		}, []string{down, up}},
+		{"a held state superseded by a delivered one is dropped", []step{
+			{0, down, 0}, {time.Minute, up, 0}, {2 * time.Minute, down, 0}, {3 * time.Minute, flap, 0},
+			{7 * time.Minute, check, 3},
+		}, []string{down, up, flap}},
+		{"a plain repeat stays suppressed", []step{
+			{0, flap, 0}, {time.Minute, flap, 0},
+			{7 * time.Minute, check, 1},
+		}, []string{flap}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := newEventRecorder(t)
+			st := openStore(t)
+			if _, err := st.CreateAlertDestination(store.Destination{Name: "w", Type: store.AlertWebhook, Enabled: true, URL: rec.URL}); err != nil {
+				t.Fatal(err)
+			}
+			d := NewDispatcher(st, nil, 5*time.Minute)
+			start := time.Unix(1_700_000_000, 0)
+			var now time.Time
+			d.now = func() time.Time { return now }
+
+			for _, s := range tc.steps {
+				now = start.Add(s.at)
+				if s.kind != check {
+					d.deliverAllSync(s.kind, "edge_v4", "edge_v4 "+s.kind)
+					continue
+				}
+				d.deliverHeldSync()
+				if got := rec.got(); len(got) != s.sent {
+					t.Fatalf("at %v: alerts = %v, want %d of them", s.at, got, s.sent)
+				}
+			}
+			if got := rec.got(); strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("alerts = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// An alert that arrives minutes after the event says why, so nobody reads it
+// as a fresh transition.
+func TestHeldBackAlertSaysItWasHeld(t *testing.T) {
+	rec := newEventRecorder(t)
+	st := openStore(t)
+	if _, err := st.CreateAlertDestination(store.Destination{Name: "w", Type: store.AlertWebhook, Enabled: true, URL: rec.URL}); err != nil {
+		t.Fatal(err)
+	}
+	d := NewDispatcher(st, nil, 5*time.Minute)
+	now := time.Unix(1_700_000_000, 0)
+	d.now = func() time.Time { return now }
+	d.deliverAllSync(store.EventSessionDown, "edge_v4", "edge_v4 went down")
+	d.deliverAllSync(store.EventSessionUp, "edge_v4", "edge_v4 came back")
+	d.deliverAllSync(store.EventSessionDown, "edge_v4", "edge_v4 went down")
+	now = now.Add(6 * time.Minute)
+	d.deliverHeldSync()
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.messages) != 3 || !strings.Contains(rec.messages[2], "held back by the alert cooldown") {
+		t.Fatalf("messages = %q, want the third marked as held back", rec.messages)
 	}
 }

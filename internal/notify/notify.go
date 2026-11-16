@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"sync"
 	"time"
 
@@ -36,9 +37,12 @@ type Dispatcher struct {
 	cooldown time.Duration
 	// smtpTimeout bounds one alert email; a field so tests can shorten it.
 	smtpTimeout time.Duration
+	now         func() time.Time // the throttle's clock; tests substitute one
 
 	mu     sync.Mutex
 	last   map[string]time.Time    // (kind|protocol) -> last delivery, for throttling
+	told   map[string]string       // protocol -> kind of the last throttled alert delivered
+	held   map[string]notification // protocol -> newest event the cooldown held back
 	outbox map[int64]chan delivery // destination ID -> its own delivery queue
 
 	queueOnce sync.Once
@@ -47,6 +51,10 @@ type Dispatcher struct {
 
 // queueSize bounds the routing queue and each destination's queue.
 const queueSize = 256
+
+// heldCheckEvery is how often the routing worker looks for held-back events
+// whose cooldown has run out; the cooldown itself, if that is shorter.
+const heldCheckEvery = 10 * time.Second
 
 type notification struct{ kind, protocol, message string }
 
@@ -63,29 +71,64 @@ func NewDispatcher(st *store.Store, log *slog.Logger, cooldown time.Duration) *D
 		log = slog.Default()
 	}
 	return &Dispatcher{
-		store: st, log: log, cooldown: cooldown, smtpTimeout: smtpTimeout,
+		store: st, log: log, cooldown: cooldown, smtpTimeout: smtpTimeout, now: time.Now,
 		client: &http.Client{Timeout: 10 * time.Second},
 		last:   map[string]time.Time{},
+		told:   map[string]string{},
+		held:   map[string]notification{},
 		outbox: map[int64]chan delivery{},
 	}
 }
 
-// throttle reports whether an event should be suppressed as a repeat, and
+// throttle reports whether an event should be held back as a repeat, and
 // records this delivery when it is not. Only the storm-prone session kinds are
-// subject to it.
-func (d *Dispatcher) throttle(kind, protocol string) bool {
-	if d.cooldown <= 0 || !throttled[kind] {
+// subject to it. A held-back event is kept as its protocol's newest news, for
+// takeHeld to deliver once the window closes.
+func (d *Dispatcher) throttle(n notification) bool {
+	if d.cooldown <= 0 || !throttled[n.kind] {
 		return false
 	}
-	key := kind + "|" + protocol
+	key := n.kind + "|" + n.protocol
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	now := time.Now()
+	now := d.now()
 	if last, ok := d.last[key]; ok && now.Sub(last) < d.cooldown {
+		d.held[n.protocol] = n
 		return true
 	}
 	d.last[key] = now
+	d.told[n.protocol] = n.kind
+	delete(d.held, n.protocol) // superseded: this is now the newest thing said
 	return false
+}
+
+// takeHeld returns, and records as delivered, the held-back events whose window
+// has closed and that differ from the last alert the operator got for that
+// protocol. The throttle is keyed per kind, so without this, down, flap, down
+// (held) leaves the operator's last word "flapping" while the session sits down,
+// and no further transition comes along to correct it. A held repeat of what
+// was last said (flap, flap) is dropped, as before.
+func (d *Dispatcher) takeHeld() []notification {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	now := d.now()
+	var due []notification
+	for protocol, n := range d.held {
+		key := n.kind + "|" + protocol
+		if now.Sub(d.last[key]) < d.cooldown {
+			continue
+		}
+		delete(d.held, protocol)
+		if d.told[protocol] == n.kind {
+			continue
+		}
+		d.last[key] = now
+		d.told[protocol] = n.kind
+		n.message += " (held back by the alert cooldown)"
+		due = append(due, n)
+	}
+	sort.Slice(due, func(i, j int) bool { return due[i].protocol < due[j].protocol })
+	return due
 }
 
 // alert is one thing worth telling the operator, in platform-neutral form.
@@ -211,13 +254,29 @@ func (d *Dispatcher) Notify(kind, protocol, message string) {
 }
 
 func (d *Dispatcher) deliverLoop() {
-	for n := range d.queue {
-		if d.throttle(n.kind, n.protocol) {
-			continue
+	var heldCheck <-chan time.Time // nil, so never ready, without a cooldown
+	if d.cooldown > 0 {
+		t := time.NewTicker(min(d.cooldown, heldCheckEvery))
+		defer t.Stop()
+		heldCheck = t.C
+	}
+	for {
+		select {
+		case n := <-d.queue:
+			if !d.throttle(n) {
+				d.dispatch(n)
+			}
+		case <-heldCheck:
+			for _, n := range d.takeHeld() {
+				d.dispatch(n)
+			}
 		}
-		for _, j := range d.route(n.kind, n.protocol, n.message) {
-			d.handOff(j)
-		}
+	}
+}
+
+func (d *Dispatcher) dispatch(n notification) {
+	for _, j := range d.route(n.kind, n.protocol, n.message) {
+		d.handOff(j)
 	}
 }
 
