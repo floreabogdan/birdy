@@ -73,12 +73,23 @@ func (s *Server) birdyIncludes(conf string) []string {
 	return out
 }
 
+// includeLineRe matches a line that is nothing but an include statement — the
+// only kind birdy writes into bird.conf.
+var includeLineRe = regexp.MustCompile(`^include\s+"([^"]+)"\s*;$`)
+
 // readLogicalConfig returns the effective config text on disk: for a split
-// layout, the concatenation of the birdy.d files bird.conf includes, in include
-// order; for a single file, bird.conf itself. The bool is false when there is no
+// layout, bird.conf with each birdy.d include spliced in where it is included;
+// for a single file, bird.conf itself. The bool is false when there is no
 // bird.conf at all. This is the text birdy hashes and diffs, so how the config is
 // split on disk is invisible to ownership detection and diffing — and an existing
 // single-file install stays "owned" across the upgrade to the split layout.
+//
+// Comments and blank lines in a split bird.conf drop out: they are all birdy
+// writes there besides the includes, and its banner names the birdy version,
+// which an upgrade changes. Every other line is kept where it stands, because
+// BIRD parses it: a protocol an operator added to bird.conf is part of the
+// running config, so it must read as an edit (and show in the diff as what the
+// next apply would remove), not stay invisible behind an unchanged include list.
 func (s *Server) readLogicalConfig() (string, bool, error) {
 	data, err := os.ReadFile(s.birdConfPath)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -87,13 +98,22 @@ func (s *Server) readLogicalConfig() (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	includes := s.birdyIncludes(string(data))
-	if len(includes) == 0 {
+	if len(s.birdyIncludes(string(data))) == 0 {
 		return string(data), true, nil // single file: legacy birdy, or foreign
 	}
+	want := filepath.Clean(s.birdyIncludeDir())
 	var b strings.Builder
-	for _, inc := range includes {
-		part, err := os.ReadFile(inc)
+	for _, line := range strings.SplitAfter(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		m := includeLineRe.FindStringSubmatch(trimmed)
+		if m == nil || filepath.Dir(filepath.Clean(filepath.FromSlash(m[1]))) != want {
+			b.WriteString(line)
+			continue
+		}
+		part, err := os.ReadFile(filepath.Clean(filepath.FromSlash(m[1])))
 		if errors.Is(err, fs.ErrNotExist) {
 			// A birdy include vanished out of band: the reconstruction is
 			// incomplete, so its hash will not match — reported as edited.
