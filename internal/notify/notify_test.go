@@ -1,9 +1,12 @@
 package notify
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -252,5 +255,66 @@ func TestSlowDestinationDoesNotDelayOthers(t *testing.T) {
 		case <-time.After(3 * time.Second):
 			t.Fatalf("webhook still waiting for %s after 3s: the stalled mail server is holding it up", want)
 		}
+	}
+}
+
+// A Slack or Discord webhook URL is the credential: whoever has it can post to
+// the channel. A failed delivery is logged and flashed to the browser, so the
+// error may name the host but never the path that carries the secret — not in
+// the "returned HTTP 404" form, and not in the "Post \"<url>\": …" form Go's
+// HTTP client puts on a transport error.
+func TestDeliveryErrorsHideWebhookURL(t *testing.T) {
+	const secretPath = "/services/TFAKE/BFAKE/not-a-real-secret"
+
+	notFound := httptest.NewServer(http.NotFoundHandler())
+	defer notFound.Close()
+	// The handler never sees the client give up (it leaves the body unread), so
+	// it is released explicitly before Close, which waits for it.
+	release := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer slow.Close()
+	defer close(release)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := "http://" + ln.Addr().String()
+	ln.Close() // nothing listens there now
+
+	for _, tc := range []struct{ name, base string }{
+		{"http-404", notFound.URL},
+		{"connection-refused", refused},
+		{"timeout", slow.URL},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			st := openStore(t)
+			if _, err := st.CreateAlertDestination(store.Destination{Name: "ops-slack", Type: store.AlertSlack, Enabled: true, URL: tc.base + secretPath}); err != nil {
+				t.Fatal(err)
+			}
+			d := NewDispatcher(st, slog.New(slog.NewTextHandler(&logs, nil)), 0)
+			d.client = &http.Client{Timeout: 300 * time.Millisecond}
+
+			err := d.SendTest(mustGet(t, st, "ops-slack"))
+			if err == nil {
+				t.Fatal("delivery should have failed")
+			}
+			if strings.Contains(err.Error(), "not-a-real-secret") || strings.Contains(err.Error(), "/services/") {
+				t.Errorf("error leaks the webhook path: %v", err)
+			}
+			if !strings.Contains(err.Error(), "127.0.0.1") {
+				t.Errorf("error should still name the host: %v", err)
+			}
+
+			d.deliverAllSync(store.EventSessionDown, "edge_v4", "down")
+			if strings.Contains(logs.String(), "not-a-real-secret") {
+				t.Errorf("log leaks the webhook path: %s", logs.String())
+			}
+			if !strings.Contains(logs.String(), "ops-slack") {
+				t.Errorf("log should name the destination: %s", logs.String())
+			}
+		})
 	}
 }

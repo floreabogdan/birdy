@@ -3,7 +3,10 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/floreabogdan/birdy/internal/store"
@@ -49,5 +52,30 @@ func TestAlertsSummaryUnread(t *testing.T) {
 	}
 	if out2.Unread != 0 {
 		t.Errorf("unread after seeing the latest event = %d, want 0", out2.Unread)
+	}
+}
+
+// A failed test send is flashed back to the browser (and the flash rides in a
+// cookie), so it must not carry the webhook URL: for Slack and Discord the URL
+// is the credential.
+func TestAlertTestFailureHidesWebhookURL(t *testing.T) {
+	env := newTestEnv(t, false)
+	hook := httptest.NewServer(http.NotFoundHandler())
+	defer hook.Close()
+	id, err := env.store.CreateAlertDestination(store.Destination{
+		Name: "ops-discord", Type: store.AlertDiscord, Enabled: true,
+		URL: hook.URL + "/api/webhooks/000/not-a-real-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := env.do(t, http.MethodPost, "/alerts/"+strconv.FormatInt(id, 10)+"/test", url.Values{})
+	flash := flashOf(rec)
+	if !strings.Contains(flash, "ops-discord") || !strings.Contains(flash, "404") {
+		t.Fatalf("flash should report the failed test by name: %q", flash)
+	}
+	if strings.Contains(flash, "not-a-real-secret") {
+		t.Errorf("flash leaks the webhook URL: %q", flash)
 	}
 }

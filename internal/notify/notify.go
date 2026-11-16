@@ -8,9 +8,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -351,28 +353,52 @@ func (d *Dispatcher) deliver(dest store.Destination, a alert) error {
 	}
 }
 
-// postJSON marshals v and POSTs it, treating any non-2xx as an error.
-func (d *Dispatcher) postJSON(url string, v any) error {
+// postJSON marshals v and POSTs it, treating any non-2xx as an error. Its errors
+// name only the scheme and host: a Slack or Discord webhook URL is itself the
+// credential, and these errors are logged and shown in the browser.
+func (d *Dispatcher) postJSON(rawURL string, v any) error {
 	body, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("POST %s: %w", redactURL(rawURL), withoutURL(err))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("POST %s: %w", redactURL(rawURL), withoutURL(err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("%s returned HTTP %d", url, resp.StatusCode)
+		return fmt.Errorf("%s returned HTTP %d", redactURL(rawURL), resp.StatusCode)
 	}
 	return nil
+}
+
+// redactURL is a webhook URL cut down to scheme and host, enough to tell the
+// operator which service failed without the path or userinfo that carry the
+// secret.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "webhook"
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+// withoutURL peels off the *url.Error the HTTP client wraps every failure in;
+// its message quotes the full request URL. What is left (a dial, TLS or timeout
+// error) names at most the host.
+func withoutURL(err error) error {
+	var ue *url.Error
+	for errors.As(err, &ue) {
+		err = ue.Err
+	}
+	return err
 }
 
 // ---- platform payloads ----
