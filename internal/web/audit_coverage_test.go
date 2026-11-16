@@ -295,12 +295,12 @@ func TestAccountEventsAreAudited(t *testing.T) {
 				env.cookie = c // the password change rotates the session
 			}
 			return rec
-		}, store.EventAuth, []string{"changed the account password"}},
+		}, store.EventModelChange, []string{"changed the account password"}},
 	})
 	// From here on the account has its new name, and so do the audit rows.
 	runAuditSteps(t, env, "operator", []auditStep{
 		{"username change", post("/profile/identity", url.Values{"username": {"operator"}, "currentPassword": {newPassword}}),
-			store.EventAuth, []string{"changed the username from admin to operator"}},
+			store.EventModelChange, []string{"changed the username from admin to operator"}},
 		{"logout", post("/logout", nil), store.EventAuth, []string{"signed out"}},
 	})
 

@@ -24,7 +24,7 @@ const (
 	EventInstanceDown  = "instance_down"
 	EventInstanceUp    = "instance_up"
 	EventRPKIRestart   = "rpki_restart" // an operator restarted an RTR session
-	EventAuth          = "auth"         // sign-in, sign-out, or a change to an operator's own credentials
+	EventAuth          = "auth"         // sign-in or sign-out; pruned with the retention window (credential changes are model_change and kept)
 	EventBackup        = "backup"       // the database left the router (snapshot/backup download) or a restore was staged
 )
 
