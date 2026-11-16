@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -103,13 +104,91 @@ func (s *Store) CreateCommunityDef(cd CommunityDef) (int64, error) {
 	return res.LastInsertId()
 }
 
+// CommunityInUseError is UpdateCommunityDef refusing to rename a community
+// that peers, templates or policies still reference by name.
+type CommunityInUseError struct{ Users []string }
+
+func (e *CommunityInUseError) Error() string {
+	return "store: community is referenced by " + strings.Join(e.Users, ", ")
+}
+
+// UpdateCommunityDef saves a community. A rename is refused while anything
+// still names the community: references are by name, not id, so a rename is
+// a delete as far as they are concerned, and would leave each pointing at a
+// symbol the next render no longer defines. That is the rule deletes follow.
+// The check and the write share one transaction, so a reference saved in
+// between cannot slip past.
 func (s *Store) UpdateCommunityDef(cd CommunityDef) error {
-	res, err := s.db.Exec(`UPDATE communities SET name = ?, description = ?, large = ?, a = ?, b = ?, c = ?, updated_at = ?
-		WHERE id = ?`, cd.Name, cd.Description, cd.Large, cd.A, cd.B, cd.C, now(), cd.ID)
+	tx, err := s.db.Begin()
 	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Write before reading, as AttachPeers does: it takes SQLite's write lock
+	// now, so the check below sees every reference committed before it.
+	res, err := tx.Exec(`UPDATE communities SET updated_at = updated_at WHERE id = ?`, cd.ID)
+	if err != nil {
+		return fmt.Errorf("store: lock community: %w", err)
+	}
+	if err := affectedOne(res); err != nil {
+		return err
+	}
+	var current string
+	if err := tx.QueryRow(`SELECT name FROM communities WHERE id = ?`, cd.ID).Scan(&current); err != nil {
+		return fmt.Errorf("store: get community: %w", err)
+	}
+	if current != cd.Name {
+		users, err := communityUsers(tx, current)
+		if err != nil {
+			return err
+		}
+		if len(users) > 0 {
+			return &CommunityInUseError{Users: users}
+		}
+	}
+	if _, err := tx.Exec(`UPDATE communities SET name = ?, description = ?, large = ?, a = ?, b = ?, c = ?, updated_at = ?
+		WHERE id = ?`, cd.Name, cd.Description, cd.Large, cd.A, cd.B, cd.C, now(), cd.ID); err != nil {
 		return fmt.Errorf("store: update community: %w", err)
 	}
-	return affectedOne(res)
+	return tx.Commit()
+}
+
+// CommunityUsers lists the peers, peer templates and policies that reference a
+// community by name, as "peer NAME", "peer template NAME" and "policy NAME". A
+// template counts even with no peers linked: linking one later copies its
+// references onto the peer.
+func (s *Store) CommunityUsers(name string) ([]string, error) {
+	return communityUsers(s.db, name)
+}
+
+func communityUsers(q querier, name string) ([]string, error) {
+	var users []string
+	// The tables and columns come from this fixed list, never from input.
+	for _, src := range []struct{ kind, query string }{
+		{"peer", `SELECT name, import_communities || char(10) || export_communities FROM peers ORDER BY name`},
+		{"peer template", `SELECT name, import_communities || char(10) || export_communities FROM peer_templates ORDER BY name`},
+		{"policy", `SELECT name, match_community FROM policies ORDER BY name`},
+	} {
+		rows, err := q.Query(src.query)
+		if err != nil {
+			return nil, fmt.Errorf("store: community users: %w", err)
+		}
+		for rows.Next() {
+			var owner, refs string
+			if err := rows.Scan(&owner, &refs); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if slices.Contains(NamedCommunityRefs(refs), name) {
+				users = append(users, src.kind+" "+owner)
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+	return users, nil
 }
 
 func (s *Store) DeleteCommunityDef(id int64) error {
