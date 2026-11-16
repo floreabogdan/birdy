@@ -52,17 +52,18 @@ func TestLoginResetsOnSuccess(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		env.do(t, "POST", "/login", bad)
 	}
-	if env.srv.login.blocked("192.0.2.1") {
-		t.Error("the failure count should have reset after the successful login")
+	if rec := env.do(t, "POST", "/login", good); rec.Header().Get("Location") != "/" {
+		t.Errorf("the failure count should have reset after the successful login, got %q", rec.Header().Get("Location"))
 	}
 }
 
 func TestLoginLimiterStateIsBounded(t *testing.T) {
 	l := newLoginLimiter()
+	l.tokens, l.burst = 1e9, 1e9 // the router-wide budget is not what this tests
 	for i := 0; i < maxLoginLimiterEntries+500; i++ {
-		l.fail(fmt.Sprintf("192.0.2.%d", i))
+		l.reserve(fmt.Sprintf("192.0.2.%d", i), false)
 	}
-	if got := len(l.byIP); got > maxLoginLimiterEntries {
+	if got := len(l.byKey); got > maxLoginLimiterEntries {
 		t.Fatalf("limiter retained %d entries, limit is %d", got, maxLoginLimiterEntries)
 	}
 }
