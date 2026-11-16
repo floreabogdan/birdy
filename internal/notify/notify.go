@@ -32,15 +32,27 @@ type Dispatcher struct {
 	log      *slog.Logger
 	client   *http.Client
 	cooldown time.Duration
+	// smtpTimeout bounds one alert email; a field so tests can shorten it.
+	smtpTimeout time.Duration
 
-	mu   sync.Mutex
-	last map[string]time.Time // (kind|protocol) -> last delivery, for throttling
+	mu     sync.Mutex
+	last   map[string]time.Time    // (kind|protocol) -> last delivery, for throttling
+	outbox map[int64]chan delivery // destination ID -> its own delivery queue
 
 	queueOnce sync.Once
-	queue     chan notification // FIFO into the single delivery worker
+	queue     chan notification // FIFO into the single routing worker
 }
 
+// queueSize bounds the routing queue and each destination's queue.
+const queueSize = 256
+
 type notification struct{ kind, protocol, message string }
+
+// delivery is one alert bound for one destination.
+type delivery struct {
+	dest  store.Destination
+	alert alert
+}
 
 // NewDispatcher builds a dispatcher. cooldown suppresses a repeat of the same
 // session event for a protocol within the window; 0 disables throttling.
@@ -49,9 +61,10 @@ func NewDispatcher(st *store.Store, log *slog.Logger, cooldown time.Duration) *D
 		log = slog.Default()
 	}
 	return &Dispatcher{
-		store: st, log: log, cooldown: cooldown,
+		store: st, log: log, cooldown: cooldown, smtpTimeout: smtpTimeout,
 		client: &http.Client{Timeout: 10 * time.Second},
 		last:   map[string]time.Time{},
+		outbox: map[int64]chan delivery{},
 	}
 }
 
@@ -175,14 +188,17 @@ func (a alert) plainLine() string {
 }
 
 // Notify queues an event for delivery to every enabled destination. A single
-// background worker drains the queue, so deliveries keep their order (a
-// session_up never overtakes the session_down before it) and never fan out into
-// an unbounded burst of concurrent HTTP requests under a flap storm. The queue
-// is bounded; if it ever fills, the overflow is logged and dropped rather than
-// blocking the poller. A delivery failure is logged, not retried.
+// background worker takes events in order, applies the throttle and each
+// destination's filter, and hands the alert to that destination's own queue.
+// Each destination delivers its queue in order (a session_up never overtakes the
+// session_down before it) and one request at a time, so a flap storm never fans
+// out into an unbounded burst of concurrent requests — and a destination that is
+// down or slow delays only itself, never the others. Every queue is bounded; if
+// one fills, the overflow is logged and dropped rather than blocking the poller.
+// A delivery failure is logged, not retried.
 func (d *Dispatcher) Notify(kind, protocol, message string) {
 	d.queueOnce.Do(func() {
-		d.queue = make(chan notification, 256)
+		d.queue = make(chan notification, queueSize)
 		go d.deliverLoop()
 	})
 	select {
@@ -194,24 +210,25 @@ func (d *Dispatcher) Notify(kind, protocol, message string) {
 
 func (d *Dispatcher) deliverLoop() {
 	for n := range d.queue {
-		d.deliverAllSync(n.kind, n.protocol, n.message)
+		if d.throttle(n.kind, n.protocol) {
+			continue
+		}
+		for _, j := range d.route(n.kind, n.protocol, n.message) {
+			d.handOff(j)
+		}
 	}
 }
 
-// deliverAllSync applies the throttle and per-destination filter, then delivers
-// to each remaining destination. Synchronous so it is deterministic under test;
-// Notify runs it in the background.
-func (d *Dispatcher) deliverAllSync(kind, protocol, message string) {
-	if d.throttle(kind, protocol) {
-		return
-	}
+// route builds the alert for an event once and pairs it with every enabled
+// destination that wants this kind.
+func (d *Dispatcher) route(kind, protocol, message string) []delivery {
 	dests, err := d.store.EnabledAlertDestinations()
 	if err != nil {
 		d.log.Warn("could not load alert destinations", "error", err)
-		return
+		return nil
 	}
 	if len(dests) == 0 {
-		return
+		return nil
 	}
 	// A recovery follows its outage's subscription: if you asked to hear that
 	// BIRD went unreachable, you hear when it comes back, without a second box.
@@ -221,13 +238,62 @@ func (d *Dispatcher) deliverAllSync(kind, protocol, message string) {
 	}
 
 	a := d.build(kind, protocol, message)
+	var out []delivery
 	for _, dest := range dests {
-		if !dest.Wants(filterKind) {
-			continue // this destination filtered this kind out
+		if dest.Wants(filterKind) {
+			out = append(out, delivery{dest: dest, alert: a})
 		}
-		if err := d.deliver(dest, a); err != nil {
-			d.log.Warn("alert delivery failed", "destination", dest.Name, "type", dest.Type, "error", err)
+	}
+	return out
+}
+
+// handOff puts a delivery on its destination's queue, starting that
+// destination's worker if it has none running.
+func (d *Dispatcher) handOff(j delivery) {
+	d.mu.Lock()
+	q, ok := d.outbox[j.dest.ID]
+	if !ok {
+		q = make(chan delivery, queueSize)
+		d.outbox[j.dest.ID] = q
+		go d.destLoop(j.dest.ID, q)
+	}
+	queued := true
+	select {
+	case q <- j:
+	default:
+		queued = false
+	}
+	d.mu.Unlock()
+	if !queued {
+		d.log.Warn("alert queue full; dropping notification",
+			"destination", j.dest.Name, "kind", j.alert.Kind, "protocol", j.alert.Protocol)
+	}
+}
+
+// destLoop delivers one destination's queue in order, and exits once it is
+// empty so a deleted destination leaves no goroutine behind. The emptiness check
+// is made under the lock handOff holds while queueing, so a delivery can never
+// land on a queue whose worker has already gone.
+func (d *Dispatcher) destLoop(id int64, q chan delivery) {
+	for {
+		select {
+		case j := <-q:
+			d.deliverOne(j)
+		default:
+			d.mu.Lock()
+			if len(q) == 0 {
+				delete(d.outbox, id)
+				d.mu.Unlock()
+				return
+			}
+			d.mu.Unlock()
 		}
+	}
+}
+
+func (d *Dispatcher) deliverOne(j delivery) {
+	if err := d.deliver(j.dest, j.alert); err != nil {
+		d.log.Warn("alert delivery failed", "destination", j.dest.Name, "type", j.dest.Type, "error", err)
 	}
 }
 
@@ -279,7 +345,7 @@ func (d *Dispatcher) deliver(dest store.Destination, a alert) error {
 	case store.AlertDiscord:
 		return d.postJSON(dest.URL, discordPayload(a))
 	case store.AlertEmail:
-		return sendEmail(dest, a)
+		return sendEmail(dest, a, d.smtpTimeout)
 	default: // generic webhook
 		return d.postJSON(dest.URL, webhookPayload(a))
 	}

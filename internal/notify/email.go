@@ -12,29 +12,37 @@ import (
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
-const smtpTimeout = 15 * time.Second
+// Deadlines for a whole SMTP exchange, dial to QUIT. net/smtp has no timeouts of
+// its own, so a server that accepts the connection and then never answers would
+// otherwise hold the sender forever. An alert is short and someone is waiting on
+// it; a config backup can run to megabytes and nobody is, so it gets longer —
+// but it still ends.
+const (
+	smtpTimeout       = 30 * time.Second
+	configMailTimeout = 2 * time.Minute
+)
 
 // sendEmail delivers one alert as an HTML email over SMTP.
-func sendEmail(d store.Destination, a alert) error {
+func sendEmail(d store.Destination, a alert, timeout time.Duration) error {
 	tos := store.SplitAddresses(d.SMTPTo)
 	if len(tos) == 0 {
 		return fmt.Errorf("no recipients")
 	}
 	subject := a.emoji() + " birdy: " + a.title()
-	return sendSMTP(d, tos, buildMIME(d.SMTPFrom, tos, subject, a.plainText(), emailHTML(a)))
+	return sendSMTP(d, tos, buildMIME(d.SMTPFrom, tos, subject, a.plainText(), emailHTML(a)), timeout)
 }
 
 // sendSMTP is the transport, shared by alert and config-backup mail. It honours
 // the destination's security (none / STARTTLS / implicit TLS) and uses AUTH
-// PLAIN when a username is set.
-func sendSMTP(d store.Destination, tos []string, msg string) error {
+// PLAIN when a username is set. The whole exchange must finish within timeout.
+func sendSMTP(d store.Destination, tos []string, msg string, timeout time.Duration) error {
 	addr := net.JoinHostPort(d.SMTPHost, fmt.Sprintf("%d", d.SMTPPort))
 	var auth smtp.Auth
 	if d.SMTPUsername != "" {
 		auth = smtp.PlainAuth("", d.SMTPUsername, d.SMTPPassword, d.SMTPHost)
 	}
 
-	client, err := dialSMTP(d, addr)
+	client, err := dialSMTP(d, addr, time.Now().Add(timeout))
 	if err != nil {
 		return err
 	}
@@ -73,21 +81,35 @@ func sendSMTP(d store.Destination, tos []string, msg string) error {
 	return client.Quit()
 }
 
-// dialSMTP opens a connection with a timeout — net/smtp's own Dial has none, and
-// a dead mailserver must not hang the sender.
-func dialSMTP(d store.Destination, addr string) (*smtp.Client, error) {
+// dialSMTP connects and reads the greeting, with deadline set on the connection
+// itself rather than only on the dial: a dead mailserver must not hang the
+// sender at any step. STARTTLS wraps this same connection, so the deadline
+// carries into the encrypted session too.
+func dialSMTP(d store.Destination, addr string, deadline time.Time) (*smtp.Client, error) {
+	dialer := &net.Dialer{Deadline: deadline}
+	var conn net.Conn
+	var err error
 	if d.SMTPSecurity == store.SMTPTLS {
-		conn, err := tls.DialWithDialer(&net.Dialer{Timeout: smtpTimeout}, "tcp", addr, &tls.Config{ServerName: d.SMTPHost})
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{ServerName: d.SMTPHost})
 		if err != nil {
 			return nil, fmt.Errorf("tls dial: %w", err)
 		}
-		return smtp.NewClient(conn, d.SMTPHost)
+	} else {
+		conn, err = dialer.Dial("tcp", addr)
+		if err != nil {
+			return nil, fmt.Errorf("dial: %w", err)
+		}
 	}
-	conn, err := net.DialTimeout("tcp", addr, smtpTimeout)
+	if err := conn.SetDeadline(deadline); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	client, err := smtp.NewClient(conn, d.SMTPHost)
 	if err != nil {
-		return nil, fmt.Errorf("dial: %w", err)
+		conn.Close()
+		return nil, fmt.Errorf("greeting: %w", err)
 	}
-	return smtp.NewClient(conn, d.SMTPHost)
+	return client, nil
 }
 
 // buildMIME assembles a multipart/alternative message: a plain-text part for
@@ -175,5 +197,5 @@ func mailConfig(d store.Destination, router, maskedConfig string) error {
 		"<p style=\"font-size:13px;color:#374151\">This is the config birdy just applied, kept here off the router. Passwords are masked.</p>" +
 		"<pre style=\"font-size:12px;line-height:1.5;background:#0b1021;color:#e6edf3;padding:16px;border-radius:8px;overflow-x:auto\">" +
 		htmlEscape(maskedConfig) + "</pre></div></body></html>"
-	return sendSMTP(d, tos, buildMIME(d.SMTPFrom, tos, subject, maskedConfig, html))
+	return sendSMTP(d, tos, buildMIME(d.SMTPFrom, tos, subject, maskedConfig, html), configMailTimeout)
 }

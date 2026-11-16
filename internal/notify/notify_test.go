@@ -2,6 +2,7 @@ package notify
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -144,6 +145,18 @@ func TestBuildEmail(t *testing.T) {
 	}
 }
 
+// deliverAllSync runs an event through the same throttle, filter and routing
+// as Notify, but delivers inline, one destination after another, so a test can
+// assert on the result as soon as it returns.
+func (d *Dispatcher) deliverAllSync(kind, protocol, message string) {
+	if d.throttle(kind, protocol) {
+		return
+	}
+	for _, j := range d.route(kind, protocol, message) {
+		d.deliverOne(j)
+	}
+}
+
 func mustGet(t *testing.T, st *store.Store, name string) store.Destination {
 	t.Helper()
 	all, err := st.ListAlertDestinations()
@@ -201,5 +214,43 @@ func TestPerDestinationEventFilter(t *testing.T) {
 	d.deliverAllSync(store.EventSessionDown, "edge_v4", "down")
 	if got != "hit" {
 		t.Error("a wanted kind should be delivered")
+	}
+}
+
+// One stalled destination must not hold up the others. Here the mail server
+// (sorted first, so it is tried first) accepts and never answers; the webhook
+// still has to get every alert promptly, not after the mail deadline per event.
+func TestSlowDestinationDoesNotDelayOthers(t *testing.T) {
+	host, port := fakeSMTP(t, "greeting")
+	hits := make(chan string, 4)
+	hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		hits <- fmt.Sprint(body["protocol"])
+		w.WriteHeader(200)
+	}))
+	defer hook.Close()
+
+	st := openStore(t)
+	if _, err := st.CreateAlertDestination(emailDest("a-mail", host, port)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateAlertDestination(store.Destination{Name: "b-hook", Type: store.AlertWebhook, Enabled: true, URL: hook.URL}); err != nil {
+		t.Fatal(err)
+	}
+	d := NewDispatcher(st, nil, 0)
+	d.smtpTimeout = time.Minute // the mail server stays wedged for the whole test
+
+	d.Notify(store.EventSessionDown, "edge_v4", "down")
+	d.Notify(store.EventSessionDown, "edge_v6", "down")
+	for _, want := range []string{"edge_v4", "edge_v6"} {
+		select {
+		case got := <-hits:
+			if got != want {
+				t.Fatalf("webhook got %s, want %s (order must hold per destination)", got, want)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("webhook still waiting for %s after 3s: the stalled mail server is holding it up", want)
+		}
 	}
 }
