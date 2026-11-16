@@ -41,6 +41,10 @@ type fakeClient struct {
 	cfgErr         error
 	calls          []string
 	lastSoft       bool // whether the last ConfigureTimeout asked for a soft reconfigure
+
+	// cfgConfirmNothing makes confirm answer BIRD's "0019 Nothing to do": no
+	// reconfigure was armed any more when the operator clicked Confirm.
+	cfgConfirmNothing bool
 }
 
 func (f *fakeClient) result(ok bool, msg string) (birdc.ConfigureResult, error) {
@@ -64,6 +68,9 @@ func (f *fakeClient) ConfigureTimeout(_ context.Context, seconds int, soft bool)
 }
 func (f *fakeClient) ConfigureConfirm(_ context.Context) (birdc.ConfigureResult, error) {
 	f.calls = append(f.calls, "confirm")
+	if f.cfgConfirmNothing {
+		return birdc.ConfigureResult{OK: false, Code: birdc.CodeNothingToDo, Message: "Nothing to do"}, nil
+	}
 	return f.result(!f.cfgConfirmFail, "confirmed")
 }
 func (f *fakeClient) ConfigureUndo(_ context.Context) (birdc.ConfigureResult, error) {

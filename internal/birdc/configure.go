@@ -18,7 +18,18 @@ const configureTimeout = 30 * time.Second
 type ConfigureResult struct {
 	OK      bool
 	Message string
+	// Code is BIRD's terminal reply code. Most callers need only OK, but some
+	// replies BIRD does not mark as errors still mean "nothing happened" — see
+	// ConfigureConfirm.
+	Code int
 }
+
+// Reply codes from BIRD's reconfigure commands that birdy acts on (they come
+// from cmd_reconfig_msg in BIRD's nest/cmds.c; verified against BIRD 2.17.5).
+const (
+	CodeReconfigConfirmed = 18 // "Reconfiguration confirmed": an armed timeout was stopped
+	CodeNothingToDo       = 19 // "Nothing to do": no armed reconfigure to confirm or undo
+)
 
 // The configure commands all act on the daemon's own configured config file —
 // the path BIRD was started with (-c), which birdy must write to. BIRD's CLI
@@ -52,8 +63,18 @@ func (c *Client) ConfigureTimeout(ctx context.Context, seconds int, soft bool) (
 }
 
 // ConfigureConfirm keeps a timeout-armed reconfigure that would otherwise revert.
+//
+// Only CodeReconfigConfirmed is OK. With no timer armed BIRD answers
+// CodeNothingToDo, which is not an error code — but it means BIRD is no longer
+// running the armed config: the timeout already reverted it, BIRD restarted, or
+// a plain `birdc configure` replaced it. Reporting that as a successful confirm
+// would have the caller record a config as kept that BIRD is not running.
 func (c *Client) ConfigureConfirm(ctx context.Context) (ConfigureResult, error) {
-	return c.configure(ctx, "configure confirm")
+	res, err := c.configure(ctx, "configure confirm")
+	if err == nil && res.Code != CodeReconfigConfirmed {
+		res.OK = false
+	}
+	return res, err
 }
 
 // DaemonConfigPath returns the file BIRD reads its configuration from, parsed
@@ -156,11 +177,12 @@ func (c *Client) configure(ctx context.Context, cmd string) (ConfigureResult, er
 	}
 	text := strings.Join(msg, "; ")
 
+	code := reply.Terminal.Code
 	if reply.IsError() {
-		return ConfigureResult{OK: false, Message: text}, nil
+		return ConfigureResult{OK: false, Message: text, Code: code}, nil
 	}
 	if text == "" {
 		text = "OK"
 	}
-	return ConfigureResult{OK: true, Message: text}, nil
+	return ConfigureResult{OK: true, Message: text, Code: code}, nil
 }

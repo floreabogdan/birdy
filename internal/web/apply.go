@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/floreabogdan/birdy/internal/birdc"
 	birdconf "github.com/floreabogdan/birdy/internal/render"
 	"github.com/floreabogdan/birdy/internal/store"
 )
@@ -385,17 +386,25 @@ func (s *Server) reconcilePending() error {
 	if !pending.Expired(time.Now()) {
 		return nil
 	}
-	if err := s.store.ResolveConfigVersion(pending.ID, store.ConfigReverted,
+	// The auto-revert reconcile is self-healing, not tied to one request, so it
+	// runs on a background context bounded by the client's own command timeout.
+	if err := s.recordBirdRevert(context.Background(), pending.ID, "auto-revert",
 		"Auto-reverted: the apply was not confirmed within the safety timeout."); err != nil {
 		return err
 	}
 	s.emitEvent(store.EventConfigRevert, "", "Config apply auto-reverted (not confirmed in time)")
-	// The apply reloaded filters onto the table while it was armed; BIRD has since
-	// reverted the config on its own, so re-run the restored filters to pull the
-	// table back off the un-confirmed policy.
-	// The auto-revert reconcile is self-healing, not tied to one request, so it
-	// runs on a background context bounded by the client's own command timeout.
-	s.reloadFilters(context.Background(), "auto-revert")
+	return nil
+}
+
+// recordBirdRevert records a pending apply that BIRD itself has already reverted.
+// The apply may have reloaded the new filters onto the table while it was armed,
+// and BIRD's own revert does not undo that, so re-run the restored filters to
+// pull the table back off the unconfirmed policy.
+func (s *Server) recordBirdRevert(ctx context.Context, id int64, reason, message string) error {
+	if err := s.store.ResolveConfigVersion(id, store.ConfigReverted, message); err != nil {
+		return err
+	}
+	s.reloadFilters(ctx, reason)
 	return nil
 }
 
@@ -650,7 +659,27 @@ func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	// A dropped connection here must not leave BIRD confirmed while birdy still
 	// records the version as pending; detach so confirm-and-record completes.
-	res, err := s.client.ConfigureConfirm(context.WithoutCancel(r.Context()))
+	applyCtx := context.WithoutCancel(r.Context())
+	res, err := s.client.ConfigureConfirm(applyCtx)
+	if err == nil && res.Code == birdc.CodeNothingToDo {
+		// BIRD had no armed reconfigure to keep, so it is not running this apply:
+		// its timeout fired (birdy's countdown is only an estimate of BIRD's), it
+		// restarted, or something reconfigured it outside birdy. Keeping the new
+		// files and stamping their hash would make disk and record agree with each
+		// other while BIRD runs the previous config — a split no drift check sees.
+		suffix := s.rollbackConfig(pending.BackupPath)
+		if err := s.recordBirdRevert(applyCtx, pending.ID, "confirm",
+			"Reverted before it was confirmed: BIRD had nothing to confirm (its timeout had fired, or it was restarted or reconfigured outside birdy)."); err != nil {
+			s.serverError(w, "resolve version", err)
+			return
+		}
+		s.emitAuditedEvent(r, store.EventConfigRevert,
+			fmt.Sprintf("Config apply found already reverted by BIRD at confirm (version %d)", pending.ID))
+		s.redirectChanges(w, r, "BIRD had nothing to confirm, so it is no longer running this apply: its safety timeout"+
+			" already reverted it, or BIRD was restarted or reconfigured outside birdy. The previous config is back on"+
+			" disk and the apply is recorded as reverted; apply again if you still want it."+suffix)
+		return
+	}
 	if err != nil || !res.OK {
 		if err != nil {
 			s.log.Error("configure confirm", "error", err)

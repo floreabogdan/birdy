@@ -346,6 +346,64 @@ func TestApplyConfirmRolledBackWhenBirdWontConfirm(t *testing.T) {
 	}
 }
 
+// A confirm that finds nothing armed in BIRD ("0019 Nothing to do") means BIRD is
+// no longer running the pending config: its timeout fired early by birdy's
+// clock, BIRD restarted, or a plain `birdc configure` disarmed it. birdy must not
+// write the new config to disk and stamp it as confirmed — disk and the recorded
+// hash would then agree with each other while BIRD runs the old config, so no
+// drift alert would ever fire. It puts the previous config back and records the
+// apply as reverted.
+func TestApplyConfirmWhenBirdAlreadyReverted(t *testing.T) {
+	env := applyReady(t)
+	prev := []byte("# prev\n")
+	if err := os.WriteFile(env.confPath, prev, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.store.SetAppliedConfigHash(hashBytes(prev)); err != nil {
+		t.Fatal(err)
+	}
+	env.do(t, "POST", "/apply", nil)
+	pending, ok, _ := env.store.PendingConfigVersion()
+	if !ok {
+		t.Fatal("apply should leave a pending version")
+	}
+	env.fc.cfgConfirmNothing = true
+	env.fc.calls = nil
+
+	rec := env.do(t, "POST", "/apply/confirm", nil)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("confirm: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if data, _ := os.ReadFile(env.confPath); string(data) != string(prev) {
+		t.Errorf("the previous config must be back on disk, got %q", data)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(filepath.Dir(env.confPath), "birdy.d")); len(entries) != 0 {
+		t.Errorf("the unconfirmed include files must be removed, found %d", len(entries))
+	}
+	st, _, _ := env.store.GetSettings()
+	if st.AppliedConfigHash != hashBytes(prev) {
+		t.Error("an apply BIRD no longer runs must not become the applied hash")
+	}
+	if _, ok, _ := env.store.PendingConfigVersion(); ok {
+		t.Error("the apply must be resolved, not left pending")
+	}
+	v, err := env.store.GetConfigVersion(pending.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Status != store.ConfigReverted {
+		t.Errorf("version status = %q, want %q", v.Status, store.ConfigReverted)
+	}
+	if flash := flashOf(rec); !strings.Contains(flash, "nothing to confirm") {
+		t.Errorf("the operator should be told BIRD had already reverted, flash=%q", flash)
+	}
+	// BIRD reverted on its own, so like an auto-revert the table is pulled back
+	// off the unconfirmed filters.
+	if got := strings.Join(env.fc.calls, ","); got != "confirm,reload" {
+		t.Errorf("calls = %q, want confirm,reload", got)
+	}
+}
+
 func TestHistoryListsAppliedVersions(t *testing.T) {
 	env := applyReady(t)
 	env.do(t, "POST", "/apply", nil)
