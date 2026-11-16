@@ -534,3 +534,33 @@ func TestPollerNoLimitHitOnFirstPoll(t *testing.T) {
 		t.Error("the first poll must still record the hit, or the next one reports it")
 	}
 }
+
+// BIRD marks a triggered limit "1000 [HIT]". Atoi failed on that, the channel
+// was skipped, and limit_hit never fired. The marker also stays after the count
+// falls back under the limit, until the channel is reloaded (seen on BIRD
+// 2.17.5), so it counts as a hit on its own.
+func TestPollerImportLimitHitMarker(t *testing.T) {
+	for name, hit := range map[string]birdc.ChannelDetail{
+		"at the limit":           {AFI: "ipv4", ImportLimit: "1000 [HIT]", RoutesImported: 1000},
+		"over, action warn":      {AFI: "ipv4", ImportLimit: "1000 [HIT]", RoutesImported: 1500},
+		"back under, not reload": {AFI: "ipv4", ImportLimit: "1000 [HIT]", RoutesImported: 500},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := openTestStore(t)
+			fc := &fakeClient{
+				polls: [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+				detail: map[string]birdc.ProtocolDetail{"edge_v4": {Channels: []birdc.ChannelDetail{
+					{AFI: "ipv4", ImportLimit: "1000", RoutesImported: 400},
+				}}},
+			}
+			p := New(fc, st, time.Second, nil)
+			p.poll(context.Background())
+			fc.detail["edge_v4"] = birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{hit}}
+			p.poll(context.Background())
+			p.poll(context.Background())
+			if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventLimitHit {
+				t.Fatalf("events = %v, want one limit_hit", kinds)
+			}
+		})
+	}
+}

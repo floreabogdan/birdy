@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -176,6 +177,24 @@ func ParseProtocolDetail(r Reply) (ProtocolDetail, error) {
 	}
 	flush()
 	return d, nil
+}
+
+// ParseImportLimit reads a channel's ImportLimit as BIRD prints it. The bare
+// number becomes "1000 [HIT]" once the limit triggers (BIRD 2's format is
+// "%-16s%d%s" with " [HIT]"), so a plain Atoi fails exactly when the limit
+// matters. The marker stays after the count falls back under the limit, until
+// the channel is reloaded, so hit is its own signal and not only count >= limit.
+// limit is 0 when no numeric limit is set.
+func ParseImportLimit(s string) (limit int, hit bool) {
+	f := strings.Fields(s)
+	if len(f) == 0 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(f[0])
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, slices.Contains(f[1:], "[HIT]")
 }
 
 var reRouteCount = regexp.MustCompile(`^(\d+) of (\d+) routes for (\d+) networks in table (\S+)`)

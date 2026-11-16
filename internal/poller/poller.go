@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -505,11 +504,11 @@ func (p *Poller) updateImportLimits(ctx context.Context, proto birdc.ProtocolSum
 	state.Channels = detail.Channels
 	for _, ch := range detail.Channels {
 		state.Imported += ch.RoutesImported
-		limit, err := strconv.Atoi(strings.TrimSpace(ch.ImportLimit))
-		if err != nil || limit <= 0 {
+		limit, flagged := birdc.ParseImportLimit(ch.ImportLimit)
+		if limit <= 0 {
 			continue
 		}
-		hit := ch.RoutesImported >= limit
+		hit := flagged || ch.RoutesImported >= limit
 		if hit && !state.LimitHit[ch.AFI] && !first {
 			msg := fmt.Sprintf("%s (%s): import limit reached (%d/%d)", proto.Name, ch.AFI, ch.RoutesImported, limit)
 			p.emit(store.EventLimitHit, proto.Name, msg)
