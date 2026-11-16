@@ -75,9 +75,28 @@ func (s *Server) handleProfilePage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// confirmPassword re-checks the operator's current password through the login
+// limiter, so a stolen session gets no more guesses at it than the login form
+// would give. It returns "" when the password is right, otherwise what to tell
+// the operator.
+func (s *Server) confirmPassword(r *http.Request, u store.User, password string) string {
+	matched, verdict := s.login.check(r.Context(), clientAddr(r), func() bool {
+		return bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)) == nil
+	})
+	switch {
+	case verdict != loginAllowed:
+		return verdict.refusal()
+	case !matched:
+		return "That is not your current password."
+	}
+	return ""
+}
+
 // handleProfileIdentity changes the logged-in user's username. It does not touch
 // the session: sessions key on the user id, which does not change, so a rename
-// leaves the operator logged in.
+// leaves the operator logged in. It does need the current password: the
+// username is half of the login, so renaming it with nothing but a stolen
+// session would lock the real operator out.
 func (s *Server) handleProfileIdentity(w http.ResponseWriter, r *http.Request) {
 	u, ok := s.currentUser(w, r)
 	if !ok {
@@ -95,6 +114,11 @@ func (s *Server) handleProfileIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 	if username == u.Username {
 		s.flashRedirect(w, r, "/profile", "Username unchanged", false)
+		return
+	}
+	if msg := s.confirmPassword(r, u, r.FormValue("currentPassword")); msg != "" {
+		s.renderProfile(w, profileView{Active: "profile", ReadOnly: s.readOnly, Username: username,
+			AccountErrs: map[string]string{"currentPassword": msg}})
 		return
 	}
 	if err := s.store.SetUsername(u.ID, username); err != nil {
@@ -125,8 +149,8 @@ func (s *Server) handleProfilePassword(w http.ResponseWriter, r *http.Request) {
 	confirm := r.FormValue("confirmPassword")
 
 	errs := map[string]string{}
-	if bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(current)) != nil {
-		errs["currentPassword"] = "That is not your current password."
+	if msg := s.confirmPassword(r, u, current); msg != "" {
+		errs["currentPassword"] = msg
 	}
 	switch {
 	case len(next) < minPasswordLen:

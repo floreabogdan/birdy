@@ -26,13 +26,20 @@
 			<div class="card">
 				<div class="card-header"><span class="card-title">{{template "icon-user"}}Username</span></div>
 				<div class="card-body">
-					<p class="text-muted" style="margin-top:0">This is the name you type at the login screen. Changing it does not sign you out.</p>
+					<p class="text-muted" style="margin-top:0">This is the name you type at the login screen. Changing it does not sign you out, but it needs your current password &mdash; a stolen session alone should not be enough to rename the account out from under you.</p>
 					<form method="post" action="/profile/identity">
-						<div class="field">
-							<label for="username">Username</label>
-							<input type="text" id="username" name="username" class="mono" value="{{.Username}}" autocomplete="username" autocapitalize="none" spellcheck="false" required>
-							<div class="hint">Letters, digits and punctuation, up to 64 characters. No spaces.</div>
-							{{with index .AccountErrs "username"}}<div class="field-error">{{.}}</div>{{end}}
+						<div class="field-row">
+							<div class="field">
+								<label for="username">Username</label>
+								<input type="text" id="username" name="username" class="mono" value="{{.Username}}" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+								<div class="hint">Letters, digits and punctuation, up to 64 characters. No spaces.</div>
+								{{with index .AccountErrs "username"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
+							<div class="field">
+								<label for="usernameCurrentPassword">Current password</label>
+								<input type="password" id="usernameCurrentPassword" name="currentPassword" autocomplete="current-password" required>
+								{{with index .AccountErrs "currentPassword"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
 						</div>
 						<button type="submit" class="btn btn-primary">Save username</button>
 					</form>
