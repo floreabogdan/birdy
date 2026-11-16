@@ -236,8 +236,13 @@ func TestDataTransfersAreAuditedAndLogged(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// StageRestore only looks at the SQLite header.
-		_, _ = part.Write(append([]byte("SQLite format 3\x00"), make([]byte, 100)...))
+		// A real database, as a restore validates what it is given: the one
+		// this server hands out as a snapshot.
+		snap := get("/api/snapshot/download")(t, env)
+		if snap.Code != http.StatusOK {
+			t.Fatalf("snapshot download for the restore body: %d", snap.Code)
+		}
+		_, _ = part.Write(snap.Body.Bytes())
 		mw.Close()
 		req := httptest.NewRequest(http.MethodPost, "/api/snapshot/restore", &body)
 		req.Header.Set("Content-Type", mw.FormDataContentType())
