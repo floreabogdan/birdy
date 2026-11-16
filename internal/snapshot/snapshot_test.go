@@ -42,7 +42,6 @@ func TestCreateSnapshotAndPrune(t *testing.T) {
 				t.Fatalf("snapshot mode = %o, want 600", got)
 			}
 		}
-		time.Sleep(1100 * time.Millisecond) // ensure distinct second-granularity filenames
 	}
 
 	names := m.list()
@@ -72,6 +71,9 @@ func TestStageAndApplyRestore(t *testing.T) {
 
 	s, err := store.Open(dbPath)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateUser("admin", "hash"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.InsertEvent(store.EventSessionUp, "original", "before restore"); err != nil {

@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -441,18 +440,20 @@ func (s *Server) handleSettingsAccess(w http.ResponseWriter, r *http.Request) {
 
 // apiSnapshotDownload always produces a fresh, consistent snapshot on demand
 // rather than serving a possibly-stale nightly one, and streams it straight
-// back — nothing is left behind on disk beyond the usual retained set.
+// back. It is a temporary snapshot, removed once streamed: it is not part of
+// the retained set, so downloading never evicts a nightly snapshot.
 func (s *Server) apiSnapshotDownload(w http.ResponseWriter, r *http.Request) {
 	if s.snap == nil {
 		http.Error(w, "snapshots not configured", http.StatusServiceUnavailable)
 		return
 	}
-	path, err := s.snap.CreateSnapshot(s.store)
+	path, err := s.snap.CreateTempSnapshot(s.store)
 	if err != nil {
 		s.log.Error("snapshot creation failed", "error", err)
 		http.Error(w, "failed to create snapshot", http.StatusInternalServerError)
 		return
 	}
+	defer os.Remove(path) // runs after f.Close below
 	f, err := os.Open(path)
 	if err != nil {
 		s.log.Error("snapshot open failed", "error", err)
@@ -461,7 +462,7 @@ func (s *Server) apiSnapshotDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 	w.Header().Set("Content-Type", "application/vnd.sqlite3")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(path)))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", s.snap.DownloadName()))
 	_, _ = io.Copy(w, f)
 }
 
