@@ -80,3 +80,32 @@ func TestPollerDoesNotSampleACarriedSession(t *testing.T) {
 		t.Errorf("want only the sample from the poll that saw the session, got %d", len(samples))
 	}
 }
+
+// The poller prunes the event timeline to its retention window, on a slow
+// cadence; retention 0 keeps everything.
+func TestPollerPrunesEventsPastRetention(t *testing.T) {
+	for name, tc := range map[string]struct {
+		retain time.Duration
+		want   int
+	}{
+		"pruned":   {retain: 90 * 24 * time.Hour, want: 0},
+		"disabled": {retain: 0, want: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := openTestStore(t)
+			if err := st.InsertEvent("session_down", "edge_v4", "edge_v4 (BGP) went down"); err != nil {
+				t.Fatal(err)
+			}
+			p := New(upSessionWithCounts(), st, time.Second, nil)
+			p.SetEventRetention(tc.retain)
+			later := time.Now().Add(100 * 24 * time.Hour) // the event is now 100 days old
+			p.clock = func() time.Time { return later }
+			p.poll(context.Background())
+
+			events, _ := st.ListEvents(10, 0)
+			if len(events) != tc.want {
+				t.Errorf("got %d events after the poll, want %d", len(events), tc.want)
+			}
+		})
+	}
+}

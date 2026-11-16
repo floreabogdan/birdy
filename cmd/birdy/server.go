@@ -47,6 +47,7 @@ func cmdServer(args []string) error {
 	driftInterval := fs.Duration("drift-check-interval", 30*time.Second, "how often to check whether bird.conf changed outside birdy, alerting if it did (0 disables)")
 	sampleInterval := fs.Duration("sample-interval", time.Minute, "how often to record a per-session route-count point for the dashboard history sparklines (0 disables)")
 	sampleRetain := fs.Duration("sample-retain", 7*24*time.Hour, "how long to keep route-count history samples")
+	eventRetain := fs.Duration("event-retain", 90*24*time.Hour, "how long to keep timeline events such as session changes and alerts; operator actions (the audit trail) are always kept (0 keeps everything)")
 	irrRefreshInterval := fs.Duration("irr-refresh-interval", 24*time.Hour, "how often to re-expand auto-refresh prefix sets and AS sets from IRR via bgpq4 (0 disables; requires --bgpq4)")
 	fs.Parse(args)
 	if (*tlsCert == "") != (*tlsKey == "") {
@@ -106,6 +107,7 @@ Fix it with:
 	p.SetNotifier(dispatcher)
 	p.SetDropRatio(*dropRatio)
 	p.SetSampling(*sampleInterval, *sampleRetain)
+	p.SetEventRetention(*eventRetain)
 	go p.Run(ctx)
 
 	snapMgr := snapshot.NewManager(*dbPath, *snapshotDir, *snapshotRetain)

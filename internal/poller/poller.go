@@ -40,6 +40,10 @@ const hiccupGrace = time.Minute
 // with nothing configured.
 var errNoProtocols = fmt.Errorf("birdc: show protocols listed no protocols: %w", birdc.ErrUnexpectedReply)
 
+// eventPruneInterval: pruning the timeline is one indexed DELETE, but a window
+// measured in days gains nothing from running it every poll.
+const eventPruneInterval = time.Hour
+
 // Status contains mostly static identity/version data. Do not ask the control
 // socket for it on every session poll; a short cache preserves quick recovery
 // while removing one command from the hot path.
@@ -118,6 +122,8 @@ type Poller struct {
 	sampleRetain   time.Duration
 	lastSample     time.Time
 	lastRouteCount time.Time
+	eventRetain    time.Duration
+	lastEventPrune time.Time
 
 	mu             sync.RWMutex
 	snap           Snapshot
@@ -169,6 +175,31 @@ func (p *Poller) SetDropRatio(r float64) { p.dropRatio = r }
 func (p *Poller) SetSampling(interval, retain time.Duration) {
 	p.sampleInterval = interval
 	p.sampleRetain = retain
+}
+
+// SetEventRetention prunes timeline events older than retain (operator actions
+// excepted, see store.PruneEvents), checked hourly from the poll loop. 0 keeps
+// every event. Call before Run.
+func (p *Poller) SetEventRetention(retain time.Duration) { p.eventRetain = retain }
+
+// maybePruneEvents runs at the top of every poll, before any BIRD I/O, so the
+// timeline stays bounded through a BIRD outage too. Poll goroutine only.
+func (p *Poller) maybePruneEvents(now time.Time) {
+	if p.eventRetain <= 0 {
+		return
+	}
+	if !p.lastEventPrune.IsZero() && now.Sub(p.lastEventPrune) < eventPruneInterval {
+		return
+	}
+	p.lastEventPrune = now
+	n, err := p.store.PruneEvents(now.Add(-p.eventRetain))
+	if err != nil {
+		p.log.Warn("prune events failed", "error", err)
+		return
+	}
+	if n > 0 {
+		p.log.Info("pruned old events", "count", n, "olderThan", p.eventRetain)
+	}
 }
 
 // maybeSample records a route-count point per up BGP session, at most once per
@@ -248,6 +279,7 @@ func (p *Poller) Run(ctx context.Context) {
 // round trips, and avoids any unsynchronized access to the shared map.
 func (p *Poller) poll(ctx context.Context) {
 	now := p.clock()
+	p.maybePruneEvents(now)
 	status := p.lastStatus
 	if p.lastStatusAt.IsZero() || now.Sub(p.lastStatusAt) >= statusInterval {
 		fresh, statusErr := p.client.Status(ctx)
