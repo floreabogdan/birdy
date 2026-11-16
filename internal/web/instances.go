@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -149,7 +150,10 @@ func (s *Server) refreshInstanceHealth(ctx context.Context) {
 			}
 			if oldStatus != "unknown" && oldStatus != newStatus {
 				if newStatus == "offline" {
-					s.emitEvent(store.EventInstanceDown, instance.Name, "Remote Birdy instance "+instance.Name+" is unreachable: "+lastError)
+					// Not lastError: Go's HTTP client quotes the whole request URL
+					// in its error, and this message goes onto the timeline (which
+					// instance tokens can read) and out to alert destinations.
+					s.emitEvent(store.EventInstanceDown, instance.Name, "Remote Birdy instance "+instance.Name+" is unreachable: "+withoutURL(checkErr).Error())
 				} else if oldStatus == "offline" {
 					s.emitEvent(store.EventInstanceUp, instance.Name, "Remote Birdy instance "+instance.Name+" is reachable again")
 				}
@@ -204,6 +208,19 @@ func (s *Server) localInstanceName() string {
 		return settings.RouterLabel
 	}
 	return "This Birdy"
+}
+
+// withoutURL peels off the *url.Error the HTTP client wraps every failure in;
+// its message quotes the full request URL. What is left (a dial, TLS or timeout
+// error) names at most the host and port. Same idea as notify.withoutURL, for
+// the same reason: the text ends up where more people read it than should see
+// a URL. An error that never was a *url.Error comes back unchanged.
+func withoutURL(err error) error {
+	var ue *url.Error
+	for errors.As(err, &ue) {
+		err = ue.Err
+	}
+	return err
 }
 
 // remote is the client for one remote Birdy. Every read of another instance
@@ -600,11 +617,13 @@ func (s *Server) handleSettingsInstanceToken(w http.ResponseWriter, r *http.Requ
 	s.renderSettings(w, SettingsView{Active: "settings", Tab: "general", APIToken: token, Msg: "Copy this token now. It will not be shown again."})
 }
 
+// handleSettingsInstanceTokenRevoke and handleSettingsInstanceTokenRevokeOne
+// are deliberately allowed in read-only mode, like the access allow-list
+// (handleSettingsAccess): revoking a token is not a BIRD write, it only takes
+// access to birdy away, and a router kept read-only is exactly where a leaked
+// observer token must still be revocable without a restart in another mode.
+// Generating a token stays blocked there.
 func (s *Server) handleSettingsInstanceTokenRevoke(w http.ResponseWriter, r *http.Request) {
-	if s.readOnly {
-		http.Error(w, "birdy is read-only", http.StatusForbidden)
-		return
-	}
 	if err := s.store.RevokeInstanceAPIToken(); err != nil {
 		s.serverError(w, "revoke instance API token", err)
 		return
@@ -618,10 +637,6 @@ func (s *Server) handleSettingsInstanceTokenRevoke(w http.ResponseWriter, r *htt
 }
 
 func (s *Server) handleSettingsInstanceTokenRevokeOne(w http.ResponseWriter, r *http.Request) {
-	if s.readOnly {
-		http.Error(w, "birdy is read-only", http.StatusForbidden)
-		return
-	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
 		http.NotFound(w, r)
