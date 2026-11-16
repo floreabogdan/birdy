@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 40
+const schemaVersion = 41
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -494,7 +494,7 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
-	if version < 40 {
+	if version < 41 {
 		// Two production fixes, both rendered only when set so every existing
 		// config stays byte-for-byte the same:
 		//   - an RTR server's highest protocol version (0: BIRD's default), for a

@@ -102,7 +102,7 @@ func TestRPKIServerMaxVersionRoundTrip(t *testing.T) {
 	}
 }
 
-// A database from before schema 40 has RTR servers without the column; the
+// A database from before schema 41 has RTR servers without the column; the
 // migration must add it as "BIRD's default" so nothing renders differently.
 func TestMigrateAddsRTRMaxVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v39.db")
