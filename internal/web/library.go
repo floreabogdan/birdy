@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -148,6 +149,7 @@ func (s *Server) handlePrefixSetSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(errs) == 0 {
+		s.audit(r, fmt.Sprintf("%s prefix set %s (%d entries)", savedVerb(isNew), ps.Name, len(ps.Entries)))
 		s.flashRedirect(w, r, "/library/prefix-sets", "Saved "+ps.Name, false)
 		return
 	}
@@ -165,6 +167,7 @@ func (s *Server) handlePrefixSetDelete(w http.ResponseWriter, r *http.Request) {
 		s.flashRedirect(w, r, "/library/prefix-sets", "Could not delete "+ps.Name+": "+err.Error(), false)
 		return
 	}
+	s.audit(r, "deleted prefix set "+ps.Name)
 	s.flashRedirect(w, r, "/library/prefix-sets", "Deleted "+ps.Name, false)
 }
 

@@ -110,6 +110,7 @@ func (s *Server) handleBMPSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(errs) == 0 {
+		s.audit(r, savedVerb(isNew)+" BMP station "+st.Name)
 		s.flashRedirect(w, r, "/bmp", "Saved "+st.Name, false)
 		return
 	}
@@ -125,5 +126,6 @@ func (s *Server) handleBMPDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "delete BMP station", err)
 		return
 	}
+	s.audit(r, "deleted BMP station "+st.Name)
 	s.flashRedirect(w, r, "/bmp", "Deleted "+st.Name, false)
 }

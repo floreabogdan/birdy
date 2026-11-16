@@ -130,6 +130,9 @@ func (s *Server) handleProfileIdentity(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "set username", err)
 		return
 	}
+	// Attributed to the new name (the lookup happens now), with the old one in
+	// the message so earlier rows by that name can still be tied to the account.
+	s.auditAs(r, store.EventAuth, "changed the username from "+u.Username+" to "+username)
 	s.flashRedirect(w, r, "/profile", "Username updated", false)
 }
 
@@ -185,6 +188,7 @@ func (s *Server) handleProfilePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setSessionCookie(w, token, s.cookieSecure(r))
+	s.auditAs(r, store.EventAuth, "changed the account password; other sessions signed out")
 	s.flashRedirect(w, r, "/profile", "Password changed; other sessions signed out", false)
 }
 

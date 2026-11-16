@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -91,6 +92,10 @@ func (s *Server) handleASSetRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	msg := s.refreshOneASSet(r.Context(), client, as)
+	// Who asked, whatever came of it: when the members did change, the
+	// irr_refresh event refreshOneASSet records says by how much, but carries no
+	// actor (the timer writes the same one).
+	s.audit(r, "refreshed AS set "+as.Name+" from "+as.Source)
 	s.flashRedirect(w, r, "/library/as-sets", msg, false)
 }
 
@@ -145,6 +150,7 @@ func (s *Server) handleASSetSave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(errs) == 0 {
+		s.audit(r, fmt.Sprintf("%s AS set %s (%d entries)", savedVerb(isNew), as.Name, len(as.Entries)))
 		s.flashRedirect(w, r, "/library/as-sets", "Saved "+as.Name, false)
 		return
 	}
@@ -163,6 +169,7 @@ func (s *Server) handleASSetDelete(w http.ResponseWriter, r *http.Request) {
 		s.flashRedirect(w, r, "/library/as-sets", "Could not delete "+as.Name+": "+err.Error(), false)
 		return
 	}
+	s.audit(r, "deleted AS set "+as.Name)
 	s.flashRedirect(w, r, "/library/as-sets", "Deleted "+as.Name, false)
 }
 

@@ -44,6 +44,7 @@ func (s *Server) handleBackupDownload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	s.auditTransfer(r, "downloaded a full backup (database and rendered config)")
 	stamp := time.Now().UTC().Format("20060102T150405Z")
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", "birdy-backup-"+stamp+".zip"))

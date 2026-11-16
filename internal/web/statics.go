@@ -106,6 +106,7 @@ func (s *Server) handleStaticRouteSave(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "save static route", err)
 		return
 	}
+	s.audit(r, savedVerb(isNew)+" static route "+route.Prefix)
 	s.flashRedirect(w, r, "/library/static-routes", "Saved "+route.Prefix, false)
 }
 
@@ -118,6 +119,7 @@ func (s *Server) handleStaticRouteDelete(w http.ResponseWriter, r *http.Request)
 		s.serverError(w, "delete static route", err)
 		return
 	}
+	s.audit(r, "deleted static route "+route.Prefix)
 	s.flashRedirect(w, r, "/library/static-routes", "Deleted "+route.Prefix, false)
 }
 

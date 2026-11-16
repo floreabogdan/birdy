@@ -272,6 +272,9 @@ func (s *Server) handleSeedSave(w http.ResponseWriter, r *http.Request) {
 		created = append(created, proto.Name)
 	}
 
+	if len(created) > 0 {
+		s.audit(r, fmt.Sprintf("imported %d peer(s) from BIRD: %s", len(created), strings.Join(created, ", ")))
+	}
 	msg := fmt.Sprintf("Imported %d peer(s) from BIRD", len(created))
 	if len(skipped) > 0 {
 		msg += fmt.Sprintf("; skipped %d (%s)", len(skipped), strings.Join(skipped, ", "))

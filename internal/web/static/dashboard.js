@@ -16,6 +16,8 @@
 		bird_unreachable: ["badge-danger", "bird down"],
 		bird_reachable: ["badge-success", "bird up"],
 		rpki_restart: ["badge-info", "rpki"],
+		auth: ["badge", "account"],
+		backup: ["badge-info", "backup"],
 	};
 
 	function esc(s) {

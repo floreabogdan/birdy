@@ -24,6 +24,8 @@ const (
 	EventInstanceDown  = "instance_down"
 	EventInstanceUp    = "instance_up"
 	EventRPKIRestart   = "rpki_restart" // an operator restarted an RTR session
+	EventAuth          = "auth"         // sign-in, sign-out, or a change to an operator's own credentials
+	EventBackup        = "backup"       // the database left the router (snapshot/backup download) or a restore was staged
 )
 
 // Event is one entry on the timeline: a session transition, flap, import-limit
@@ -153,7 +155,7 @@ func (s *Store) PruneEvents(before time.Time) (int64, error) {
 
 // AlertKinds are the fault/notable event kinds the top-bar bell counts as
 // unread. Recoveries (session_up, bird_reachable, instance_up) and operator
-// actions (config_apply, config_revert, model_change, irr_refresh) are
+// actions (config_apply, config_revert, model_change, irr_refresh, auth, backup) are
 // deliberately excluded — the bell is for problems, not for your own edits or
 // for a session that came back. Returned as a stable slice so the SQL IN-clause
 // order is deterministic.
