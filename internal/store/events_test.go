@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // The bell's unread count is alert kinds only, newer than a "seen" id. Operator
 // actions and recoveries must not inflate it, and the since-id is a strict lower
@@ -56,5 +59,47 @@ func TestCountAlertsAfterAndLatest(t *testing.T) {
 		t.Fatal(err)
 	} else if n != 0 {
 		t.Errorf("CountAlertsAfter(latest) = %d, want 0", n)
+	}
+}
+
+// The timeline is pruned to a retention window: a flapping session alone writes
+// thousands of rows a day, and the pager's COUNT/OFFSET and the nightly
+// snapshots grow with it. Operator actions are the audit trail and stay.
+func TestPruneEvents(t *testing.T) {
+	s := openTest(t)
+	for _, e := range []struct{ kind, msg string }{
+		{EventSessionDown, "old down"},
+		{EventFlap, "old flap"},
+		{EventSessionUp, "new up"},
+	} {
+		if err := s.InsertEvent(e.kind, "edge_v4", e.msg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.InsertAudit("alice", EventConfigApply, "old apply"); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-100 * 24 * time.Hour).UTC().Format(time.RFC3339Nano)
+	if _, err := s.db.Exec(`UPDATE events SET ts = ? WHERE message LIKE 'old %'`, old); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.PruneEvents(time.Now().Add(-90 * 24 * time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("pruned %d events, want 2", n)
+	}
+	events, err := s.ListEvents(10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var left []string
+	for _, e := range events {
+		left = append(left, e.Message)
+	}
+	if len(left) != 2 || left[0] != "old apply" || left[1] != "new up" {
+		t.Errorf("left %q, want the audit row and the recent event", left)
 	}
 }

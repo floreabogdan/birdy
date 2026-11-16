@@ -122,11 +122,30 @@ func (s *Store) ListEventsPage(limit, offset int) ([]Event, error) {
 }
 
 // CountEvents is the total the timeline's pager needs to know how many pages
-// there are. Cheap: the events table is indexed and bounded by retention.
+// there are. Cheap: the events table is indexed and bounded by retention (see
+// PruneEvents).
 func (s *Store) CountEvents() (int, error) {
 	var n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM events`).Scan(&n); err != nil {
 		return 0, fmt.Errorf("store: count events: %w", err)
+	}
+	return n, nil
+}
+
+// PruneEvents deletes system and BIRD events older than before and reports how
+// many went. Without it the timeline only grows: a flapping session alone writes
+// thousands of rows a day, and the pager's COUNT/OFFSET and every nightly
+// snapshot grow with it. Operator actions (rows with an actor) are kept
+// whatever their age: they are the audit trail of who changed what, and they
+// arrive at human speed, so they never were the growth.
+func (s *Store) PruneEvents(before time.Time) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM events WHERE ts < ? AND actor = ''`, before.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return 0, fmt.Errorf("store: prune events: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("store: prune events: %w", err)
 	}
 	return n, nil
 }

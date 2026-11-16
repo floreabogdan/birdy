@@ -127,8 +127,8 @@ func buildProtoRows(snap poller.Snapshot) (rows []protoRow, up, down int) {
 				row.Imported += ch.RoutesImported
 				row.Filtered += ch.RoutesFiltered
 				row.Exported += ch.RoutesExported
-				limit, err := strconv.Atoi(strings.TrimSpace(ch.ImportLimit))
-				if err != nil || limit <= 0 {
+				limit, _ := birdc.ParseImportLimit(ch.ImportLimit)
+				if limit <= 0 {
 					continue
 				}
 				pct := min(float64(ch.RoutesImported)/float64(limit)*100, 100)

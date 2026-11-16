@@ -5,10 +5,10 @@ package poller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +26,24 @@ const flapWindow = 3 * time.Minute
 // and refresh the aggregate on a slower cadence.
 const routeCountInterval = time.Minute
 
+// hiccupGrace bounds how long the poller trusts its last good reading over a
+// reply that contradicts it without explanation. While BIRD reloads its ROA
+// tables and re-validates full BGP tables, "show protocols" has come back empty,
+// or with rows short of words, for a few seconds at a time. Taken at face value
+// that pages "BIRD unreachable" or "session down" and then the recovery, for
+// nothing. Past this window the oddity is no hiccup, and is reported as what it
+// looks like.
+const hiccupGrace = time.Minute
+
+// errNoProtocols: BIRD always reports at least birdy's device protocol, so a
+// table without a single readable row is a reply that went wrong, not a router
+// with nothing configured.
+var errNoProtocols = fmt.Errorf("birdc: show protocols listed no protocols: %w", birdc.ErrUnexpectedReply)
+
+// eventPruneInterval: pruning the timeline is one indexed DELETE, but a window
+// measured in days gains nothing from running it every poll.
+const eventPruneInterval = time.Hour
+
 // Status contains mostly static identity/version data. Do not ask the control
 // socket for it on every session poll; a short cache preserves quick recovery
 // while removing one command from the hot path.
@@ -33,8 +51,9 @@ const statusInterval = 30 * time.Second
 
 // ProtoState is the poller's last-known view of one protocol.
 type ProtoState struct {
-	Summary    birdc.ProtocolSummary
-	Up         bool
+	Summary birdc.ProtocolSummary
+	Up      bool
+	// LastChange is when the poller saw Up change; zero until it has seen one.
 	LastChange time.Time
 	LimitHit   map[string]bool // by channel AFI
 	// Channels holds the per-AFI route counts and limits from the most
@@ -48,6 +67,12 @@ type ProtoState struct {
 	// such a protocol as simply "down", which is indistinguishable from a session
 	// that failed — the model is the only place that knows the difference.
 	Disabled bool
+	// staleSince is set while this state is carried forward because the latest
+	// reply had no usable row for the protocol; zero when the row was read.
+	staleSince time.Time
+	// countsStaleSince is set while Channels and Imported are carried forward
+	// because the detail replies have not been a whole reading.
+	countsStaleSince time.Time
 }
 
 // Snapshot is the latest poll result, safe to read concurrently via Poller.Snapshot.
@@ -86,6 +111,9 @@ type Poller struct {
 	log       *slog.Logger
 	notifier  Notifier
 	dropRatio float64 // alert if imported falls to <= this fraction of the prior poll
+	// clock is time.Now outside tests. The grace periods below are measured in
+	// minutes; a test steps this instead of sleeping through them.
+	clock func() time.Time
 
 	// Route-count history sampling. Cheaper than a poll: written on a slow
 	// cadence to back the dashboard sparklines, then pruned to a window. Both
@@ -94,12 +122,15 @@ type Poller struct {
 	sampleRetain   time.Duration
 	lastSample     time.Time
 	lastRouteCount time.Time
+	eventRetain    time.Duration
+	lastEventPrune time.Time
 
 	mu             sync.RWMutex
 	snap           Snapshot
 	initialized    bool // false until the first poll completes, so we don't log spurious transitions at startup
 	birdReachable  bool // last-known reachability of the control socket, for edge-triggered alerts
 	reachableKnown bool // whether birdReachable has been set at least once
+	lastGoodPoll   time.Time
 	lastStatus     birdc.Status
 	lastStatusAt   time.Time
 }
@@ -128,6 +159,7 @@ func New(client birdClient, st *store.Store, interval time.Duration, log *slog.L
 		interval:  interval,
 		log:       log,
 		dropRatio: 0.5,
+		clock:     time.Now,
 		snap:      Snapshot{States: map[string]ProtoState{}},
 	}
 }
@@ -143,6 +175,31 @@ func (p *Poller) SetDropRatio(r float64) { p.dropRatio = r }
 func (p *Poller) SetSampling(interval, retain time.Duration) {
 	p.sampleInterval = interval
 	p.sampleRetain = retain
+}
+
+// SetEventRetention prunes timeline events older than retain (operator actions
+// excepted, see store.PruneEvents), checked hourly from the poll loop. 0 keeps
+// every event. Call before Run.
+func (p *Poller) SetEventRetention(retain time.Duration) { p.eventRetain = retain }
+
+// maybePruneEvents runs at the top of every poll, before any BIRD I/O, so the
+// timeline stays bounded through a BIRD outage too. Poll goroutine only.
+func (p *Poller) maybePruneEvents(now time.Time) {
+	if p.eventRetain <= 0 {
+		return
+	}
+	if !p.lastEventPrune.IsZero() && now.Sub(p.lastEventPrune) < eventPruneInterval {
+		return
+	}
+	p.lastEventPrune = now
+	n, err := p.store.PruneEvents(now.Add(-p.eventRetain))
+	if err != nil {
+		p.log.Warn("prune events failed", "error", err)
+		return
+	}
+	if n > 0 {
+		p.log.Info("pruned old events", "count", n, "olderThan", p.eventRetain)
+	}
 }
 
 // maybeSample records a route-count point per up BGP session, at most once per
@@ -162,6 +219,9 @@ func (p *Poller) maybeSample(states map[string]ProtoState, now time.Time) {
 	for name, st := range states {
 		if st.Summary.Proto != "BGP" || !st.Up || len(st.Channels) == 0 {
 			continue // down sessions leave a gap in the line, which is the point
+		}
+		if !st.staleSince.IsZero() {
+			continue // carried forward: these counts are not a fresh reading
 		}
 		imported, exported := 0, 0
 		for _, ch := range st.Channels {
@@ -218,7 +278,8 @@ func (p *Poller) Run(ctx context.Context) {
 // This keeps the lock held only for the in-memory copy, never across socket
 // round trips, and avoids any unsynchronized access to the shared map.
 func (p *Poller) poll(ctx context.Context) {
-	now := time.Now()
+	now := p.clock()
+	p.maybePruneEvents(now)
 	status := p.lastStatus
 	if p.lastStatusAt.IsZero() || now.Sub(p.lastStatusAt) >= statusInterval {
 		fresh, statusErr := p.client.Status(ctx)
@@ -234,6 +295,23 @@ func (p *Poller) poll(ctx context.Context) {
 	}
 
 	protocols, err := p.client.Protocols(ctx)
+	if err == nil && len(protocols) == 0 {
+		err = errNoProtocols
+	}
+	if err != nil && errors.Is(err, birdc.ErrUnexpectedReply) && (!p.initialized || now.Sub(p.lastGoodPoll) < hiccupGrace) {
+		// BIRD answered, but not with anything readable as its protocol table. The
+		// socket works, so this is no outage, and the reply proves nothing about any
+		// session either: sit the poll out and keep the last snapshot. Before the
+		// first good poll there is nothing to keep, so say why the page is empty.
+		p.log.Warn("unreadable show protocols reply; keeping the last snapshot", "error", err)
+		if !p.initialized {
+			p.mu.Lock()
+			p.snap.Err = err
+			p.snap.UpdatedAt = now
+			p.mu.Unlock()
+		}
+		return
+	}
 	if err != nil {
 		// BIRD is unreachable. Alert on the transition — this is the one failure
 		// the session-transition alerts can never catch, because detecting a
@@ -245,7 +323,7 @@ func (p *Poller) poll(ctx context.Context) {
 		p.birdReachable, p.reachableKnown = false, true
 		p.mu.Lock()
 		p.snap.Err = err
-		p.snap.UpdatedAt = time.Now()
+		p.snap.UpdatedAt = now
 		p.mu.Unlock()
 		p.log.Warn("poll failed", "error", err)
 		return
@@ -254,6 +332,7 @@ func (p *Poller) poll(ctx context.Context) {
 		p.emit(store.EventBirdReachable, "", "BIRD is reachable again")
 	}
 	p.birdReachable, p.reachableKnown = true, true
+	p.lastGoodPoll = now
 
 	prev := p.Snapshot()
 	prevStates := prev.States
@@ -274,22 +353,39 @@ func (p *Poller) poll(ctx context.Context) {
 	}
 
 	for _, proto := range protocols {
-		up := isUp(proto)
 		prior, seen := prevStates[proto.Name]
+		up, known := sessionUp(proto)
+		var staleSince time.Time
+		if !known && seen {
+			// The row lost words in transit (see sessionUp). Keep what the last
+			// readable row said for a hiccup's worth of polls; past that, read the
+			// row at face value rather than let it hide a real change for good.
+			staleSince = prior.staleSince
+			if staleSince.IsZero() {
+				staleSince = now
+			}
+			if now.Sub(staleSince) < hiccupGrace {
+				prior.staleSince = staleSince
+				next[proto.Name] = prior
+				continue
+			}
+		}
 
-		state := ProtoState{Summary: proto, Up: up, LimitHit: map[string]bool{}}
-		switch {
-		case seen:
+		state := ProtoState{Summary: proto, Up: up, LimitHit: map[string]bool{}, staleSince: staleSince}
+		if seen {
 			state.LastChange = prior.LastChange
 			maps.Copy(state.LimitHit, prior.LimitHit)
-		default:
-			state.LastChange = time.Now()
 		}
 
 		state.Disabled = disabled[proto.Name]
 
-		if !first && (!seen || prior.Up != up) {
-			state.LastChange = time.Now()
+		// A protocol seen for the first time (every one on the first poll, and
+		// later a peer just applied or renamed) is a baseline, not a change: such a
+		// peer shows up in Connect or Active and establishes a moment later, which
+		// paged "went down" and then "flapped". LastChange stays zero until a real
+		// change, so that first establish is a plain session_up, not a flap.
+		if seen && prior.Up != up {
+			state.LastChange = now
 			// Only BGP sessions get down/up/flap events. Infrastructure protocols
 			// (RPKI, device, kernel, static, direct) are not sessions, and treating
 			// them as such alerts on things like an RPKI RTR cache reconnecting —
@@ -297,24 +393,34 @@ func (p *Poller) poll(ctx context.Context) {
 			// A peer disabled in the model is excluded for the same reason: its
 			// session going down is the change working, not a fault.
 			if proto.Proto == "BGP" && !state.Disabled {
-				p.recordTransition(proto, prior, seen, up)
+				p.recordTransition(proto, prior, up, now)
 			}
 		}
 
 		if proto.Proto == "BGP" && up {
-			if p.updateImportLimits(ctx, proto, &state) {
-				p.checkPrefixDrop(proto, prior, seen, first, &state)
-			} else if seen {
-				// The per-session detail fetch failed this poll (a transient socket
-				// or per-command timeout on a busy router). Carry the last known
-				// counts forward so the dashboard does not flicker to zero and the
-				// drop check is not fooled into paging for a session that is fine.
-				state.Imported = prior.Imported
-				state.Channels = prior.Channels
-			}
+			p.updateCounts(ctx, proto, prior, seen, first, now, &state)
 		}
 
 		next[proto.Name] = state
+	}
+
+	// A protocol in the last reply but not in this one is far more often a reply
+	// that lost rows than a protocol that went away. Forgetting it loses the Up,
+	// LastChange and LimitHit its next row is compared against, and that row then
+	// pages "established", "went down" or "limit reached" all over again. So carry
+	// it forward unchanged until it has been absent for hiccupGrace; a protocol an
+	// apply removed, or a peer that was renamed, is forgotten after that. It is
+	// not published as a row meanwhile: the table shows what BIRD said.
+	for name, prior := range prevStates {
+		if _, ok := next[name]; ok {
+			continue
+		}
+		if prior.staleSince.IsZero() {
+			prior.staleSince = now
+		}
+		if now.Sub(prior.staleSince) < hiccupGrace {
+			next[name] = prior
+		}
 	}
 
 	// Publish session state before the expensive whole-RIB count. On a router
@@ -324,10 +430,10 @@ func (p *Poller) poll(ctx context.Context) {
 	// poll rather than deep-copying the whole snapshot a second time.
 	p.mu.Lock()
 	p.initialized = true
-	p.snap = Snapshot{Status: status, Protocols: protocols, States: next, TotalRoutes: prev.TotalRoutes, UpdatedAt: time.Now()}
+	p.snap = Snapshot{Status: status, Protocols: protocols, States: next, TotalRoutes: prev.TotalRoutes, UpdatedAt: now}
 	p.mu.Unlock()
 
-	now = time.Now()
+	now = p.clock()
 	if p.lastRouteCount.IsZero() || now.Sub(p.lastRouteCount) >= routeCountInterval {
 		p.lastRouteCount = now
 		totalRoutes := 0
@@ -346,14 +452,25 @@ func (p *Poller) poll(ctx context.Context) {
 		}
 	}
 
-	p.maybeSample(next, time.Now())
+	p.maybeSample(next, p.clock())
 }
 
-func isUp(p birdc.ProtocolSummary) bool {
-	if p.Proto == "BGP" {
-		return strings.TrimSpace(p.Info) == "Established"
+// sessionUp reports whether a protocol is up, and whether its row is complete
+// enough to tell. A BGP session is up when Info says Established. BIRD names the
+// BGP state in Info for every BGP protocol that is not down (Established, Active,
+// Connect, Passive, ...), and leaves it empty only for one that is down or
+// flushing, as a disabled peer is. So a BGP row in any other state with no Info
+// lost words in transit: reading it as down paged "went down" and then "flapped"
+// for a session that never moved. Its up is then only State's best guess.
+func sessionUp(p birdc.ProtocolSummary) (up, known bool) {
+	if p.Proto != "BGP" {
+		return p.State == "up", true
 	}
-	return p.State == "up"
+	info := strings.TrimSpace(p.Info)
+	if info == "" && p.State != "down" && p.State != "flush" {
+		return p.State == "up", false
+	}
+	return info == "Established", true
 }
 
 // isROATable reports whether a routing-table name is an RPKI ROA table. birdy
@@ -383,44 +500,106 @@ func (p *Poller) checkPrefixDrop(proto birdc.ProtocolSummary, prior ProtoState, 
 	}
 }
 
-func (p *Poller) recordTransition(proto birdc.ProtocolSummary, prior ProtoState, seen bool, up bool) {
+func (p *Poller) recordTransition(proto birdc.ProtocolSummary, prior ProtoState, up bool, now time.Time) {
 	kind := store.EventSessionDown
 	msg := fmt.Sprintf("%s (%s) went down", proto.Name, proto.Proto)
 	if up {
 		kind = store.EventSessionUp
 		msg = fmt.Sprintf("%s (%s) established", proto.Name, proto.Proto)
-		if seen && !prior.LastChange.IsZero() && time.Since(prior.LastChange) < flapWindow {
+		if !prior.LastChange.IsZero() && now.Sub(prior.LastChange) < flapWindow {
 			kind = store.EventFlap
-			msg = fmt.Sprintf("%s (%s) flapped (down for %s)", proto.Name, proto.Proto, time.Since(prior.LastChange).Round(time.Second))
+			msg = fmt.Sprintf("%s (%s) flapped (down for %s)", proto.Name, proto.Proto, now.Sub(prior.LastChange).Round(time.Second))
 		}
 	}
 	p.emit(kind, proto.Name, msg)
 }
 
-// updateImportLimits fetches protocol detail for one BGP session, keeps the
-// per-channel route counts for the dashboard, and logs an event the first
-// time a channel's imported route count reaches its import limit, mutating
-// state in place. It reports whether the detail fetch succeeded: on a transient
-// failure the caller must not treat the (unpopulated) counts as real, or a
-// session that is actually fine looks like it dropped every route.
-func (p *Poller) updateImportLimits(ctx context.Context, proto birdc.ProtocolSummary, state *ProtoState) bool {
+// updateCounts fetches one up BGP session's detail and, when it is a whole
+// reading of an established session, takes its route counts, then checks the
+// import limits and for a sharp drop. Otherwise the last good counts are carried
+// forward, so the dashboard does not flicker to zero and the drop check is not
+// fooled into paging for a session that is fine. A detail that stays incomplete
+// for hiccupGrace is believed after all, so a real loss is still reported.
+func (p *Poller) updateCounts(ctx context.Context, proto birdc.ProtocolSummary, prior ProtoState, seen, first bool, now time.Time, state *ProtoState) {
+	carry := func() {
+		state.Imported, state.Channels = prior.Imported, prior.Channels
+	}
 	detail, err := p.client.ProtocolDetail(ctx, proto.Name)
 	if err != nil {
-		return false
+		// A transient socket or per-command timeout on a busy router.
+		state.countsStaleSince = prior.countsStaleSince
+		carry()
+		return
+	}
+	if !countsComplete(detail, prior.Channels) {
+		since := prior.countsStaleSince
+		if since.IsZero() {
+			since = now
+		}
+		if now.Sub(since) < hiccupGrace {
+			state.countsStaleSince = since
+			carry()
+			return
+		}
 	}
 	state.Channels = detail.Channels
 	for _, ch := range detail.Channels {
 		state.Imported += ch.RoutesImported
-		limit, err := strconv.Atoi(strings.TrimSpace(ch.ImportLimit))
-		if err != nil || limit <= 0 {
+	}
+	p.checkImportLimits(proto, first, state)
+	p.checkPrefixDrop(proto, prior, seen, first, state)
+}
+
+// countsComplete reports whether a detail reply is a whole reading of an
+// established session, so its route counts can be believed. The summary row
+// said Established, but the detail is a second command a moment later, and a
+// busy BIRD has answered it with the channel DOWN, or cut off before the Routes
+// line; its zero counts then paged "imported routes dropped from 900000 to 0".
+// A channel that has been DOWN all along is fine: a session set up for ipv4 and
+// ipv6 whose neighbour negotiates only ipv4 runs Established with ipv6 DOWN and
+// no Routes line for it. What is not fine is an UP channel without its Routes
+// line, or a channel that was UP last time and is not now.
+func countsComplete(d birdc.ProtocolDetail, prior []birdc.ChannelDetail) bool {
+	if strings.TrimSpace(d.BGPState) != "Established" {
+		return false
+	}
+	live := map[string]bool{}
+	for _, ch := range d.Channels {
+		if ch.State != "UP" {
 			continue
 		}
-		hit := ch.RoutesImported >= limit
-		if hit && !state.LimitHit[ch.AFI] {
+		if !ch.RoutesReported {
+			return false
+		}
+		live[ch.AFI] = true
+	}
+	if len(live) == 0 {
+		return false // an established session carries at least one channel
+	}
+	for _, ch := range prior {
+		if ch.State == "UP" && !live[ch.AFI] {
+			return false
+		}
+	}
+	return true
+}
+
+// checkImportLimits logs an event the first time a channel reaches its import
+// limit, recording the hit in state so it is not logged again. On the first
+// poll it only records: LimitHit starts empty at every birdy start, and a
+// session already at its cap was reported before the restart, so reporting it
+// again would page after every upgrade or reboot.
+func (p *Poller) checkImportLimits(proto birdc.ProtocolSummary, first bool, state *ProtoState) {
+	for _, ch := range state.Channels {
+		limit, flagged := birdc.ParseImportLimit(ch.ImportLimit)
+		if limit <= 0 {
+			continue
+		}
+		hit := flagged || ch.RoutesImported >= limit
+		if hit && !state.LimitHit[ch.AFI] && !first {
 			msg := fmt.Sprintf("%s (%s): import limit reached (%d/%d)", proto.Name, ch.AFI, ch.RoutesImported, limit)
 			p.emit(store.EventLimitHit, proto.Name, msg)
 		}
 		state.LimitHit[ch.AFI] = hit
 	}
-	return true
 }

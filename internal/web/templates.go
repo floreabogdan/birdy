@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/floreabogdan/birdy/internal/birdc"
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
@@ -115,8 +116,8 @@ var funcs = template.FuncMap{
 	// importLimitPct returns -1 when no numeric limit is configured (e.g. the
 	// channel has no import limit set), so the template can hide the bar.
 	"importLimitPct": func(imported int, limitStr string) float64 {
-		limit, err := strconv.Atoi(strings.TrimSpace(limitStr))
-		if err != nil || limit <= 0 {
+		limit, _ := birdc.ParseImportLimit(limitStr)
+		if limit <= 0 {
 			return -1
 		}
 		pct := float64(imported) / float64(limit) * 100

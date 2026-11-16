@@ -21,6 +21,9 @@ type fakeClient struct {
 	i         int
 	step      int
 	errAt     map[int]error // poll (call) number -> error, to script BIRD-unreachable
+	// replyAt scripts a raw reply for a poll (call) number, run through the real
+	// parser, so a test sees exactly what an odd reply from BIRD turns into.
+	replyAt map[int]birdc.Reply
 }
 
 func (f *fakeClient) Status(_ context.Context) (birdc.Status, error) { return birdc.Status{}, nil }
@@ -30,6 +33,9 @@ func (f *fakeClient) Protocols(_ context.Context) ([]birdc.ProtocolSummary, erro
 	f.step++
 	if err, ok := f.errAt[step]; ok {
 		return nil, err // an errored poll does not consume a scripted result
+	}
+	if r, ok := f.replyAt[step]; ok {
+		return birdc.ParseProtocols(r) // nor does a raw reply
 	}
 	if f.i >= len(f.polls) {
 		return f.polls[len(f.polls)-1], nil
@@ -57,7 +63,7 @@ func TestDetailFailureDoesNotFakePrefixDrop(t *testing.T) {
 	fc := &fakeClient{
 		polls: [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
 		detail: map[string]birdc.ProtocolDetail{
-			"edge_v4": {Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 500000}}},
+			"edge_v4": established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 500000}),
 		},
 	}
 	p := New(fc, st, time.Second, nil)
@@ -126,6 +132,15 @@ func openTestStore(t *testing.T) *store.Store {
 	return s
 }
 
+// established is the detail BIRD gives for a session that is up: the BGP state,
+// and each channel UP with its Routes line.
+func established(chans ...birdc.ChannelDetail) birdc.ProtocolDetail {
+	for i := range chans {
+		chans[i].State, chans[i].RoutesReported = "UP", true
+	}
+	return birdc.ProtocolDetail{BGPState: "Established", Channels: chans}
+}
+
 func bgp(name, state, info string) birdc.ProtocolSummary {
 	return birdc.ProtocolSummary{Name: name, Proto: "BGP", Table: "---", State: state, Since: "2026-07-10", Info: info}
 }
@@ -184,23 +199,17 @@ func TestPollerDetectsDownThenFlap(t *testing.T) {
 
 func TestPollerImportLimitHitOnce(t *testing.T) {
 	st := openTestStore(t)
-	detail := birdc.ProtocolDetail{
-		Channels: []birdc.ChannelDetail{
-			{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10},
-		},
-	}
+	below := established(birdc.ChannelDetail{AFI: "ipv4", ImportLimit: "10", RoutesImported: 9})
+	atCap := established(birdc.ChannelDetail{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10})
 	fc := &fakeClient{
-		polls: [][]birdc.ProtocolSummary{
-			{bgp("edge_v4", "up", "Established")},
-			{bgp("edge_v4", "up", "Established")},
-			{bgp("edge_v4", "up", "Established")},
-		},
-		detail: map[string]birdc.ProtocolDetail{"edge_v4": detail},
+		polls:  [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+		detail: map[string]birdc.ProtocolDetail{"edge_v4": below},
 	}
 	p := New(fc, st, time.Second, nil)
 
-	p.poll(context.Background()) // baseline
-	p.poll(context.Background()) // limit already at cap -> should log once
+	p.poll(context.Background()) // baseline, under the limit
+	fc.detail["edge_v4"] = atCap
+	p.poll(context.Background()) // reaches the cap -> should log once
 	p.poll(context.Background()) // still at cap -> should NOT log again
 
 	events, err := st.ListEvents(10, 0)
@@ -394,8 +403,8 @@ func (e fmtError) Error() string { return string(e) }
 
 func TestPollerAlertsOnPrefixDrop(t *testing.T) {
 	st := openTestStore(t)
-	full := birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 900000}}}
-	broken := birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 50}}}
+	full := established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 900000})
+	broken := established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 50})
 	fc := &fakeClient{
 		polls: [][]birdc.ProtocolSummary{
 			{bgp("edge_v4", "up", "Established")}, // baseline: 900k
@@ -431,11 +440,11 @@ func TestPollerIgnoresSmallDrops(t *testing.T) {
 			{bgp("edge_v4", "up", "Established")},
 			{bgp("edge_v4", "up", "Established")},
 		},
-		detail: map[string]birdc.ProtocolDetail{"edge_v4": {Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 100}}}},
+		detail: map[string]birdc.ProtocolDetail{"edge_v4": established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 100})},
 	}
 	p := New(fc, st, time.Second, nil)
 	p.poll(context.Background())
-	fc.detail["edge_v4"] = birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 1}}}
+	fc.detail["edge_v4"] = established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 1})
 	p.poll(context.Background())
 	events, _ := st.ListEvents(10, 0)
 	for _, e := range events {
@@ -470,5 +479,97 @@ func TestTotalRoutesExcludesROATables(t *testing.T) {
 	p.poll(context.Background())
 	if got := p.Snapshot().TotalRoutes; got != 10 {
 		t.Fatalf("TotalRoutes = %d, want 10 (ROA tables excluded)", got)
+	}
+}
+
+// A peer that was just applied, or renamed, is first seen in Connect or Active
+// and establishes moments later. That is a session being born: it used to page
+// "Session down" and then "Session flapping". First sight is a baseline; the
+// establish is an ordinary session_up.
+func TestPollerNewProtocolIsABaselineNotADown(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{polls: [][]birdc.ProtocolSummary{
+		{bgp("edge_v4", "up", "Established")},
+		{bgp("edge_v4", "up", "Established"), bgp("ix_peer", "start", "Connect")}, // just applied
+		{bgp("edge_v4", "up", "Established"), bgp("ix_peer", "up", "Established")},
+	}}
+	p := New(fc, st, time.Second, nil)
+	clk := withClock(p)
+	for range 3 {
+		p.poll(context.Background())
+		clk.advance(5 * time.Second)
+	}
+	if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventSessionUp {
+		t.Fatalf("events = %v, want only [session_up] for the new peer establishing", kinds)
+	}
+}
+
+// The same holds after a birdy restart: a session still in Connect on the first
+// poll that establishes a few seconds later did not flap, it came up.
+func TestPollerSessionUpAfterRestartIsNotAFlap(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{polls: [][]birdc.ProtocolSummary{
+		{bgp("edge_v4", "start", "Connect")},
+		{bgp("edge_v4", "up", "Established")},
+	}}
+	p := New(fc, st, time.Second, nil)
+	clk := withClock(p)
+	p.poll(context.Background())
+	clk.advance(10 * time.Second)
+	p.poll(context.Background())
+	if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventSessionUp {
+		t.Fatalf("events = %v, want [session_up]", kinds)
+	}
+}
+
+// A birdy restart is not news about a limit: a session already at its cap when
+// the poller starts was reported before the restart, and paging it again after
+// every upgrade or reboot teaches people to ignore the page.
+func TestPollerNoLimitHitOnFirstPoll(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{
+		polls: [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+		detail: map[string]birdc.ProtocolDetail{"edge_v4": established(
+			birdc.ChannelDetail{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10},
+		)},
+	}
+	p := New(fc, st, time.Second, nil)
+	p.poll(context.Background()) // first poll after a restart
+	p.poll(context.Background())
+	if kinds := eventKinds(t, st); len(kinds) != 0 {
+		t.Fatalf("a limit already hit before the restart paged again: %v", kinds)
+	}
+	if !p.Snapshot().States["edge_v4"].LimitHit["ipv4"] {
+		t.Error("the first poll must still record the hit, or the next one reports it")
+	}
+}
+
+// BIRD marks a triggered limit "1000 [HIT]". Atoi failed on that, the channel
+// was skipped, and limit_hit never fired. The marker also stays after the count
+// falls back under the limit, until the channel is reloaded (seen on BIRD
+// 2.17.5), so it counts as a hit on its own.
+func TestPollerImportLimitHitMarker(t *testing.T) {
+	for name, hit := range map[string]birdc.ChannelDetail{
+		"at the limit":           {AFI: "ipv4", ImportLimit: "1000 [HIT]", RoutesImported: 1000},
+		"over, action warn":      {AFI: "ipv4", ImportLimit: "1000 [HIT]", RoutesImported: 1500},
+		"back under, not reload": {AFI: "ipv4", ImportLimit: "1000 [HIT]", RoutesImported: 500},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := openTestStore(t)
+			fc := &fakeClient{
+				polls: [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+				detail: map[string]birdc.ProtocolDetail{"edge_v4": established(
+					birdc.ChannelDetail{AFI: "ipv4", ImportLimit: "1000", RoutesImported: 400},
+				)},
+			}
+			p := New(fc, st, time.Second, nil)
+			p.poll(context.Background())
+			fc.detail["edge_v4"] = established(hit)
+			p.poll(context.Background())
+			p.poll(context.Background())
+			if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventLimitHit {
+				t.Fatalf("events = %v, want one limit_hit", kinds)
+			}
+		})
 	}
 }
