@@ -21,9 +21,22 @@ const pageQueryTimeout = 20 * time.Second
 // since the wire protocol is plain newline-delimited text.
 var identRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// validIdent guards a protocol name about to be written into a command.
+//
+// Besides the shape, it refuses the one name that is also a keyword in that
+// position: where BIRD takes a protocol name it also takes "all", so "restart
+// all" restarts every protocol on the router and "show route protocol all" is
+// not a question about one protocol. BIRD does let a protocol be called "all"
+// (verified on 2.17.5) and then reads the word as that protocol — but which of
+// the two meanings a command gets depends on what BIRD is running at that
+// instant, which a caller cannot know, so the name is never sent. Keywords are
+// case-sensitive in BIRD: "ALL" and "All" are ordinary names and pass.
 func validIdent(name string) error {
 	if !identRe.MatchString(name) {
 		return fmt.Errorf("birdc: invalid identifier %q", name)
+	}
+	if name == "all" {
+		return fmt.Errorf("birdc: %q is a BIRD keyword meaning every protocol, not a protocol name birdy will send", name)
 	}
 	return nil
 }

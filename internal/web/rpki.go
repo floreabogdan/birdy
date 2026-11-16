@@ -256,6 +256,7 @@ func (s *Server) handleRPKISave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	errs := srv.Validate()
+	keepStoredName(errs, r.PathValue("name"), srv.Name)
 	if err := s.refuseTemplateName(srv.Name, errs); err != nil {
 		s.serverError(w, "check name", err)
 		return
@@ -337,6 +338,16 @@ func (s *Server) handleRPKIRestart(w http.ResponseWriter, r *http.Request) {
 	}
 	if !srv.Enabled {
 		s.flashRedirect(w, r, "/rpki", srv.Name+" is disabled, so BIRD is not running it.", true)
+		return
+	}
+	// The name comes from the model, and the command acts on whatever BIRD has
+	// under that name right now. Restart only what the last poll saw running as
+	// an RPKI protocol of exactly this name: not a BGP session that happens to
+	// share it, and not a name BIRD does not have — for which BIRD's answer is
+	// an error at best, and for a keyword such as "all" every protocol at once.
+	if row, live := s.liveStates()[srv.Name]; !live || row.Proto != "RPKI" {
+		s.flashRedirect(w, r, "/rpki", "BIRD is not running an RPKI protocol named "+srv.Name+
+			" (as of birdy's last poll), so there is nothing to restart. Apply the config first if this server is new.", true)
 		return
 	}
 	if err := s.client.RestartProtocol(r.Context(), srv.Name); err != nil {

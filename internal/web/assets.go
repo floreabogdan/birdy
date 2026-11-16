@@ -120,6 +120,7 @@ func (s *Server) handleASSetSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	errs := as.Validate()
+	keepStoredName(errs, r.PathValue("name"), as.Name)
 	if err := s.refuseTemplateName(as.Name, errs); err != nil {
 		s.serverError(w, "check name", err)
 		return

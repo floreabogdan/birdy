@@ -180,6 +180,7 @@ func (s *Server) handlePeerTemplateSave(w http.ResponseWriter, r *http.Request) 
 	}
 
 	errs := t.Validate()
+	keepStoredName(errs, r.PathValue("name"), t.Name)
 	s.checkChains(importIDs, exportIDs, errs)
 	if msg := s.checkCommunityRefs(t.ExportCommunities); msg != "" {
 		errs["exportCommunities"] = msg
