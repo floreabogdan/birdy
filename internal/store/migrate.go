@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 41
+const schemaVersion = 42
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -22,7 +22,12 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
 		return fmt.Errorf("read user_version: %w", err)
 	}
-	if version >= schemaVersion {
+	if version > schemaVersion {
+		// Open has already refused this (checkNotNewer); never treat a database
+		// from the future as up to date.
+		return newerSchemaError(version)
+	}
+	if version == schemaVersion {
 		return nil
 	}
 
@@ -520,11 +525,54 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
+	if version < 42 {
+		// Session cookies used to be stored as-is, so anyone who could read the
+		// database (or a snapshot, or a backup zip) could replay a live login.
+		// The table is now keyed on SHA-256(token). Existing rows are dropped
+		// rather than hashed in place: their raw values may already sit in old
+		// snapshots and backups, and keeping them valid would keep those copies
+		// replayable. Every operator logs in once more after the upgrade. The
+		// rename is guarded because a database created at this version already
+		// has the new column from schema.go.
+		if has, err := hasColumn(tx, "sessions", "token"); err != nil {
+			return err
+		} else if has {
+			if _, err := tx.Exec(`ALTER TABLE sessions RENAME COLUMN token TO token_hash`); err != nil {
+				return fmt.Errorf("rename sessions.token: %w", err)
+			}
+		}
+		if _, err := tx.Exec(`DELETE FROM sessions`); err != nil {
+			return fmt.Errorf("drop pre-hash sessions: %w", err)
+		}
+	}
+
 	// PRAGMA does not accept bind parameters.
 	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
 		return fmt.Errorf("set user_version: %w", err)
 	}
 	return tx.Commit()
+}
+
+// checkNotNewer refuses a database whose schema is ahead of this binary: one
+// written by a newer birdy and then opened by an older one (a downgrade, or a
+// snapshot restored onto a router that was not upgraded). Its tables may have a
+// shape this code does not understand, and carrying on regardless — which is
+// what happened before — risks writing wrong data into the one file that holds
+// the whole model. Open calls it before touching the schema, so a refused
+// database is left exactly as it was found.
+func checkNotNewer(db *sql.DB) error {
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return fmt.Errorf("read user_version: %w", err)
+	}
+	if version > schemaVersion {
+		return newerSchemaError(version)
+	}
+	return nil
+}
+
+func newerSchemaError(version int) error {
+	return fmt.Errorf("database schema %d is newer than this birdy (%d); upgrade birdy or restore an older snapshot", version, schemaVersion)
 }
 
 func hasColumn(tx *sql.Tx, table, column string) (bool, error) {
