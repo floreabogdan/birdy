@@ -5,6 +5,7 @@ package poller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -25,6 +26,20 @@ const flapWindow = 3 * time.Minute
 // protocol/session state on full-table routers. Keep session visibility fast
 // and refresh the aggregate on a slower cadence.
 const routeCountInterval = time.Minute
+
+// hiccupGrace bounds how long the poller trusts its last good reading over a
+// reply that contradicts it without explanation. While BIRD reloads its ROA
+// tables and re-validates full BGP tables, "show protocols" has come back empty,
+// or with rows short of words, for a few seconds at a time. Taken at face value
+// that pages "BIRD unreachable" or "session down" and then the recovery, for
+// nothing. Past this window the oddity is no hiccup, and is reported as what it
+// looks like.
+const hiccupGrace = time.Minute
+
+// errNoProtocols: BIRD always reports at least birdy's device protocol, so a
+// table without a single readable row is a reply that went wrong, not a router
+// with nothing configured.
+var errNoProtocols = fmt.Errorf("birdc: show protocols listed no protocols: %w", birdc.ErrUnexpectedReply)
 
 // Status contains mostly static identity/version data. Do not ask the control
 // socket for it on every session poll; a short cache preserves quick recovery
@@ -86,6 +101,9 @@ type Poller struct {
 	log       *slog.Logger
 	notifier  Notifier
 	dropRatio float64 // alert if imported falls to <= this fraction of the prior poll
+	// clock is time.Now outside tests. The grace periods below are measured in
+	// minutes; a test steps this instead of sleeping through them.
+	clock func() time.Time
 
 	// Route-count history sampling. Cheaper than a poll: written on a slow
 	// cadence to back the dashboard sparklines, then pruned to a window. Both
@@ -100,6 +118,7 @@ type Poller struct {
 	initialized    bool // false until the first poll completes, so we don't log spurious transitions at startup
 	birdReachable  bool // last-known reachability of the control socket, for edge-triggered alerts
 	reachableKnown bool // whether birdReachable has been set at least once
+	lastGoodPoll   time.Time
 	lastStatus     birdc.Status
 	lastStatusAt   time.Time
 }
@@ -128,6 +147,7 @@ func New(client birdClient, st *store.Store, interval time.Duration, log *slog.L
 		interval:  interval,
 		log:       log,
 		dropRatio: 0.5,
+		clock:     time.Now,
 		snap:      Snapshot{States: map[string]ProtoState{}},
 	}
 }
@@ -218,7 +238,7 @@ func (p *Poller) Run(ctx context.Context) {
 // This keeps the lock held only for the in-memory copy, never across socket
 // round trips, and avoids any unsynchronized access to the shared map.
 func (p *Poller) poll(ctx context.Context) {
-	now := time.Now()
+	now := p.clock()
 	status := p.lastStatus
 	if p.lastStatusAt.IsZero() || now.Sub(p.lastStatusAt) >= statusInterval {
 		fresh, statusErr := p.client.Status(ctx)
@@ -234,6 +254,23 @@ func (p *Poller) poll(ctx context.Context) {
 	}
 
 	protocols, err := p.client.Protocols(ctx)
+	if err == nil && len(protocols) == 0 {
+		err = errNoProtocols
+	}
+	if err != nil && errors.Is(err, birdc.ErrUnexpectedReply) && (!p.initialized || now.Sub(p.lastGoodPoll) < hiccupGrace) {
+		// BIRD answered, but not with anything readable as its protocol table. The
+		// socket works, so this is no outage, and the reply proves nothing about any
+		// session either: sit the poll out and keep the last snapshot. Before the
+		// first good poll there is nothing to keep, so say why the page is empty.
+		p.log.Warn("unreadable show protocols reply; keeping the last snapshot", "error", err)
+		if !p.initialized {
+			p.mu.Lock()
+			p.snap.Err = err
+			p.snap.UpdatedAt = now
+			p.mu.Unlock()
+		}
+		return
+	}
 	if err != nil {
 		// BIRD is unreachable. Alert on the transition — this is the one failure
 		// the session-transition alerts can never catch, because detecting a
@@ -245,7 +282,7 @@ func (p *Poller) poll(ctx context.Context) {
 		p.birdReachable, p.reachableKnown = false, true
 		p.mu.Lock()
 		p.snap.Err = err
-		p.snap.UpdatedAt = time.Now()
+		p.snap.UpdatedAt = now
 		p.mu.Unlock()
 		p.log.Warn("poll failed", "error", err)
 		return
@@ -254,6 +291,7 @@ func (p *Poller) poll(ctx context.Context) {
 		p.emit(store.EventBirdReachable, "", "BIRD is reachable again")
 	}
 	p.birdReachable, p.reachableKnown = true, true
+	p.lastGoodPoll = now
 
 	prev := p.Snapshot()
 	prevStates := prev.States
@@ -283,13 +321,13 @@ func (p *Poller) poll(ctx context.Context) {
 			state.LastChange = prior.LastChange
 			maps.Copy(state.LimitHit, prior.LimitHit)
 		default:
-			state.LastChange = time.Now()
+			state.LastChange = now
 		}
 
 		state.Disabled = disabled[proto.Name]
 
 		if !first && (!seen || prior.Up != up) {
-			state.LastChange = time.Now()
+			state.LastChange = now
 			// Only BGP sessions get down/up/flap events. Infrastructure protocols
 			// (RPKI, device, kernel, static, direct) are not sessions, and treating
 			// them as such alerts on things like an RPKI RTR cache reconnecting —
@@ -297,7 +335,7 @@ func (p *Poller) poll(ctx context.Context) {
 			// A peer disabled in the model is excluded for the same reason: its
 			// session going down is the change working, not a fault.
 			if proto.Proto == "BGP" && !state.Disabled {
-				p.recordTransition(proto, prior, seen, up)
+				p.recordTransition(proto, prior, seen, up, now)
 			}
 		}
 
@@ -324,10 +362,10 @@ func (p *Poller) poll(ctx context.Context) {
 	// poll rather than deep-copying the whole snapshot a second time.
 	p.mu.Lock()
 	p.initialized = true
-	p.snap = Snapshot{Status: status, Protocols: protocols, States: next, TotalRoutes: prev.TotalRoutes, UpdatedAt: time.Now()}
+	p.snap = Snapshot{Status: status, Protocols: protocols, States: next, TotalRoutes: prev.TotalRoutes, UpdatedAt: now}
 	p.mu.Unlock()
 
-	now = time.Now()
+	now = p.clock()
 	if p.lastRouteCount.IsZero() || now.Sub(p.lastRouteCount) >= routeCountInterval {
 		p.lastRouteCount = now
 		totalRoutes := 0
@@ -346,7 +384,7 @@ func (p *Poller) poll(ctx context.Context) {
 		}
 	}
 
-	p.maybeSample(next, time.Now())
+	p.maybeSample(next, p.clock())
 }
 
 func isUp(p birdc.ProtocolSummary) bool {
@@ -383,15 +421,15 @@ func (p *Poller) checkPrefixDrop(proto birdc.ProtocolSummary, prior ProtoState, 
 	}
 }
 
-func (p *Poller) recordTransition(proto birdc.ProtocolSummary, prior ProtoState, seen bool, up bool) {
+func (p *Poller) recordTransition(proto birdc.ProtocolSummary, prior ProtoState, seen bool, up bool, now time.Time) {
 	kind := store.EventSessionDown
 	msg := fmt.Sprintf("%s (%s) went down", proto.Name, proto.Proto)
 	if up {
 		kind = store.EventSessionUp
 		msg = fmt.Sprintf("%s (%s) established", proto.Name, proto.Proto)
-		if seen && !prior.LastChange.IsZero() && time.Since(prior.LastChange) < flapWindow {
+		if seen && !prior.LastChange.IsZero() && now.Sub(prior.LastChange) < flapWindow {
 			kind = store.EventFlap
-			msg = fmt.Sprintf("%s (%s) flapped (down for %s)", proto.Name, proto.Proto, time.Since(prior.LastChange).Round(time.Second))
+			msg = fmt.Sprintf("%s (%s) flapped (down for %s)", proto.Name, proto.Proto, now.Sub(prior.LastChange).Round(time.Second))
 		}
 	}
 	p.emit(kind, proto.Name, msg)

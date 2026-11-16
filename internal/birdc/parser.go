@@ -1,6 +1,7 @@
 package birdc
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -66,10 +67,16 @@ func parseProtocolRow(row string) (ProtocolSummary, bool) {
 	return s, true
 }
 
+// ErrUnexpectedReply marks a reply that arrived whole but is not shaped like an
+// answer, such as "show protocols" with no table under its header. The socket
+// worked, so unlike a dial or read error it says nothing about BIRD being down;
+// callers use errors.Is to tell the two apart.
+var ErrUnexpectedReply = errors.New("unexpected reply shape")
+
 // ParseProtocols parses the reply to "show protocols" into one row per protocol.
 func ParseProtocols(r Reply) ([]ProtocolSummary, error) {
 	if len(r.Blocks) < 2 {
-		return nil, fmt.Errorf("birdc: unexpected show protocols reply shape")
+		return nil, fmt.Errorf("birdc: show protocols: %w", ErrUnexpectedReply)
 	}
 
 	// r.Blocks[0] is the header row; every later block holds protocol rows.

@@ -21,6 +21,9 @@ type fakeClient struct {
 	i         int
 	step      int
 	errAt     map[int]error // poll (call) number -> error, to script BIRD-unreachable
+	// replyAt scripts a raw reply for a poll (call) number, run through the real
+	// parser, so a test sees exactly what an odd reply from BIRD turns into.
+	replyAt map[int]birdc.Reply
 }
 
 func (f *fakeClient) Status(_ context.Context) (birdc.Status, error) { return birdc.Status{}, nil }
@@ -30,6 +33,9 @@ func (f *fakeClient) Protocols(_ context.Context) ([]birdc.ProtocolSummary, erro
 	f.step++
 	if err, ok := f.errAt[step]; ok {
 		return nil, err // an errored poll does not consume a scripted result
+	}
+	if r, ok := f.replyAt[step]; ok {
+		return birdc.ParseProtocols(r) // nor does a raw reply
 	}
 	if f.i >= len(f.polls) {
 		return f.polls[len(f.polls)-1], nil
