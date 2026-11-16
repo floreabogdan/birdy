@@ -64,9 +64,46 @@ type ProtocolDetail struct {
 
 	Channels []ChannelDetail
 
+	// RPKI is the RTR session state of an RPKI protocol; nil for any other kind.
+	RPKI *RPKICache
+
 	// RawLines holds every detail line verbatim, for anything the
 	// structured fields above don't capture yet.
 	RawLines []string
+}
+
+// RPKICache is what BIRD reports about an RPKI protocol's session with its RTR
+// cache.
+//
+// The serial is the only field that says whether the ROA data is moving. BIRD's
+// "Last update" is the last *successful refresh*: a cache that keeps answering
+// "nothing new" — a stale anycast backend, seen in production — resets it every
+// refresh interval while the serial and the ROA table stand still, and the
+// expire timer resets with it, so the stale table never expires either.
+type RPKICache struct {
+	Status  string // the cache state: "Established", "Connecting", "Transport-Error", …
+	Version int    // the RTR version in use, or the one BIRD will try next
+	// SessionID and Serial are -1 until the cache has assigned a session and the
+	// first sync has completed (BIRD prints "---").
+	SessionID int64
+	Serial    int64
+	// LastUpdate is BIRD's text, e.g. "before 4.059 s"; empty before the first sync.
+	LastUpdate string
+}
+
+// ROAs sums the routes imported into the protocol's roa4 and roa6 channels —
+// the size of the table this cache contributes. Channels come from the same
+// ProtocolDetail.
+func (c RPKICache) ROAs(channels []ChannelDetail) (roa4, roa6 int) {
+	for _, ch := range channels {
+		switch ch.AFI {
+		case "roa4":
+			roa4 += ch.RoutesImported
+		case "roa6":
+			roa6 += ch.RoutesImported
+		}
+	}
+	return roa4, roa6
 }
 
 // RouteEntry is one route within a "show route" family reply.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -74,6 +75,31 @@ func (c *Client) ProtocolDetail(ctx context.Context, name string) (ProtocolDetai
 		return ProtocolDetail{}, fmt.Errorf("birdc: %s", r.Terminal.Lines[0])
 	}
 	return ParseProtocolDetail(r)
+}
+
+// RestartProtocol runs "restart <name>": BIRD takes the protocol down and brings
+// it straight back up. For an RPKI protocol that is a new RTR session over a new
+// TCP connection — which, against an anycast cache, may land on a different and
+// healthier backend. It does not touch the configuration.
+func (c *Client) RestartProtocol(ctx context.Context, name string) error {
+	if err := validIdent(name); err != nil {
+		return err
+	}
+	r, err := c.Command(ctx, "restart "+name)
+	if err != nil {
+		return err
+	}
+	if r.IsError() {
+		return fmt.Errorf("birdc: %s", r.Terminal.Lines[0])
+	}
+	// BIRD answers a protocol it would not restart (a disabled one) with an
+	// informational line, not an error code, so success is the word itself.
+	for _, line := range r.Lines() {
+		if strings.HasSuffix(strings.TrimSpace(line), ": restarted") {
+			return nil
+		}
+	}
+	return fmt.Errorf("birdc: restart %s: %s", name, strings.TrimSpace(strings.Join(r.Lines(), "; ")))
 }
 
 // RouteCount runs "show route count".

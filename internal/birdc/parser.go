@@ -113,6 +113,10 @@ func ParseProtocolDetail(r Reply) (ProtocolDetail, error) {
 		d.Summary = s
 	}
 
+	if d.Summary.Proto == "RPKI" {
+		d.RPKI = &RPKICache{SessionID: -1, Serial: -1}
+	}
+
 	var curChannel *ChannelDetail
 	flush := func() {
 		if curChannel != nil {
@@ -145,6 +149,7 @@ func ParseProtocolDetail(r Reply) (ProtocolDetail, error) {
 				d.SessionType = strings.TrimSpace(strings.TrimPrefix(trimmed, "Session:"))
 			case strings.HasPrefix(trimmed, "Source address:"):
 				d.SourceAddress = strings.TrimSpace(strings.TrimPrefix(trimmed, "Source address:"))
+			case d.RPKI != nil && curChannel == nil && parseRPKILine(d.RPKI, trimmed):
 			case reHold.MatchString(trimmed):
 				d.HoldTimer = reHold.FindStringSubmatch(trimmed)[1]
 			case reKeepalive.MatchString(trimmed):
@@ -196,6 +201,39 @@ func ParseImportLimit(s string) (limit int, hit bool) {
 		return 0, false
 	}
 	return n, slices.Contains(f[1:], "[HIT]")
+}
+
+// parseRPKILine fills one field of an RPKI protocol's cache block and reports
+// whether the line was one of them. BIRD prints "---" for a value it does not
+// have yet (no session, no completed sync), which leaves the -1 / "" default.
+func parseRPKILine(c *RPKICache, line string) bool {
+	key, val, ok := strings.Cut(line, ":")
+	if !ok {
+		return false
+	}
+	val = strings.TrimSpace(val)
+	known := val != "---"
+	switch strings.TrimSpace(key) {
+	case "Status":
+		c.Status = val
+	case "Protocol version":
+		c.Version, _ = strconv.Atoi(val)
+	case "Session ID":
+		if n, err := strconv.ParseInt(val, 10, 64); known && err == nil {
+			c.SessionID = n
+		}
+	case "Serial number":
+		if n, err := strconv.ParseInt(val, 10, 64); known && err == nil {
+			c.Serial = n
+		}
+	case "Last update":
+		if known {
+			c.LastUpdate = val
+		}
+	default:
+		return false
+	}
+	return true
 }
 
 var reRouteCount = regexp.MustCompile(`^(\d+) of (\d+) routes for (\d+) networks in table (\S+)`)
