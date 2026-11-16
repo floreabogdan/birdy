@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/floreabogdan/birdy/internal/store"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -25,41 +26,65 @@ func (s *Server) handleLoginForm(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	render(w, s.log, "login.html", map[string]any{"Error": r.URL.Query().Get("error")})
+	msg := ""
+	if code := r.URL.Query().Get("error"); code != "" {
+		msg = "Invalid username or password."
+		for verdict, c := range loginRefusalCodes {
+			if c == code {
+				msg = verdict.refusal()
+			}
+		}
+	}
+	render(w, s.log, "login.html", map[string]any{"Error": msg})
 }
+
+// loginRefusalCodes are the ?error= codes the login page explains a limiter
+// refusal with.
+var loginRefusalCodes = map[loginVerdict]string{loginLocked: "locked", loginThrottled: "throttled", loginBusy: "busy"}
 
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Redirect(w, r, "/login?error=1", http.StatusSeeOther)
 		return
 	}
-	ip := clientIP(r)
-	if s.login.blocked(ip) {
-		http.Redirect(w, r, "/login?error=locked", http.StatusSeeOther)
-		return
-	}
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
-	user, ok, err := s.store.GetUserByUsername(username)
-	if err != nil {
-		s.log.Error("login lookup failed", "error", err)
+	// The lookup runs inside the limiter too, so a locked-out or throttled
+	// client costs neither a database query nor a bcrypt run.
+	var user store.User
+	var lookupErr error
+	matched, verdict := s.login.check(r.Context(), clientAddr(r), func() bool {
+		u, found, err := s.store.GetUserByUsername(username)
+		if err != nil {
+			lookupErr = err
+			return false
+		}
+		// Always run one bcrypt comparison, against a dummy hash when the user
+		// is absent, so response time doesn't reveal whether the username
+		// exists. The dummy's password is in this source file, so matching it
+		// must still fail — and must not count as a success to the limiter.
+		hash := dummyPasswordHash
+		if found {
+			hash = []byte(u.PasswordHash)
+		}
+		match := bcrypt.CompareHashAndPassword(hash, []byte(password)) == nil
+		user = u
+		return match && found
+	})
+	if lookupErr != nil {
+		s.log.Error("login lookup failed", "error", lookupErr)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	// Always run one bcrypt comparison, against a dummy hash when the user is
-	// absent, so response time doesn't reveal whether the username exists. The
-	// trailing !ok rejects the (impossible) case of a password matching the dummy.
-	hash := dummyPasswordHash
-	if ok {
-		hash = []byte(user.PasswordHash)
+	if code, refused := loginRefusalCodes[verdict]; refused {
+		http.Redirect(w, r, "/login?error="+code, http.StatusSeeOther)
+		return
 	}
-	if bcrypt.CompareHashAndPassword(hash, []byte(password)) != nil || !ok {
-		s.login.fail(ip)
+	if !matched {
 		http.Redirect(w, r, "/login?error=1", http.StatusSeeOther)
 		return
 	}
-	s.login.reset(ip)
 
 	token, err := newSessionToken()
 	if err != nil {

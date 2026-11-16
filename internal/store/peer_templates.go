@@ -369,6 +369,60 @@ func (s *Store) AttachPeers(peerIDs []int64, templateID int64) error {
 	return tx.Commit()
 }
 
+// ErrTemplateGone is SavePeer finding that the template the peer links to no
+// longer exists.
+var ErrTemplateGone = fmt.Errorf("%w: peer template", ErrNotFound)
+
+// SavePeer creates (ID 0) or updates a peer and replaces its chains, in one
+// transaction, returning its id. A linked peer's shape and chains are the
+// template's as it stands inside that transaction: whatever the caller applied
+// beforehand — to validate it, to show the form — is applied again from a fresh
+// read, and importIDs and exportIDs are ignored for it. Without that, a template
+// save committing between the caller's read and this write would rewrite the
+// linked peers and then have this one put back the shape it replaced. It is the
+// guard AttachPeers has, for the peer form.
+func (s *Store) SavePeer(p Peer, importIDs, exportIDs []int64) (int64, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if p.TemplateID.Valid {
+		// Write before reading, for the reason AttachPeers gives.
+		res, err := tx.Exec(`UPDATE peer_templates SET updated_at = updated_at WHERE id = ?`, p.TemplateID.Int64)
+		if err != nil {
+			return 0, fmt.Errorf("store: lock peer template: %w", err)
+		}
+		if n, err := res.RowsAffected(); err != nil {
+			return 0, err
+		} else if n == 0 {
+			return 0, ErrTemplateGone
+		}
+		t, err := s.getTemplateIn(tx, `SELECT `+templateCols+` FROM peer_templates WHERE id = ?`, p.TemplateID.Int64)
+		if err != nil {
+			return 0, err
+		}
+		t.ApplyTo(&p)
+		// The drain is the peer's own switch but an eBGP one; a template that
+		// has just made the session internal clears it, as updatePeerShape does.
+		if p.IsIBGP() {
+			p.Drained = false
+		}
+		importIDs, exportIDs = PolicyIDs(t.ImportPolicies), PolicyIDs(t.ExportPolicies)
+	}
+	if p.ID == 0 {
+		if p.ID, err = createPeer(tx, p); err != nil {
+			return 0, err
+		}
+	} else if err := updatePeer(tx, p); err != nil {
+		return 0, err
+	}
+	if err := replaceChain(tx, "peer_policies", "peer_id", p.ID, importIDs, exportIDs); err != nil {
+		return 0, err
+	}
+	return p.ID, tx.Commit()
+}
+
 // PolicyIDs lists a chain's ids in order, for the chain writers.
 func PolicyIDs(chain []Policy) []int64 {
 	out := make([]int64, 0, len(chain))

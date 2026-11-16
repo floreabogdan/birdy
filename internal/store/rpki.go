@@ -67,7 +67,9 @@ func (s *RPKIServer) Validate() map[string]string {
 		errs["host"] = "Enter the RTR server's hostname or IP address."
 	case s.IsIP():
 		// Re-serialise so the rendered config carries a canonical form.
-		if addr, err := netip.ParseAddr(s.Host); err == nil {
+		if addr, err := parseConfigAddr(s.Host); err != nil {
+			errs["host"] = zoneMsg
+		} else {
 			s.Host = addr.String()
 		}
 	case !hostname.MatchString(s.Host):

@@ -174,7 +174,10 @@
 			// "disabled" for a peer switched off on purpose).
 			var filterState = p.up ? "up" : "down";
 			var model = p.configured ? "managed" : "unmanaged";
-			var rowStart = remote ? '<tr data-name="' + esc(String(p.name).toLowerCase()) + '" data-state="' + filterState + '" data-family="' + familyOf(p) + '" data-model="' + model + '">' : '<tr data-name="' + esc(String(p.name).toLowerCase()) + '" data-state="' + filterState + '" data-family="' + familyOf(p) + '" data-model="' + model + '" class="row-link" data-href="/peers/' + encodeURIComponent(p.name) + '">';
+			// On a remote instance's dashboard the name is whatever that instance
+			// sent, so it must not be able to close the attribute and add its own
+			// (a data-href that ui.js would follow on click).
+			var rowStart = remote ? '<tr data-name="' + escAttr(String(p.name).toLowerCase()) + '" data-state="' + filterState + '" data-family="' + familyOf(p) + '" data-model="' + model + '">' : '<tr data-name="' + escAttr(String(p.name).toLowerCase()) + '" data-state="' + filterState + '" data-family="' + familyOf(p) + '" data-model="' + model + '" class="row-link" data-href="/peers/' + encodeURIComponent(p.name) + '">';
 			// A real link makes the session reachable by keyboard, screen readers,
 			// and with JS off; the row-level data-href stays for mouse convenience.
 			var nameCell = remote ? esc(p.name) : '<a class="cell-link" href="/peers/' + encodeURIComponent(p.name) + '">' + esc(p.name) + "</a>";
@@ -227,7 +230,7 @@
 			var who = e.actor ? ' <span class="text-muted">by ' + esc(e.actor) + "</span>" : "";
 			return (
 				'<div class="timeline-item">' +
-				'<div class="timeline-time" data-ts="' + esc(e.ts) + '" title="' + esc(fmtTime(e.ts)) + '">' + esc(fmtTime(e.ts)) + "</div>" +
+				'<div class="timeline-time" data-ts="' + escAttr(e.ts) + '" title="' + escAttr(fmtTime(e.ts)) + '">' + esc(fmtTime(e.ts)) + "</div>" +
 				'<div><span class="badge ' + b[0] + '">' + esc(b[1]) + '</span> <span class="mono">' + esc(e.protocol) + "</span> — " + esc(e.message) + who + "</div>" +
 				"</div>"
 			);

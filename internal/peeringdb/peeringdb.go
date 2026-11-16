@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -33,6 +34,11 @@ type Client struct {
 func New() *Client {
 	return &Client{BaseURL: "https://www.peeringdb.com/api", http: &http.Client{Timeout: 12 * time.Second}}
 }
+
+// maxResponseBytes bounds what Lookup reads. One network's record is a few
+// kilobytes; the cap keeps a broken or hostile endpoint from making birdy buffer
+// an unbounded response in memory on the router.
+const maxResponseBytes = 1 << 20
 
 // pdbResponse mirrors the fields birdy reads from GET /net?asn=N.
 type pdbResponse struct {
@@ -66,7 +72,7 @@ func (c *Client) Lookup(ctx context.Context, asn int64) (Net, error) {
 		return Net{}, fmt.Errorf("peeringdb: HTTP %d", resp.StatusCode)
 	}
 	var pr pdbResponse
-	if err := json.NewDecoder(resp.Body).Decode(&pr); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxResponseBytes)).Decode(&pr); err != nil {
 		return Net{}, fmt.Errorf("peeringdb: decode: %w", err)
 	}
 	if len(pr.Data) == 0 {

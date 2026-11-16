@@ -35,13 +35,14 @@ var builtinSymbols = map[string]bool{
 }
 
 // derivedSymbols are the names birdy builds from another object's name —
-// policy functions, per-peer filters, originator protocols. Such a name is
-// taken only while the object it derives from exists.
+// policy functions (and an import policy's RFC 7999 blackhole form), per-peer
+// filters, originator protocols. Such a name is taken only while the object it
+// derives from exists.
 var derivedSymbols = []struct {
 	pattern *regexp.Regexp
 	table   string
 }{
-	{regexp.MustCompile(`^(?:imp|exp)_(.+)_v[46]$`), "policies"},
+	{regexp.MustCompile(`^(?:imp|exp|bh)_(.+)_v[46]$`), "policies"},
 	{regexp.MustCompile(`^(?:ebgp|ibgp)_(?:in|out)_(.+)$`), "peers"},
 	{regexp.MustCompile(`^originate_(.+)$`), "prefix_sets"},
 }

@@ -324,9 +324,10 @@ func samplePeer(t store.PeerTemplate, localASN int64) store.Peer {
 	if t.IsIBGP() && localASN > 0 {
 		p.RemoteASN = localASN
 	}
-	// Named after the template, within BIRD's 63-character limit.
+	// Named after the template, within the longest name a peer may take: its
+	// filters' names, longer still, must fit BIRD's limit too.
 	const suffix = "_example"
-	p.Name = t.Name[:min(len(t.Name), 63-len(suffix))] + suffix
+	p.Name = t.Name[:min(len(t.Name), store.MaxPeerNameLen-len(suffix))] + suffix
 	// A template being created has no id yet; the preview links to it by name.
 	p.TemplateID, p.TemplateName = sql.NullInt64{Int64: max(t.ID, 1), Valid: true}, t.Name
 	return p

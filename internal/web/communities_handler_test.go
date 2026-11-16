@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	birdconf "github.com/floreabogdan/birdy/internal/render"
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
@@ -132,5 +133,55 @@ func TestCommunityValidation(t *testing.T) {
 	env.do(t, "POST", "/library/communities/new", url.Values{"name": {"OK_NAME"}, "value": {"nonsense"}})
 	if _, err := env.store.GetCommunityDefByName("OK_NAME"); err != store.ErrNotFound {
 		t.Error("a community with a malformed value must not be created")
+	}
+}
+
+// Peers, templates and policies reference a library community by name, so a
+// rename is a delete as far as they are concerned: it used to save, leave every
+// reference pointing at a name nothing defines, and fail the next apply with an
+// undefined symbol. While anything references it, the name stays; the value and
+// description can still change.
+func TestRenamingAReferencedCommunityIsRefused(t *testing.T) {
+	env := applyReady(t)
+	env.do(t, "POST", "/library/communities/new", url.Values{"name": {"UPSTREAM_NOEXPORT"}, "value": {"65000:1"}})
+	f := peerForm()
+	f.Set("name", "edge_v4")
+	f.Set("neighborIp", "198.51.100.1")
+	f.Set("remoteAsn", "64500")
+	f.Set("exportCommunities", "UPSTREAM_NOEXPORT")
+	if rec := env.do(t, "POST", "/peers/new", f); rec.Code != 303 {
+		t.Fatalf("peer: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec := env.do(t, "POST", "/library/communities/UPSTREAM_NOEXPORT/edit",
+		url.Values{"name": {"NO_EXPORT_UP"}, "value": {"65000:1"}})
+	if rec.Code == 303 {
+		t.Errorf("a rename of a referenced community saved")
+	}
+	if !strings.Contains(rec.Body.String(), "peer edge_v4") {
+		t.Errorf("the refusal should name what still refers to it:\n%s", rec.Body.String())
+	}
+	if _, err := env.store.GetCommunityDefByName("UPSTREAM_NOEXPORT"); err != nil {
+		t.Fatalf("the community must keep its name: %v", err)
+	}
+	in, _, err := env.srv.renderInput(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range birdconf.Lint(in) {
+		if strings.Contains(w.Message, "not defined in the library") {
+			t.Errorf("a reference was left dangling: %s", w.Message)
+		}
+	}
+
+	// Anything but the name may change while it is in use.
+	if rec := env.do(t, "POST", "/library/communities/UPSTREAM_NOEXPORT/edit",
+		url.Values{"name": {"UPSTREAM_NOEXPORT"}, "value": {"65000:2"}, "description": {"upstream no-export"}}); rec.Code != 303 {
+		t.Errorf("an edit that keeps the name should save: %d %s", rec.Code, rec.Body.String())
+	}
+	// And once nothing refers to it, it can be renamed.
+	env.do(t, "POST", "/library/communities/new", url.Values{"name": {"SPARE"}, "value": {"65000:3"}})
+	if rec := env.do(t, "POST", "/library/communities/SPARE/edit", url.Values{"name": {"SPARE_TAG"}, "value": {"65000:3"}}); rec.Code != 303 {
+		t.Errorf("an unreferenced community should rename: %d %s", rec.Code, rec.Body.String())
 	}
 }

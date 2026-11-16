@@ -40,8 +40,24 @@ type fakeClient struct {
 	cfgReloadFail  bool // reload reports a non-OK result (e.g. a peer without route-refresh)
 	cfgErr         error
 	calls          []string
-	lastSoft       bool     // whether the last ConfigureTimeout asked for a soft reconfigure
-	restarts       []string // protocols RestartProtocol was asked to bounce
+	lastSoft       bool // whether the last ConfigureTimeout asked for a soft reconfigure
+
+	// cfgConfirmNothing makes confirm answer BIRD's "0019 Nothing to do": no
+	// reconfigure was armed any more when the operator clicked Confirm.
+	cfgConfirmNothing bool
+	// timeoutDelay is how long BIRD takes to answer `configure timeout` (it parses
+	// the whole config first); timeoutReturned is when the answer came back.
+	timeoutDelay    time.Duration
+	timeoutReturned time.Time
+	// reloadFailed is what BIRD lists as "8006-<proto>: reload failed" inside an
+	// otherwise accepted reload.
+	reloadFailed []string
+	// timeoutErr fails only `configure timeout`; afterTimeout runs once BIRD has
+	// armed the config, to break something in the steps that follow.
+	timeoutErr   error
+	afterTimeout func()
+	// restarts records the protocols RestartProtocol was asked to bounce.
+	restarts []string
 }
 
 func (f *fakeClient) RestartProtocol(_ context.Context, name string) error {
@@ -63,13 +79,24 @@ func (f *fakeClient) ConfigureCheck(_ context.Context) (birdc.ConfigureResult, e
 func (f *fakeClient) ConfigureTimeout(_ context.Context, seconds int, soft bool) (birdc.ConfigureResult, error) {
 	f.calls = append(f.calls, "timeout")
 	f.lastSoft = soft
+	time.Sleep(f.timeoutDelay)
+	defer func() { f.timeoutReturned = time.Now() }()
 	if f.cfgErr != nil {
 		return birdc.ConfigureResult{}, f.cfgErr
+	}
+	if f.timeoutErr != nil {
+		return birdc.ConfigureResult{}, f.timeoutErr
+	}
+	if f.afterTimeout != nil {
+		f.afterTimeout()
 	}
 	return f.result(!f.cfgApplyFail, "applied")
 }
 func (f *fakeClient) ConfigureConfirm(_ context.Context) (birdc.ConfigureResult, error) {
 	f.calls = append(f.calls, "confirm")
+	if f.cfgConfirmNothing {
+		return birdc.ConfigureResult{OK: false, Code: birdc.CodeNothingToDo, Message: "Nothing to do"}, nil
+	}
 	return f.result(!f.cfgConfirmFail, "confirmed")
 }
 func (f *fakeClient) ConfigureUndo(_ context.Context) (birdc.ConfigureResult, error) {
@@ -85,7 +112,9 @@ func (f *fakeClient) Reload(_ context.Context) (birdc.ConfigureResult, error) {
 	if f.cfgReloadFail {
 		msg = "edge1: BGP neighbor does not support route refresh"
 	}
-	return f.result(!f.cfgReloadFail, msg)
+	res, err := f.result(!f.cfgReloadFail, msg)
+	res.Failed = f.reloadFailed
+	return res, err
 }
 
 func (f *fakeClient) Status(_ context.Context) (birdc.Status, error) {
@@ -193,6 +222,15 @@ func newTestEnv(t *testing.T, readOnly bool, opts ...func(*Config)) *testEnv {
 	}
 	for _, o := range opts {
 		o(&cfg)
+	}
+	// httptest addresses every request to example.com, which the DNS-rebinding
+	// host check would refuse; list it the way an operator lists their router's
+	// name. That needs the settings row a real install gets from birdy init.
+	if err := st.SaveSettings(store.Settings{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveAllowedHosts("example.com"); err != nil {
+		t.Fatal(err)
 	}
 	srv := New(cfg)
 

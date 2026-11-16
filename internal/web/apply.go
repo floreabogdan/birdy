@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/floreabogdan/birdy/internal/birdc"
 	birdconf "github.com/floreabogdan/birdy/internal/render"
 	"github.com/floreabogdan/birdy/internal/store"
 )
@@ -72,12 +73,23 @@ func (s *Server) birdyIncludes(conf string) []string {
 	return out
 }
 
+// includeLineRe matches a line that is nothing but an include statement — the
+// only kind birdy writes into bird.conf.
+var includeLineRe = regexp.MustCompile(`^include\s+"([^"]+)"\s*;$`)
+
 // readLogicalConfig returns the effective config text on disk: for a split
-// layout, the concatenation of the birdy.d files bird.conf includes, in include
-// order; for a single file, bird.conf itself. The bool is false when there is no
+// layout, bird.conf with each birdy.d include spliced in where it is included;
+// for a single file, bird.conf itself. The bool is false when there is no
 // bird.conf at all. This is the text birdy hashes and diffs, so how the config is
 // split on disk is invisible to ownership detection and diffing — and an existing
 // single-file install stays "owned" across the upgrade to the split layout.
+//
+// Comments and blank lines in a split bird.conf drop out: they are all birdy
+// writes there besides the includes, and its banner names the birdy version,
+// which an upgrade changes. Every other line is kept where it stands, because
+// BIRD parses it: a protocol an operator added to bird.conf is part of the
+// running config, so it must read as an edit (and show in the diff as what the
+// next apply would remove), not stay invisible behind an unchanged include list.
 func (s *Server) readLogicalConfig() (string, bool, error) {
 	data, err := os.ReadFile(s.birdConfPath)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -86,13 +98,22 @@ func (s *Server) readLogicalConfig() (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	includes := s.birdyIncludes(string(data))
-	if len(includes) == 0 {
+	if len(s.birdyIncludes(string(data))) == 0 {
 		return string(data), true, nil // single file: legacy birdy, or foreign
 	}
+	want := filepath.Clean(s.birdyIncludeDir())
 	var b strings.Builder
-	for _, inc := range includes {
-		part, err := os.ReadFile(inc)
+	for _, line := range strings.SplitAfter(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		m := includeLineRe.FindStringSubmatch(trimmed)
+		if m == nil || filepath.Dir(filepath.Clean(filepath.FromSlash(m[1]))) != want {
+			b.WriteString(line)
+			continue
+		}
+		part, err := os.ReadFile(filepath.Clean(filepath.FromSlash(m[1])))
 		if errors.Is(err, fs.ErrNotExist) {
 			// A birdy include vanished out of band: the reconstruction is
 			// incomplete, so its hash will not match — reported as edited.
@@ -372,39 +393,68 @@ func (s *Server) emitAuditedEvent(r *http.Request, kind, message string) {
 	}
 }
 
-// reconcilePending catches up with an auto-revert BIRD performed on its own. If a
-// pending apply's deadline has passed, BIRD has already reverted to the previous
-// config; birdy just records it. bird.conf on disk is already the previous
-// config — the apply flow restores it the moment the timeout is armed — so there
-// is no file to fix here.
+// revertGrace is how long past an apply's deadline birdy waits before it
+// records BIRD's auto-revert. The deadline is counted from BIRD's answer to
+// `configure timeout`, so BIRD's timer started no later than that; the grace
+// covers BIRD running its timer late on a busy main loop and the revert itself.
+const revertGrace = 5 * time.Second
+
+// reconcilePending catches up with an auto-revert BIRD performed on its own. Once
+// a pending apply's deadline and revertGrace have passed, BIRD has reverted to
+// the previous config; birdy just records it. bird.conf on disk is normally the
+// previous config already — the apply flow restores it the moment the timeout is
+// armed — but it is put back again in case that restore failed.
+//
+// Acting early is worse than acting late: the reload below would run under the
+// still-armed config, whose routes then survive BIRD's soft revert, and the
+// apply this unblocks would stack on the armed config and make it BIRD's undo
+// target. Late only means the panel shows 0s for a few seconds; a confirm in
+// that window gets BIRD's "nothing to do" and is recorded as reverted.
 func (s *Server) reconcilePending() error {
 	pending, ok, err := s.store.PendingConfigVersion()
 	if err != nil || !ok {
 		return err
 	}
-	if !pending.Expired(time.Now()) {
+	if !pending.Expired(time.Now().Add(-revertGrace)) {
 		return nil
 	}
-	if err := s.store.ResolveConfigVersion(pending.ID, store.ConfigReverted,
+	// The auto-revert reconcile is self-healing, not tied to one request, so it
+	// runs on a background context bounded by the client's own command timeout.
+	if _, err := s.recordRevert(context.Background(), pending, "auto-revert",
 		"Auto-reverted: the apply was not confirmed within the safety timeout."); err != nil {
 		return err
 	}
 	s.emitEvent(store.EventConfigRevert, "", "Config apply auto-reverted (not confirmed in time)")
-	// The apply reloaded filters onto the table while it was armed; BIRD has since
-	// reverted the config on its own, so re-run the restored filters to pull the
-	// table back off the un-confirmed policy.
-	// The auto-revert reconcile is self-healing, not tied to one request, so it
-	// runs on a background context bounded by the client's own command timeout.
-	s.reloadFilters(context.Background(), "auto-revert")
 	return nil
 }
+
+// recordRevert records a pending apply as reverted once BIRD is back on the
+// previous config. It first puts that config back on disk: normally a no-op, as
+// the apply restored it when it armed, but that restore can fail, and a BIRD
+// restart must never load the unconfirmed files. The apply may also have
+// reloaded the new filters onto the table, which BIRD's revert does not undo, so
+// the restored filters are re-run. The returned suffix warns the operator when
+// the files could not be put back.
+func (s *Server) recordRevert(ctx context.Context, pending store.ConfigVersion, reason, message string) (string, error) {
+	suffix := s.rollbackConfig(pending.BackupPath)
+	if err := s.store.ResolveConfigVersion(pending.ID, store.ConfigReverted, message); err != nil {
+		return suffix, err
+	}
+	s.reloadFilters(ctx, reason)
+	return suffix, nil
+}
+
+// alwaysUnreloadable is the protocol birdy renders into every config that BIRD
+// can never reload: a direct protocol has no import to re-run, so `reload all`
+// lists it as failed every time (verified on BIRD 2.17.5).
+const alwaysUnreloadable = "direct1"
 
 // reloadFilters re-runs import/export filters on the routes already in the table,
 // so a soft reconfigure's filter changes actually take hold without restarting —
 // and so without bouncing — any session. It is best-effort: a peer that does not
 // support route-refresh cannot be re-imported without a restart, which BIRD
 // reports per protocol while reloading the rest, so a non-OK result is a warning,
-// not a failure — the config birdy applied stands either way. Returns BIRD's note
+// not a failure — the config birdy applied stands either way. Returns a note
 // when something was off, for the operator-facing flash.
 func (s *Server) reloadFilters(ctx context.Context, reason string) (ok bool, note string) {
 	res, err := s.client.Reload(ctx)
@@ -414,8 +464,19 @@ func (s *Server) reloadFilters(ctx context.Context, reason string) (ok bool, not
 	}
 	if !res.OK {
 		s.log.Warn("reload reported an issue", "when", reason, "message", res.Message)
+		return false, res.Message
 	}
-	return res.OK, res.Message
+	var failed []string
+	for _, p := range res.Failed {
+		if p != alwaysUnreloadable {
+			failed = append(failed, p)
+		}
+	}
+	if len(failed) > 0 {
+		s.log.Warn("BIRD could not reload some protocols", "when", reason, "protocols", failed)
+		return false, "BIRD could not reload " + strings.Join(failed, ", ")
+	}
+	return true, ""
 }
 
 // canStartApply gathers the gates every apply shares: not read-only, no stale
@@ -512,8 +573,14 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 		return
 	}
 
-	now := time.Now()
-	backup, err := s.snapshotConfig(now)
+	// Encoded before anything is touched, so it cannot fail once BIRD is armed.
+	filesJSON, err := json.Marshal(set)
+	if err != nil {
+		s.serverError(w, "encode file set", err)
+		return
+	}
+
+	backup, err := s.snapshotConfig(time.Now())
 	if err != nil {
 		s.log.Error("back up config", "error", err)
 		s.redirectChanges(w, r, "Could not back up the current config: "+err.Error())
@@ -551,12 +618,26 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 	// Apply with the safety timeout armed. If this operator loses reachability,
 	// or the sessions never come up, BIRD reverts on its own.
 	res, err := s.client.ConfigureTimeout(applyCtx, s.applyTimeout, soft)
-	if err != nil {
+	// BIRD arms its timer while handling the command, so it is running by the time
+	// BIRD answers: counting from the answer puts birdy's deadline at or after
+	// BIRD's revert, never before it. Counting from before the snapshot, the writes
+	// and `configure check` (a full parse of its own) put it early by however long
+	// those took.
+	deadline := time.Now().Add(time.Duration(s.applyTimeout) * time.Second)
+	// A reply lost after the command went out is not a refusal: BIRD may be
+	// running the new config with the revert armed. Rolling back and recording
+	// nothing would let the next apply stack on it and make it BIRD's undo target.
+	// So it is recorded like an armed apply: a confirm then gets BIRD's verdict
+	// (confirmed, or nothing to do), and the timeout path reconciles either way.
+	unanswered := errors.Is(err, birdc.ErrNoReply)
+	if unanswered {
+		s.log.Error("configure timeout: no reply from BIRD; treating the apply as armed", "error", err)
+	} else if err != nil {
 		s.rollbackConfig(backup)
 		s.serverError(w, "configure timeout", err)
 		return
 	}
-	if !res.OK {
+	if !unanswered && !res.OK {
 		suffix := s.rollbackConfig(backup)
 		s.redirectChanges(w, r, "BIRD could not apply the config; it was rolled back:\n"+res.Message+suffix)
 		return
@@ -584,36 +665,81 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 	// config in memory (armed). Put the previous config back on disk, so if the
 	// timeout fires — or anything restarts BIRD — disk still matches the config
 	// BIRD reverts to. The new set lives in the version row until confirm.
+	//
+	// If that fails, BIRD is armed all the same: carry on and record the version,
+	// so the apply can still be confirmed or rolled back (both rewrite the files),
+	// and nothing stacks on it.
+	var restoreWarn string
 	if err := s.restoreConfig(backup); err != nil {
-		s.serverError(w, "restore pending backup", err)
-		return
+		s.log.Error("restore the previous config while armed", "error", err)
+		restoreWarn = " WARNING: birdy could not put the previous config back on disk (" + err.Error() +
+			"), so a BIRD restart would load the unconfirmed files."
 	}
 
 	how := "hard"
 	if soft {
 		how = "soft"
 	}
-	filesJSON, err := json.Marshal(set)
-	if err != nil {
-		s.serverError(w, "encode file set", err)
-		return
+	message := fmt.Sprintf("Applied (%s) with a %ds safety timeout.", how, s.applyTimeout)
+	if unanswered {
+		message += " BIRD's answer was lost, so it may not have taken effect."
 	}
-	deadline := now.Add(time.Duration(s.applyTimeout) * time.Second)
 	id, err := s.store.CreateConfigVersion(store.ConfigVersion{
 		SHA256: newHash, Size: len(cfg), ConfigText: cfg, BackupPath: backup,
 		Status: store.ConfigPending, Deadline: deadline,
-		Message:          fmt.Sprintf("Applied (%s) with a %ds safety timeout.", how, s.applyTimeout),
+		Message:          message,
 		BaselineSessions: strings.Join(s.establishedSessions(), ","),
 		ConfigFiles:      string(filesJSON),
 	})
 	if err != nil {
-		s.serverError(w, "record config version", err)
+		s.unrecordedApply(w, r, backup, unanswered, restoreWarn, err)
 		return
 	}
 	s.emitAuditedEvent(r, store.EventConfigApply,
 		fmt.Sprintf("Config applied with a %ds safety timeout (version %d)", s.applyTimeout, id))
 
-	s.redirectChanges(w, r, fmt.Sprintf("Applied. Confirm within %ds to keep it, or it reverts on its own.%s", s.applyTimeout, reloadNote))
+	if restoreWarn != "" {
+		restoreWarn += " Confirm or roll back now; either rewrites them."
+	}
+	if unanswered {
+		s.redirectChanges(w, r, fmt.Sprintf("birdy sent the apply, but BIRD's answer never arrived, so BIRD may be running"+
+			" the new config with its %ds safety timeout armed. birdy is treating it as pending: check the sessions,"+
+			" then confirm it or let it revert on its own. If BIRD never took it, confirming says so and records it"+
+			" as reverted.%s%s", s.applyTimeout, reloadNote, restoreWarn))
+		return
+	}
+	s.redirectChanges(w, r, fmt.Sprintf("Applied. Confirm within %ds to keep it, or it reverts on its own.%s%s", s.applyTimeout, reloadNote, restoreWarn))
+}
+
+// unrecordedApply handles an armed apply whose version could not be recorded.
+// Unrecorded, nothing would ever resolve it, and the next apply would stack on
+// it. birdy armed it a moment ago, so BIRD's state is known: undo it now. When
+// BIRD's answer to the apply was lost that is not known — an undo with nothing
+// armed reverts BIRD's previous reconfigure instead — so the timeout is left to
+// revert it.
+func (s *Server) unrecordedApply(w http.ResponseWriter, r *http.Request, backup string, unanswered bool, restoreWarn string, cause error) {
+	s.log.Error("record config version", "error", cause)
+	ctx := context.WithoutCancel(r.Context()) // still inside the armed window
+	if restoreWarn != "" {
+		restoreWarn = s.rollbackConfig(backup) // one more try; "" once it worked
+	}
+	if unanswered {
+		s.redirectChanges(w, r, fmt.Sprintf("birdy could not record the apply in its database, and BIRD's answer to it"+
+			" was lost, so BIRD may be running it armed: it reverts on its own within %ds. Do not apply again before"+
+			" then.%s", s.applyTimeout, restoreWarn))
+		return
+	}
+	res, err := s.client.ConfigureUndo(ctx)
+	if err != nil || !res.OK {
+		s.log.Error("undo the unrecorded apply", "error", err, "message", res.Message)
+		s.redirectChanges(w, r, fmt.Sprintf("birdy could not record the apply in its database, and undoing it failed"+
+			" too: BIRD reverts it on its own within %ds. Do not apply again before then.%s", s.applyTimeout, restoreWarn))
+		return
+	}
+	s.reloadFilters(ctx, "undo unrecorded apply")
+	s.emitAuditedEvent(r, store.EventConfigRevert, "Config apply undone: it could not be recorded")
+	s.redirectChanges(w, r, "birdy could not record the apply in its database, so it was undone: BIRD is back on the"+
+		" previous config."+restoreWarn)
 }
 
 func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
@@ -645,12 +771,38 @@ func (s *Server) handleApplyConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.writeFileSet(set); err != nil {
-		s.serverError(w, "write config", err)
+		// Some files may already be the new ones; a BIRD restart must not load
+		// that mix. BIRD is untouched and still armed, so the apply stays pending.
+		s.log.Error("write config for confirm", "error", err)
+		suffix := s.rollbackConfig(pending.BackupPath)
+		s.redirectChanges(w, r, "Could not write the config to "+s.configDir()+": "+err.Error()+
+			". Nothing was confirmed and the previous config is back on disk; BIRD is still running the new one"+
+			" armed, so fix the cause and confirm again, or roll back."+suffix)
 		return
 	}
 	// A dropped connection here must not leave BIRD confirmed while birdy still
 	// records the version as pending; detach so confirm-and-record completes.
-	res, err := s.client.ConfigureConfirm(context.WithoutCancel(r.Context()))
+	applyCtx := context.WithoutCancel(r.Context())
+	res, err := s.client.ConfigureConfirm(applyCtx)
+	if err == nil && res.Code == birdc.CodeNothingToDo {
+		// BIRD had no armed reconfigure to keep, so it is not running this apply:
+		// its timeout fired (birdy's countdown is only an estimate of BIRD's), it
+		// restarted, or something reconfigured it outside birdy. Keeping the new
+		// files and stamping their hash would make disk and record agree with each
+		// other while BIRD runs the previous config — a split no drift check sees.
+		suffix, err := s.recordRevert(applyCtx, pending, "confirm",
+			"Reverted before it was confirmed: BIRD had nothing to confirm (its timeout had fired, or it was restarted or reconfigured outside birdy).")
+		if err != nil {
+			s.serverError(w, "resolve version", err)
+			return
+		}
+		s.emitAuditedEvent(r, store.EventConfigRevert,
+			fmt.Sprintf("Config apply found already reverted by BIRD at confirm (version %d)", pending.ID))
+		s.redirectChanges(w, r, "BIRD had nothing to confirm, so it is no longer running this apply: its safety timeout"+
+			" already reverted it, or BIRD was restarted or reconfigured outside birdy. The previous config is back on"+
+			" disk and the apply is recorded as reverted; apply again if you still want it."+suffix)
+		return
+	}
 	if err != nil || !res.OK {
 		if err != nil {
 			s.log.Error("configure confirm", "error", err)
@@ -696,9 +848,9 @@ func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// bird.conf on disk is already the previous config (restored when the
-	// timeout was armed), so this only tells BIRD to drop the armed config and
-	// records the outcome. Undo is best-effort: if the timeout already fired,
+	// bird.conf on disk is normally the previous config already (restored when
+	// the timeout was armed), so this mainly tells BIRD to drop the armed config
+	// and records the outcome. Undo is best-effort: if the timeout already fired,
 	// BIRD has nothing to undo and that is fine. Detach from the request so a
 	// dropped connection cannot leave BIRD reverted while birdy records nothing.
 	applyCtx := context.WithoutCancel(r.Context())
@@ -710,15 +862,13 @@ func (s *Server) handleApplyRollback(w http.ResponseWriter, r *http.Request) {
 	} else if !res.OK {
 		msg = "Rolled back (" + res.Message + ")."
 	}
-	// The apply reloaded the new filters onto the table; now that the config is
-	// back to the previous one, re-run its filters so the table follows.
-	s.reloadFilters(applyCtx, "rollback")
-	if err := s.store.ResolveConfigVersion(pending.ID, store.ConfigReverted, msg); err != nil {
+	suffix, err := s.recordRevert(applyCtx, pending, "rollback", msg)
+	if err != nil {
 		s.serverError(w, "resolve version", err)
 		return
 	}
 	s.emitAuditedEvent(r, store.EventConfigRevert, fmt.Sprintf("Config apply rolled back (version %d)", pending.ID))
-	s.redirectChanges(w, r, msg)
+	s.redirectChanges(w, r, msg+suffix)
 }
 
 // fileSetFor reconstructs the on-disk layout a stored version should write. A

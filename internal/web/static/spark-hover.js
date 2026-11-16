@@ -124,9 +124,16 @@
 		var p = mark(svg, i);
 		if (!p) return;
 
+		// The point was parsed out of data-spark, which on the dashboard holds a
+		// remote instance's history: set it as text, never parse it as markup.
 		var t = tooltip();
-		t.innerHTML = '<span class="spark-tip-count">' + fmtCount(p.v) + " routes</span>" +
-			'<span class="spark-tip-when">' + fmtWhen(p.t) + "</span>";
+		var count = document.createElement("span");
+		count.className = "spark-tip-count";
+		count.textContent = fmtCount(p.v) + " routes";
+		var when = document.createElement("span");
+		when.className = "spark-tip-when";
+		when.textContent = fmtWhen(p.t);
+		t.replaceChildren(count, when);
 		t.hidden = false;
 		// Keep it on screen: flip to the left of the cursor near the right edge.
 		var tw = t.offsetWidth;

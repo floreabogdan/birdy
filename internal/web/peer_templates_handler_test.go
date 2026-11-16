@@ -525,8 +525,9 @@ func TestIBGPTemplatePreviewUsesOurOwnAS(t *testing.T) {
 	}
 }
 
-// BIRD names are at most 63 characters. The sample peer is named after the
-// template, so a long template name must still give the preview a valid one.
+// A template name may be 63 characters, a peer's only 55 (its filter names
+// must fit BIRD's 64 too). The sample peer is named after the template, so a
+// long template name must still give the preview a valid one.
 func TestLongTemplateNamePreviews(t *testing.T) {
 	env := newTestEnv(t, false)
 	withIdentity(t, env)

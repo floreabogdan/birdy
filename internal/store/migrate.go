@@ -494,6 +494,16 @@ func migrate(db *sql.DB) error {
 		}
 	}
 
+	if version < 40 {
+		// Host names the browser UI answers to, against DNS rebinding. Empty on
+		// upgrade: IP addresses and localhost always work, so an operator who
+		// browsed by name gets in by IP or tunnel and adds the name — a default
+		// that guessed names would be the hole this closes.
+		if err := ensureColumn(tx, "settings", "allowed_hosts", `ALTER TABLE settings ADD COLUMN allowed_hosts TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
 	if version < 41 {
 		// Two production fixes, both rendered only when set so every existing
 		// config stays byte-for-byte the same:

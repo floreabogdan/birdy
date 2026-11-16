@@ -2,6 +2,7 @@ package web
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -312,26 +313,23 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(errs) == 0 {
-		var err error
-		if isNew {
-			p.ID, err = s.store.CreatePeer(p)
-		} else {
-			err = s.store.UpdatePeer(p)
-		}
-		if err != nil {
-			if isUniqueViolation(err) {
-				errs["name"] = "A peer with this name already exists."
-			} else {
-				s.serverError(w, "save peer", err)
-				return
-			}
+		// One transaction for the peer and its chains, re-reading a linked peer's
+		// template inside it: the template applied above is only for validation
+		// and the form, and may be stale by now.
+		id, err := s.store.SavePeer(p, importIDs, exportIDs)
+		switch {
+		case err == nil:
+			p.ID = id
+		case isUniqueViolation(err):
+			errs["name"] = "A peer with this name already exists."
+		case errors.Is(err, store.ErrTemplateGone):
+			errs["template"] = "That template no longer exists. Choose another, or none."
+		default:
+			s.serverError(w, "save peer", err)
+			return
 		}
 	}
 	if len(errs) == 0 {
-		if err := s.store.SetPeerPolicies(p.ID, importIDs, exportIDs); err != nil {
-			s.serverError(w, "attach policies", err)
-			return
-		}
 		verb := "updated"
 		if isNew {
 			verb = "created"

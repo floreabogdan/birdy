@@ -74,10 +74,13 @@ type Policy struct {
 	// follows the direction: an import policy rejects a route that carries it, an
 	// export policy accepts one that does. Empty = no community match.
 	MatchCommunity string
-	// AcceptBlackhole honours the RFC 7999 BLACKHOLE community (65535:666) on an
-	// import policy: a host route (a /32 or /128) tagged with it is accepted —
-	// past the normal prefix-length filter — and turned into a discard, so a
-	// customer can null-route a host under attack. Import only.
+	// AcceptBlackhole opts a peer's import chain into the RFC 7999 BLACKHOLE
+	// community (65535:666), so a customer can null-route a host under attack: a
+	// host route (a /32 or /128) tagged with it is turned into a discard once it
+	// has passed every policy in the chain, exempt only from the prefix-length
+	// bounds and RPKI, and inside every allow-list in it. A chain with no
+	// allow-list honours none: nothing else says which addresses the peer holds.
+	// Import only.
 	AcceptBlackhole bool
 }
 
@@ -85,7 +88,7 @@ func (p Policy) IsImport() bool { return p.Direction == DirImport }
 
 func (p *Policy) Validate() map[string]string {
 	var errs map[string]string
-	p.Name, errs = validateNameDesc(p.Name, p.Description)
+	p.Name, errs = validateNameDescMax(p.Name, p.Description, MaxPolicyNameLen)
 
 	if p.Direction != DirImport && p.Direction != DirExport {
 		errs["direction"] = "Choose import or export."

@@ -3,6 +3,8 @@ package render
 import (
 	"strings"
 	"testing"
+
+	"github.com/floreabogdan/birdy/internal/store"
 )
 
 // With no preferred source configured, kernel route installation is disabled.
@@ -163,6 +165,26 @@ func TestKernelExportProtectsControlPlaneAddresses(t *testing.T) {
 		if !strings.Contains(k6, "if "+addr+" ~ net then reject;") {
 			t.Errorf("kernel6 does not protect %s:\n%s", addr, k6)
 		}
+	}
+}
+
+// A link-local peer saved before the store refused zones still carries
+// "fe80::1%eth0". BIRD accepts that on the neighbor line but not as a filter
+// operand, so with BGP kernel export on, the protected-address check made every
+// apply fail `bird -p`. The check compares an address with a prefix, where an
+// interface means nothing: it is written without one.
+func TestKernelProtectedAddressDropsZone(t *testing.T) {
+	in := baseInput()
+	in.KernelExportBGPV6 = true
+	p := ebgpPeer()
+	p.NeighborIP, p.Interface = "fe80::1%eth0", "eth0"
+	in.Peers = []store.Peer{p}
+	cfg := mustRender(t, in)
+	if !strings.Contains(cfg, "\t\t\t\t\tif fe80::1 ~ net then reject;\n") {
+		t.Errorf("the kernel filter should protect the peer address without its zone:\n%s", cfg)
+	}
+	if strings.Contains(cfg, "%eth0 ~ net") {
+		t.Errorf("a zone reached a filter expression:\n%s", cfg)
 	}
 }
 

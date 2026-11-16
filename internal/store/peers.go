@@ -58,6 +58,47 @@ var ibgpExportDefaults = map[string]bool{IBGPExportAll: true, IBGPExportNone: tr
 // not a plain BIRD symbol is rejected at the model boundary, not escaped.
 var birdIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 
+// BIRD refuses a symbol longer than 64 characters ("Symbol too long"), and
+// birdy builds longer symbols out of three kinds of name. Each of those is
+// capped so the longest symbol rendered from it still fits; a name that fit on
+// its own but not inside its filter's name would save, then fail every apply.
+// Every other name is rendered as is, under birdIdent's 63.
+const (
+	birdSymbolMax       = 64
+	MaxPeerNameLen      = birdSymbolMax - len("ebgp_out_")  // filters ebgp_in_/ebgp_out_/ibgp_in_/ibgp_out_NAME
+	MaxPolicyNameLen    = birdSymbolMax - len("imp__v4")    // functions imp_/exp_/bh_NAME_v4 and _v6
+	MaxPrefixSetNameLen = birdSymbolMax - len("originate_") // the originating static protocol originate_NAME
+)
+
+// errAddrZone marks an address that parsed only because it carries an IPv6
+// zone ("fe80::1%eth0").
+var errAddrZone = errors.New("store: address carries a zone")
+
+// Messages for a zoned address. A peer has a field for the interface, so it is
+// told where the name goes; nothing else that takes an address has a use for one.
+const (
+	zoneMsg     = "Enter the address without a %zone suffix."
+	peerZoneMsg = "Enter the address without a %zone suffix; put the interface in the Interface field."
+)
+
+// parseConfigAddr parses an IP address that will be written into bird.conf.
+// netip accepts any non-empty zone after "%" — spaces, quotes, semicolons,
+// braces, newlines — and String() hands it back unchanged, so a zone is free
+// text that would otherwise ride a validated address into the config and close
+// the statement around it. Zones are refused outright rather than vetted: birdy
+// renders the interface from its own field, and a zone repeated in a filter
+// expression does not parse even when it is an honest interface name.
+func parseConfigAddr(s string) (netip.Addr, error) {
+	addr, err := netip.ParseAddr(strings.TrimSpace(s))
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	if addr.Zone() != "" {
+		return netip.Addr{}, errAddrZone
+	}
+	return addr, nil
+}
+
 // reservedPeerNames are path segments the router serves under /peers/ before
 // the {name} wildcard gets a look in, so a peer called "new" could be created
 // but never opened. Refuse them at the model boundary rather than let the URL
@@ -70,10 +111,16 @@ var reservedPeerNames = map[string]bool{"new": true, "seed": true, "preview": tr
 // adds its type-specific checks to the returned map, so the wording of these two
 // cannot drift between forms.
 func validateNameDesc(name, description string) (string, map[string]string) {
+	return validateNameDescMax(name, description, 63)
+}
+
+// validateNameDescMax is validateNameDesc for a kind whose name birdy also
+// builds longer symbols from, capped at maxLen (see MaxPeerNameLen).
+func validateNameDescMax(name, description string, maxLen int) (string, map[string]string) {
 	errs := map[string]string{}
 	name = strings.TrimSpace(name)
-	if !birdIdent.MatchString(name) {
-		errs["name"] = "Use letters, digits and underscore, starting with a letter or underscore (max 63)."
+	if !birdIdent.MatchString(name) || len(name) > maxLen {
+		errs["name"] = fmt.Sprintf("Use letters, digits and underscore, starting with a letter or underscore (max %d).", maxLen)
 	}
 	if strings.ContainsAny(description, "\"\n\r") {
 		errs["description"] = "Quotes and line breaks are not allowed."
@@ -230,7 +277,7 @@ func (p Peer) IsIBGP() bool { return p.Role == RoleIBGP }
 // form field so the UI can mark the offending input.
 func (p *Peer) Validate() map[string]string {
 	var errs map[string]string
-	p.Name, errs = validateNameDesc(p.Name, p.Description)
+	p.Name, errs = validateNameDescMax(p.Name, p.Description, MaxPeerNameLen)
 	if reservedPeerNames[p.Name] {
 		errs["name"] = "That name is a page under /peers and cannot be a peer. Choose another."
 	}
@@ -254,16 +301,21 @@ func (p *Peer) Validate() map[string]string {
 		p.TemplateOverrides = ""
 	}
 
-	neighbor, err := netip.ParseAddr(strings.TrimSpace(p.NeighborIP))
-	if err != nil || !neighbor.IsValid() {
+	neighbor, err := parseConfigAddr(p.NeighborIP)
+	switch {
+	case errors.Is(err, errAddrZone):
+		errs["neighborIp"] = peerZoneMsg
+	case err != nil:
 		errs["neighborIp"] = "Enter a valid IPv4 or IPv6 address."
-	} else {
+	default:
 		p.NeighborIP = neighbor.String()
 	}
 
 	if p.LocalIP = strings.TrimSpace(p.LocalIP); p.LocalIP != "" {
-		local, localErr := netip.ParseAddr(p.LocalIP)
+		local, localErr := parseConfigAddr(p.LocalIP)
 		switch {
+		case errors.Is(localErr, errAddrZone):
+			errs["localIp"] = peerZoneMsg
 		case localErr != nil:
 			errs["localIp"] = "Enter a valid IP address, or leave blank to let BIRD pick."
 		case neighbor.IsValid() && local.Is4() != neighbor.Is4():
@@ -285,10 +337,13 @@ func (p *Peer) Validate() map[string]string {
 	}
 	p.TransportEndpoint = strings.TrimSpace(p.TransportEndpoint)
 	if p.TransportEndpoint != "" {
-		endpoint, endpointErr := netip.ParseAddr(p.TransportEndpoint)
-		if endpointErr != nil || !endpoint.IsValid() || endpoint.IsUnspecified() {
+		endpoint, endpointErr := parseConfigAddr(p.TransportEndpoint)
+		switch {
+		case errors.Is(endpointErr, errAddrZone):
+			errs["transportEndpoint"] = zoneMsg
+		case endpointErr != nil || endpoint.IsUnspecified():
 			errs["transportEndpoint"] = "Enter the tunnel's outer IPv4 or IPv6 endpoint."
-		} else {
+		default:
 			p.TransportEndpoint = endpoint.String()
 		}
 	}
@@ -455,9 +510,17 @@ func scanPeer(sc scanner) (Peer, error) {
 	return p, err
 }
 
-func (s *Store) CreatePeer(p Peer) (int64, error) {
+// execer is the slice of *sql.DB and *sql.Tx the peer writers need, so the
+// same INSERT and UPDATE serve a plain save and SavePeer's transaction.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func (s *Store) CreatePeer(p Peer) (int64, error) { return createPeer(s.db, p) }
+
+func createPeer(q execer, p Peer) (int64, error) {
 	ts := now()
-	res, err := s.db.Exec(`
+	res, err := q.Exec(`
 		INSERT INTO peers (name, description, role, enabled, neighbor_ip, remote_asn, local_ip,
 		                   interface, transport_endpoint, multihop, passive, password, import_limit, import_limit_action,
 		                   enforce_first_as, origin_peer_only, next_hop_self, rr_client,
@@ -475,8 +538,10 @@ func (s *Store) CreatePeer(p Peer) (int64, error) {
 	return res.LastInsertId()
 }
 
-func (s *Store) UpdatePeer(p Peer) error {
-	res, err := s.db.Exec(`
+func (s *Store) UpdatePeer(p Peer) error { return updatePeer(s.db, p) }
+
+func updatePeer(q execer, p Peer) error {
+	res, err := q.Exec(`
 		UPDATE peers SET name = ?, description = ?, role = ?, enabled = ?, neighbor_ip = ?,
 		                 remote_asn = ?, local_ip = ?, interface = ?, transport_endpoint = ?, multihop = ?, passive = ?,
 		                 password = ?, import_limit = ?, import_limit_action = ?, enforce_first_as = ?,
