@@ -155,6 +155,9 @@ func (s *Server) handleProfilePassword(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(next) < minPasswordLen:
 		errs["newPassword"] = fmt.Sprintf("Use at least %d characters.", minPasswordLen)
+	case len(next) > MaxPasswordBytes:
+		// bcrypt refuses anything longer, which used to surface as a bare 500.
+		errs["newPassword"] = fmt.Sprintf("Use at most %d bytes (birdy hashes passwords with bcrypt, which takes no more). This one is %d.", MaxPasswordBytes, len(next))
 	case next == current:
 		errs["newPassword"] = "Choose a password different from the current one."
 	}

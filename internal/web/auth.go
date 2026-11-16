@@ -12,6 +12,13 @@ import (
 
 const sessionTTL = 7 * 24 * time.Hour
 
+// MaxPasswordBytes is the longest password bcrypt accepts: it hashes the first
+// 72 bytes and GenerateFromPassword refuses more rather than silently ignore
+// the rest. Bytes, not characters — a non-ASCII character is two to four.
+// Checked wherever a password is set (the profile page, `birdy init`), so the
+// operator is told the limit instead of meeting bcrypt's error.
+const MaxPasswordBytes = 72
+
 // dummyPasswordHash is compared against when the submitted username does not
 // exist, so a failed login spends the same bcrypt time whether or not the user
 // is real — closing a username-enumeration timing oracle. Cost matches

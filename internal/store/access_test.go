@@ -49,3 +49,45 @@ func TestAccessAllowed(t *testing.T) {
 		t.Error("a v4-mapped address should match a v4 prefix")
 	}
 }
+
+// A zoned address never matches a netip.Prefix, so the zone a link-local
+// client arrives with is dropped before matching.
+func TestAccessAllowedIgnoresZone(t *testing.T) {
+	list, errs := ParseAccessWhitelist("fe80::/10")
+	if len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if !AccessAllowed(list, netip.MustParseAddr("fe80::1%eth0")) {
+		t.Error("a zoned link-local client must match fe80::/10")
+	}
+	if AccessAllowed(list, netip.MustParseAddr("2001:db8::1%eth0")) {
+		t.Error("the zone must not make an outside address match")
+	}
+}
+
+// Clients are matched in their plain IPv4 form, so an entry written in
+// IPv4-mapped IPv6 form is stored as the IPv4 prefix it means.
+func TestParseAccessWhitelistUnmapsIPv4MappedPrefixes(t *testing.T) {
+	for in, want := range map[string]string{
+		"::ffff:10.0.0.0/104":    "10.0.0.0/8",
+		"::ffff:203.0.113.4/128": "203.0.113.4/32",
+		"::ffff:203.0.113.4":     "203.0.113.4/32",
+		"::ffff:10.1.2.3/104":    "10.0.0.0/8", // host bits masked as for any prefix
+		"::ffff:0.0.0.0/96":      "0.0.0.0/0",
+		"::ffff:0:0/90":          "::ffc0:0:0/90", // wider than the mapped range: stays IPv6 (masked as ever)
+		"2001:db8::/32":          "2001:db8::/32",
+	} {
+		list, errs := ParseAccessWhitelist(in)
+		if len(errs) != 0 || len(list) != 1 {
+			t.Errorf("%s: list=%v errs=%v", in, list, errs)
+			continue
+		}
+		if list[0].String() != want {
+			t.Errorf("%s parsed as %s, want %s", in, list[0], want)
+		}
+	}
+	list, _ := ParseAccessWhitelist("::ffff:10.0.0.0/104")
+	if !AccessAllowed(list, netip.MustParseAddr("10.9.8.7")) || AccessAllowed(list, netip.MustParseAddr("11.0.0.1")) {
+		t.Error("::ffff:10.0.0.0/104 should allow exactly 10.0.0.0/8")
+	}
+}

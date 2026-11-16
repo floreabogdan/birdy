@@ -53,6 +53,9 @@ func cmdInit(args []string) error {
 	if len(pw) < 8 {
 		return fmt.Errorf("password must be at least 8 characters")
 	}
+	if len(pw) > web.MaxPasswordBytes {
+		return fmt.Errorf("password must be at most %d bytes (bcrypt takes no more); this one is %d", web.MaxPasswordBytes, len(pw))
+	}
 
 	hash, err := web.HashPassword(pw)
 	if err != nil {
