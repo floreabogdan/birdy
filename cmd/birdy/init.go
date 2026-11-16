@@ -26,6 +26,22 @@ func cmdInit(args []string) error {
 	password := fs.String("password", "", "admin password (if omitted, you'll be prompted — preferred, since flags can end up in shell history)")
 	fs.Parse(args)
 
+	// Everything that can be checked without the database is checked before it
+	// is opened, let alone written: a rejected init must leave nothing behind.
+	// The user used to be created before --router-id was validated, so a typo
+	// there left a database with an account but no settings — which init then
+	// refused to touch ("already initialized") and the server refused to run on.
+	if strings.TrimSpace(*username) == "" {
+		return fmt.Errorf("username must not be empty")
+	}
+	if *routerID != "" {
+		if addr, err := netip.ParseAddr(*routerID); err != nil || !addr.Is4() {
+			return fmt.Errorf("router id %q must be an IPv4 address", *routerID)
+		}
+	}
+
+	// store.Open refuses a database path that is a symlink: init is typically
+	// run as root, in a directory the service account owns.
 	if err := snapshot.ApplyPendingRestore(*dbPath, nil); err != nil {
 		return fmt.Errorf("apply pending restore: %w", err)
 	}
@@ -58,15 +74,11 @@ func cmdInit(args []string) error {
 	if err != nil {
 		return fmt.Errorf("hash password: %w", err)
 	}
-	if _, err := st.CreateUser(*username, hash); err != nil {
-		return fmt.Errorf("create user: %w", err)
-	}
 
-	if *routerID != "" {
-		if addr, err := netip.ParseAddr(*routerID); err != nil || !addr.Is4() {
-			return fmt.Errorf("router id %q must be an IPv4 address", *routerID)
-		}
-	}
+	// Settings first, the user last. "Initialized" means a user exists (the check
+	// above), so if the second write fails the database still counts as
+	// uninitialized and running init again completes it: the settings write is
+	// an upsert. The other order could strand a user without settings.
 	settings := store.Settings{
 		RouterLabel:    *label,
 		RouterID:       *routerID,
@@ -78,6 +90,9 @@ func cmdInit(args []string) error {
 	}
 	if err := st.SaveSettings(settings); err != nil {
 		return fmt.Errorf("save settings: %w", err)
+	}
+	if _, err := st.CreateUser(*username, hash); err != nil {
+		return fmt.Errorf("create user: %w", err)
 	}
 
 	// Close before handing the files over: SQLite still has the -wal open, and the

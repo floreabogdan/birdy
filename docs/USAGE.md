@@ -183,7 +183,7 @@ Create the user and state directory:
 
 ```sh
 sudo useradd --system --gid bird --home-dir /var/lib/birdy --shell /usr/sbin/nologin birdy
-sudo install -d -o birdy -g bird /var/lib/birdy
+sudo install -d -m 0750 -o birdy -g bird /var/lib/birdy
 ```
 
 For **apply** to work, the `birdy` user also needs write access to the `/etc/bird`

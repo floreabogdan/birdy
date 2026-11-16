@@ -65,6 +65,12 @@ func cmdServer(args []string) error {
 	}
 	defer st.Close()
 
+	// Advisory only — an install that worked keeps working. The database file
+	// itself is kept 0600 by store.Open; this is about its surroundings.
+	for _, warning := range store.PermissionWarnings(*dbPath) {
+		log.Warn(warning)
+	}
+
 	// Refuse to run half-broken. birdy keeps its OWN state in this file — logins,
 	// events, route history — even with --read-only, which only stops it writing
 	// bird.conf. Without this check an unwritable database still starts, still

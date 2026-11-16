@@ -34,11 +34,21 @@ func adoptDBOwnership(dbPath string) {
 	}
 	// The -wal and -shm siblings matter as much as the database: chown the file
 	// alone and SQLite still cannot write, for the same reason and less obviously.
+	//
+	// That directory owner can also plant a symlink under any of these names, and
+	// a chown that followed it would hand them the file it points at — root's
+	// files included. So: Lstat, only ever a regular file, and Lchown, which acts
+	// on the name itself even if it is swapped for a link after the check.
 	for _, p := range []string{dbPath, dbPath + "-wal", dbPath + "-shm"} {
-		if _, err := os.Stat(p); err != nil {
+		info, err := os.Lstat(p)
+		if err != nil {
 			continue
 		}
-		if err := os.Chown(p, uid, gid); err != nil {
+		if !info.Mode().IsRegular() {
+			fmt.Fprintf(os.Stderr, "warning: not changing the owner of %s: it is not a regular file\n", p)
+			continue
+		}
+		if err := os.Lchown(p, uid, gid); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not give %s to uid %d: %v\n", p, uid, err)
 			continue
 		}
