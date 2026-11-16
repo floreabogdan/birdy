@@ -190,23 +190,17 @@ func TestPollerDetectsDownThenFlap(t *testing.T) {
 
 func TestPollerImportLimitHitOnce(t *testing.T) {
 	st := openTestStore(t)
-	detail := birdc.ProtocolDetail{
-		Channels: []birdc.ChannelDetail{
-			{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10},
-		},
-	}
+	below := birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", ImportLimit: "10", RoutesImported: 9}}}
+	atCap := birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10}}}
 	fc := &fakeClient{
-		polls: [][]birdc.ProtocolSummary{
-			{bgp("edge_v4", "up", "Established")},
-			{bgp("edge_v4", "up", "Established")},
-			{bgp("edge_v4", "up", "Established")},
-		},
-		detail: map[string]birdc.ProtocolDetail{"edge_v4": detail},
+		polls:  [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+		detail: map[string]birdc.ProtocolDetail{"edge_v4": below},
 	}
 	p := New(fc, st, time.Second, nil)
 
-	p.poll(context.Background()) // baseline
-	p.poll(context.Background()) // limit already at cap -> should log once
+	p.poll(context.Background()) // baseline, under the limit
+	fc.detail["edge_v4"] = atCap
+	p.poll(context.Background()) // reaches the cap -> should log once
 	p.poll(context.Background()) // still at cap -> should NOT log again
 
 	events, err := st.ListEvents(10, 0)
@@ -516,5 +510,27 @@ func TestPollerSessionUpAfterRestartIsNotAFlap(t *testing.T) {
 	p.poll(context.Background())
 	if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventSessionUp {
 		t.Fatalf("events = %v, want [session_up]", kinds)
+	}
+}
+
+// A birdy restart is not news about a limit: a session already at its cap when
+// the poller starts was reported before the restart, and paging it again after
+// every upgrade or reboot teaches people to ignore the page.
+func TestPollerNoLimitHitOnFirstPoll(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{
+		polls: [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+		detail: map[string]birdc.ProtocolDetail{"edge_v4": {Channels: []birdc.ChannelDetail{
+			{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10},
+		}}},
+	}
+	p := New(fc, st, time.Second, nil)
+	p.poll(context.Background()) // first poll after a restart
+	p.poll(context.Background())
+	if kinds := eventKinds(t, st); len(kinds) != 0 {
+		t.Fatalf("a limit already hit before the restart paged again: %v", kinds)
+	}
+	if !p.Snapshot().States["edge_v4"].LimitHit["ipv4"] {
+		t.Error("the first poll must still record the hit, or the next one reports it")
 	}
 }

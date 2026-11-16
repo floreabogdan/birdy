@@ -364,7 +364,7 @@ func (p *Poller) poll(ctx context.Context) {
 		}
 
 		if proto.Proto == "BGP" && up {
-			if p.updateImportLimits(ctx, proto, &state) {
+			if p.updateImportLimits(ctx, proto, first, &state) {
 				p.checkPrefixDrop(proto, prior, seen, first, &state)
 			} else if seen {
 				// The per-session detail fetch failed this poll (a transient socket
@@ -492,10 +492,12 @@ func (p *Poller) recordTransition(proto birdc.ProtocolSummary, prior ProtoState,
 // updateImportLimits fetches protocol detail for one BGP session, keeps the
 // per-channel route counts for the dashboard, and logs an event the first
 // time a channel's imported route count reaches its import limit, mutating
-// state in place. It reports whether the detail fetch succeeded: on a transient
+// state in place. On the first poll it only records: LimitHit starts empty at
+// every birdy start, and a session already at its cap was reported before the
+// restart, so reporting it again would page after every upgrade or reboot. It reports whether the detail fetch succeeded: on a transient
 // failure the caller must not treat the (unpopulated) counts as real, or a
 // session that is actually fine looks like it dropped every route.
-func (p *Poller) updateImportLimits(ctx context.Context, proto birdc.ProtocolSummary, state *ProtoState) bool {
+func (p *Poller) updateImportLimits(ctx context.Context, proto birdc.ProtocolSummary, first bool, state *ProtoState) bool {
 	detail, err := p.client.ProtocolDetail(ctx, proto.Name)
 	if err != nil {
 		return false
@@ -508,7 +510,7 @@ func (p *Poller) updateImportLimits(ctx context.Context, proto birdc.ProtocolSum
 			continue
 		}
 		hit := ch.RoutesImported >= limit
-		if hit && !state.LimitHit[ch.AFI] {
+		if hit && !state.LimitHit[ch.AFI] && !first {
 			msg := fmt.Sprintf("%s (%s): import limit reached (%d/%d)", proto.Name, ch.AFI, ch.RoutesImported, limit)
 			p.emit(store.EventLimitHit, proto.Name, msg)
 		}
