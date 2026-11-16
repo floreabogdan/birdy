@@ -40,6 +40,10 @@ type ChannelDetail struct {
 	RoutesFiltered  int
 	RoutesExported  int
 	RoutesPreferred int
+	// RoutesReported is set when the channel's "Routes:" line was read. BIRD
+	// prints it for every channel that is not DOWN, so an UP channel without it
+	// is a cut-off reply: its zero counts are lines that never arrived.
+	RoutesReported bool
 }
 
 // ProtocolDetail is the result of "show protocols all <name>", covering any

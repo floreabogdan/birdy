@@ -1,6 +1,9 @@
 package birdc
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Captured from BIRD 2.17.5 once a channel's import limit (action warn) had
 // triggered, trimmed to the lines that matter, addresses rewritten to the
@@ -55,5 +58,25 @@ func TestParseImportLimit(t *testing.T) {
 		if limit != tc.limit || hit != tc.hit {
 			t.Errorf("ParseImportLimit(%q) = %d, %v; want %d, %v", tc.in, limit, hit, tc.limit, tc.hit)
 		}
+	}
+}
+
+// RoutesReported tells "the channel reported zero routes" apart from "the reply
+// never reached the Routes line"; both leave RoutesImported at zero.
+func TestParseProtocolDetailRoutesReported(t *testing.T) {
+	d, err := ParseProtocolDetail(mustFrame(t, fixtureShowProtocolsAllLimitHit))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Channels[0].RoutesReported {
+		t.Error("a channel with a Routes line must say so")
+	}
+	cut := strings.Replace(fixtureShowProtocolsAllLimitHit, "     Routes:         15 imported, 0 exported, 15 preferred\n", "", 1)
+	d, err = ParseProtocolDetail(mustFrame(t, cut))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Channels[0].RoutesReported {
+		t.Error("a channel whose Routes line is missing must not claim one")
 	}
 }

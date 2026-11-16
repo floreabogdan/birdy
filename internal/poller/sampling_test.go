@@ -12,9 +12,7 @@ func upSessionWithCounts() *fakeClient {
 	return &fakeClient{
 		polls: [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
 		detail: map[string]birdc.ProtocolDetail{
-			"edge_v4": {Channels: []birdc.ChannelDetail{
-				{AFI: "ipv4", RoutesImported: 900000, RoutesExported: 3},
-			}},
+			"edge_v4": established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 900000, RoutesExported: 3}),
 		},
 	}
 }

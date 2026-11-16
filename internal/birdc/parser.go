@@ -172,6 +172,7 @@ func ParseProtocolDetail(r Reply) (ProtocolDetail, error) {
 				curChannel.RoutesFiltered, _ = strconv.Atoi(m[2]) // "" when BIRD omits it
 				curChannel.RoutesExported, _ = strconv.Atoi(m[3])
 				curChannel.RoutesPreferred, _ = strconv.Atoi(m[4])
+				curChannel.RoutesReported = true
 			}
 		}
 	}

@@ -140,7 +140,7 @@ func TestProtocolMissingFromOneReplyKeepsItsState(t *testing.T) {
 			{upV4, downV6}, // both rows are back
 		},
 		detail: map[string]birdc.ProtocolDetail{
-			"edge_v4": {Channels: []birdc.ChannelDetail{{AFI: "ipv4", ImportLimit: "10", RoutesImported: 5}}},
+			"edge_v4": established(birdc.ChannelDetail{AFI: "ipv4", ImportLimit: "10", RoutesImported: 5}),
 		},
 	}
 	// The third reply lists only the device protocol: both sessions missing.
@@ -151,7 +151,7 @@ func TestProtocolMissingFromOneReplyKeepsItsState(t *testing.T) {
 	clk := withClock(p)
 
 	p.poll(context.Background())
-	fc.detail["edge_v4"] = birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10}}}
+	fc.detail["edge_v4"] = established(birdc.ChannelDetail{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10})
 	for range 3 {
 		clk.advance(5 * time.Second)
 		p.poll(context.Background())
@@ -279,5 +279,93 @@ func TestTruncatedRowPastTheGraceIsReadAtFaceValue(t *testing.T) {
 	}
 	if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventSessionDown {
 		t.Fatalf("events = %v, want exactly one session_down once the grace ran out", kinds)
+	}
+}
+
+// The summary row said Established, but the detail fetched a moment later is
+// not a reading of a healthy session: the channel shows DOWN, the reply stops
+// before the Routes line, or before the channel at all. Its counts are zeros
+// from lines that never arrived, and "imported dropped from 900000 to 0" paged.
+func TestIncompleteDetailDoesNotFakePrefixDrop(t *testing.T) {
+	full := birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 900000}
+	partial := established(full)
+	partial.Channels[0].RoutesImported, partial.Channels[0].RoutesReported = 0, false
+	for name, odd := range map[string]birdc.ProtocolDetail{
+		"channel down":       {BGPState: "Established", Channels: []birdc.ChannelDetail{{AFI: "ipv4", State: "DOWN"}}},
+		"no routes line":     partial,
+		"no channels":        {BGPState: "Established"},
+		"session not up yet": {BGPState: "Active", Channels: []birdc.ChannelDetail{{AFI: "ipv4", State: "DOWN"}}},
+		"no bgp state":       {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := openTestStore(t)
+			fc := &fakeClient{
+				polls:  [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+				detail: map[string]birdc.ProtocolDetail{"edge_v4": established(full)},
+			}
+			p := New(fc, st, time.Second, nil)
+			clk := withClock(p)
+			p.poll(context.Background())
+			clk.advance(5 * time.Second)
+			p.poll(context.Background())
+			fc.detail["edge_v4"] = odd
+			clk.advance(5 * time.Second)
+			p.poll(context.Background())
+
+			if kinds := eventKinds(t, st); len(kinds) != 0 {
+				t.Fatalf("an incomplete detail paged: %v", kinds)
+			}
+			if got := p.Snapshot().States["edge_v4"].Imported; got != 900000 {
+				t.Errorf("imported = %d, want the last good 900000 carried forward", got)
+			}
+		})
+	}
+}
+
+// Not every DOWN channel is a glitch. A session configured for ipv4 and ipv6
+// whose neighbour negotiates only ipv4 is Established with its ipv6 channel
+// DOWN and no Routes line for it, for as long as it runs (BIRD 2.17.5). Its
+// counts must still be read, and a real drop on the live channel must page.
+func TestUnnegotiatedChannelDoesNotHideCounts(t *testing.T) {
+	st := openTestStore(t)
+	detail := func(imported int) birdc.ProtocolDetail {
+		d := established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: imported})
+		d.Channels = append(d.Channels, birdc.ChannelDetail{AFI: "ipv6", State: "DOWN"})
+		return d
+	}
+	fc := &fakeClient{
+		polls:  [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+		detail: map[string]birdc.ProtocolDetail{"edge_v4": detail(900000)},
+	}
+	p := New(fc, st, time.Second, nil)
+	p.poll(context.Background())
+	if got := p.Snapshot().States["edge_v4"].Imported; got != 900000 {
+		t.Fatalf("imported = %d, want 900000", got)
+	}
+	fc.detail["edge_v4"] = detail(50)
+	p.poll(context.Background())
+	if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventPrefixDrop {
+		t.Fatalf("events = %v, want one prefix_drop", kinds)
+	}
+}
+
+// Carrying counts forward is for a hiccup. A detail that stays odd past the
+// grace is taken as it reads, so a real loss is still reported.
+func TestIncompleteDetailPastTheGraceIsBelieved(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{
+		polls:  [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+		detail: map[string]birdc.ProtocolDetail{"edge_v4": established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 900000})},
+	}
+	p := New(fc, st, time.Second, nil)
+	clk := withClock(p)
+	p.poll(context.Background())
+	fc.detail["edge_v4"] = birdc.ProtocolDetail{BGPState: "Established", Channels: []birdc.ChannelDetail{{AFI: "ipv4", State: "DOWN"}}}
+	for range 14 {
+		clk.advance(5 * time.Second)
+		p.poll(context.Background())
+	}
+	if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventPrefixDrop {
+		t.Fatalf("events = %v, want one prefix_drop once the grace ran out", kinds)
 	}
 }

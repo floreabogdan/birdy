@@ -66,6 +66,9 @@ type ProtoState struct {
 	// staleSince is set while this state is carried forward because the latest
 	// reply had no usable row for the protocol; zero when the row was read.
 	staleSince time.Time
+	// countsStaleSince is set while Channels and Imported are carried forward
+	// because the detail replies have not been a whole reading.
+	countsStaleSince time.Time
 }
 
 // Snapshot is the latest poll result, safe to read concurrently via Poller.Snapshot.
@@ -363,16 +366,7 @@ func (p *Poller) poll(ctx context.Context) {
 		}
 
 		if proto.Proto == "BGP" && up {
-			if p.updateImportLimits(ctx, proto, first, &state) {
-				p.checkPrefixDrop(proto, prior, seen, first, &state)
-			} else if seen {
-				// The per-session detail fetch failed this poll (a transient socket
-				// or per-command timeout on a busy router). Carry the last known
-				// counts forward so the dashboard does not flicker to zero and the
-				// drop check is not fooled into paging for a session that is fine.
-				state.Imported = prior.Imported
-				state.Channels = prior.Channels
-			}
+			p.updateCounts(ctx, proto, prior, seen, first, now, &state)
 		}
 
 		next[proto.Name] = state
@@ -488,22 +482,83 @@ func (p *Poller) recordTransition(proto birdc.ProtocolSummary, prior ProtoState,
 	p.emit(kind, proto.Name, msg)
 }
 
-// updateImportLimits fetches protocol detail for one BGP session, keeps the
-// per-channel route counts for the dashboard, and logs an event the first
-// time a channel's imported route count reaches its import limit, mutating
-// state in place. On the first poll it only records: LimitHit starts empty at
-// every birdy start, and a session already at its cap was reported before the
-// restart, so reporting it again would page after every upgrade or reboot. It reports whether the detail fetch succeeded: on a transient
-// failure the caller must not treat the (unpopulated) counts as real, or a
-// session that is actually fine looks like it dropped every route.
-func (p *Poller) updateImportLimits(ctx context.Context, proto birdc.ProtocolSummary, first bool, state *ProtoState) bool {
+// updateCounts fetches one up BGP session's detail and, when it is a whole
+// reading of an established session, takes its route counts, then checks the
+// import limits and for a sharp drop. Otherwise the last good counts are carried
+// forward, so the dashboard does not flicker to zero and the drop check is not
+// fooled into paging for a session that is fine. A detail that stays incomplete
+// for hiccupGrace is believed after all, so a real loss is still reported.
+func (p *Poller) updateCounts(ctx context.Context, proto birdc.ProtocolSummary, prior ProtoState, seen, first bool, now time.Time, state *ProtoState) {
+	carry := func() {
+		state.Imported, state.Channels = prior.Imported, prior.Channels
+	}
 	detail, err := p.client.ProtocolDetail(ctx, proto.Name)
 	if err != nil {
-		return false
+		// A transient socket or per-command timeout on a busy router.
+		state.countsStaleSince = prior.countsStaleSince
+		carry()
+		return
+	}
+	if !countsComplete(detail, prior.Channels) {
+		since := prior.countsStaleSince
+		if since.IsZero() {
+			since = now
+		}
+		if now.Sub(since) < hiccupGrace {
+			state.countsStaleSince = since
+			carry()
+			return
+		}
 	}
 	state.Channels = detail.Channels
 	for _, ch := range detail.Channels {
 		state.Imported += ch.RoutesImported
+	}
+	p.checkImportLimits(proto, first, state)
+	p.checkPrefixDrop(proto, prior, seen, first, state)
+}
+
+// countsComplete reports whether a detail reply is a whole reading of an
+// established session, so its route counts can be believed. The summary row
+// said Established, but the detail is a second command a moment later, and a
+// busy BIRD has answered it with the channel DOWN, or cut off before the Routes
+// line; its zero counts then paged "imported routes dropped from 900000 to 0".
+// A channel that has been DOWN all along is fine: a session set up for ipv4 and
+// ipv6 whose neighbour negotiates only ipv4 runs Established with ipv6 DOWN and
+// no Routes line for it. What is not fine is an UP channel without its Routes
+// line, or a channel that was UP last time and is not now.
+func countsComplete(d birdc.ProtocolDetail, prior []birdc.ChannelDetail) bool {
+	if strings.TrimSpace(d.BGPState) != "Established" {
+		return false
+	}
+	live := map[string]bool{}
+	for _, ch := range d.Channels {
+		if ch.State != "UP" {
+			continue
+		}
+		if !ch.RoutesReported {
+			return false
+		}
+		live[ch.AFI] = true
+	}
+	if len(live) == 0 {
+		return false // an established session carries at least one channel
+	}
+	for _, ch := range prior {
+		if ch.State == "UP" && !live[ch.AFI] {
+			return false
+		}
+	}
+	return true
+}
+
+// checkImportLimits logs an event the first time a channel reaches its import
+// limit, recording the hit in state so it is not logged again. On the first
+// poll it only records: LimitHit starts empty at every birdy start, and a
+// session already at its cap was reported before the restart, so reporting it
+// again would page after every upgrade or reboot.
+func (p *Poller) checkImportLimits(proto birdc.ProtocolSummary, first bool, state *ProtoState) {
+	for _, ch := range state.Channels {
 		limit, flagged := birdc.ParseImportLimit(ch.ImportLimit)
 		if limit <= 0 {
 			continue
@@ -515,5 +570,4 @@ func (p *Poller) updateImportLimits(ctx context.Context, proto birdc.ProtocolSum
 		}
 		state.LimitHit[ch.AFI] = hit
 	}
-	return true
 }

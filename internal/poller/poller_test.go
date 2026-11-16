@@ -63,7 +63,7 @@ func TestDetailFailureDoesNotFakePrefixDrop(t *testing.T) {
 	fc := &fakeClient{
 		polls: [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
 		detail: map[string]birdc.ProtocolDetail{
-			"edge_v4": {Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 500000}}},
+			"edge_v4": established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 500000}),
 		},
 	}
 	p := New(fc, st, time.Second, nil)
@@ -132,6 +132,15 @@ func openTestStore(t *testing.T) *store.Store {
 	return s
 }
 
+// established is the detail BIRD gives for a session that is up: the BGP state,
+// and each channel UP with its Routes line.
+func established(chans ...birdc.ChannelDetail) birdc.ProtocolDetail {
+	for i := range chans {
+		chans[i].State, chans[i].RoutesReported = "UP", true
+	}
+	return birdc.ProtocolDetail{BGPState: "Established", Channels: chans}
+}
+
 func bgp(name, state, info string) birdc.ProtocolSummary {
 	return birdc.ProtocolSummary{Name: name, Proto: "BGP", Table: "---", State: state, Since: "2026-07-10", Info: info}
 }
@@ -190,8 +199,8 @@ func TestPollerDetectsDownThenFlap(t *testing.T) {
 
 func TestPollerImportLimitHitOnce(t *testing.T) {
 	st := openTestStore(t)
-	below := birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", ImportLimit: "10", RoutesImported: 9}}}
-	atCap := birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10}}}
+	below := established(birdc.ChannelDetail{AFI: "ipv4", ImportLimit: "10", RoutesImported: 9})
+	atCap := established(birdc.ChannelDetail{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10})
 	fc := &fakeClient{
 		polls:  [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
 		detail: map[string]birdc.ProtocolDetail{"edge_v4": below},
@@ -394,8 +403,8 @@ func (e fmtError) Error() string { return string(e) }
 
 func TestPollerAlertsOnPrefixDrop(t *testing.T) {
 	st := openTestStore(t)
-	full := birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 900000}}}
-	broken := birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 50}}}
+	full := established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 900000})
+	broken := established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 50})
 	fc := &fakeClient{
 		polls: [][]birdc.ProtocolSummary{
 			{bgp("edge_v4", "up", "Established")}, // baseline: 900k
@@ -431,11 +440,11 @@ func TestPollerIgnoresSmallDrops(t *testing.T) {
 			{bgp("edge_v4", "up", "Established")},
 			{bgp("edge_v4", "up", "Established")},
 		},
-		detail: map[string]birdc.ProtocolDetail{"edge_v4": {Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 100}}}},
+		detail: map[string]birdc.ProtocolDetail{"edge_v4": established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 100})},
 	}
 	p := New(fc, st, time.Second, nil)
 	p.poll(context.Background())
-	fc.detail["edge_v4"] = birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{{AFI: "ipv4", RoutesImported: 1}}}
+	fc.detail["edge_v4"] = established(birdc.ChannelDetail{AFI: "ipv4", RoutesImported: 1})
 	p.poll(context.Background())
 	events, _ := st.ListEvents(10, 0)
 	for _, e := range events {
@@ -520,9 +529,9 @@ func TestPollerNoLimitHitOnFirstPoll(t *testing.T) {
 	st := openTestStore(t)
 	fc := &fakeClient{
 		polls: [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
-		detail: map[string]birdc.ProtocolDetail{"edge_v4": {Channels: []birdc.ChannelDetail{
-			{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10},
-		}}},
+		detail: map[string]birdc.ProtocolDetail{"edge_v4": established(
+			birdc.ChannelDetail{AFI: "ipv4", ImportLimit: "10", RoutesImported: 10},
+		)},
 	}
 	p := New(fc, st, time.Second, nil)
 	p.poll(context.Background()) // first poll after a restart
@@ -549,13 +558,13 @@ func TestPollerImportLimitHitMarker(t *testing.T) {
 			st := openTestStore(t)
 			fc := &fakeClient{
 				polls: [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
-				detail: map[string]birdc.ProtocolDetail{"edge_v4": {Channels: []birdc.ChannelDetail{
-					{AFI: "ipv4", ImportLimit: "1000", RoutesImported: 400},
-				}}},
+				detail: map[string]birdc.ProtocolDetail{"edge_v4": established(
+					birdc.ChannelDetail{AFI: "ipv4", ImportLimit: "1000", RoutesImported: 400},
+				)},
 			}
 			p := New(fc, st, time.Second, nil)
 			p.poll(context.Background())
-			fc.detail["edge_v4"] = birdc.ProtocolDetail{Channels: []birdc.ChannelDetail{hit}}
+			fc.detail["edge_v4"] = established(hit)
 			p.poll(context.Background())
 			p.poll(context.Background())
 			if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventLimitHit {
