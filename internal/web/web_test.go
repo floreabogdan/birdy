@@ -45,6 +45,10 @@ type fakeClient struct {
 	// cfgConfirmNothing makes confirm answer BIRD's "0019 Nothing to do": no
 	// reconfigure was armed any more when the operator clicked Confirm.
 	cfgConfirmNothing bool
+	// timeoutDelay is how long BIRD takes to answer `configure timeout` (it parses
+	// the whole config first); timeoutReturned is when the answer came back.
+	timeoutDelay    time.Duration
+	timeoutReturned time.Time
 }
 
 func (f *fakeClient) result(ok bool, msg string) (birdc.ConfigureResult, error) {
@@ -61,6 +65,8 @@ func (f *fakeClient) ConfigureCheck(_ context.Context) (birdc.ConfigureResult, e
 func (f *fakeClient) ConfigureTimeout(_ context.Context, seconds int, soft bool) (birdc.ConfigureResult, error) {
 	f.calls = append(f.calls, "timeout")
 	f.lastSoft = soft
+	time.Sleep(f.timeoutDelay)
+	defer func() { f.timeoutReturned = time.Now() }()
 	if f.cfgErr != nil {
 		return birdc.ConfigureResult{}, f.cfgErr
 	}

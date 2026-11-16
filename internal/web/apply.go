@@ -373,17 +373,29 @@ func (s *Server) emitAuditedEvent(r *http.Request, kind, message string) {
 	}
 }
 
-// reconcilePending catches up with an auto-revert BIRD performed on its own. If a
-// pending apply's deadline has passed, BIRD has already reverted to the previous
-// config; birdy just records it. bird.conf on disk is already the previous
-// config — the apply flow restores it the moment the timeout is armed — so there
-// is no file to fix here.
+// revertGrace is how long past an apply's deadline birdy waits before it
+// records BIRD's auto-revert. The deadline is counted from BIRD's answer to
+// `configure timeout`, so BIRD's timer started no later than that; the grace
+// covers BIRD running its timer late on a busy main loop and the revert itself.
+const revertGrace = 5 * time.Second
+
+// reconcilePending catches up with an auto-revert BIRD performed on its own. Once
+// a pending apply's deadline and revertGrace have passed, BIRD has reverted to
+// the previous config; birdy just records it. bird.conf on disk is already the
+// previous config — the apply flow restores it the moment the timeout is armed —
+// so there is no file to fix here.
+//
+// Acting early is worse than acting late: the reload below would run under the
+// still-armed config, whose routes then survive BIRD's soft revert, and the
+// apply this unblocks would stack on the armed config and make it BIRD's undo
+// target. Late only means the panel shows 0s for a few seconds; a confirm in
+// that window gets BIRD's "nothing to do" and is recorded as reverted.
 func (s *Server) reconcilePending() error {
 	pending, ok, err := s.store.PendingConfigVersion()
 	if err != nil || !ok {
 		return err
 	}
-	if !pending.Expired(time.Now()) {
+	if !pending.Expired(time.Now().Add(-revertGrace)) {
 		return nil
 	}
 	// The auto-revert reconcile is self-healing, not tied to one request, so it
@@ -521,8 +533,7 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 		return
 	}
 
-	now := time.Now()
-	backup, err := s.snapshotConfig(now)
+	backup, err := s.snapshotConfig(time.Now())
 	if err != nil {
 		s.log.Error("back up config", "error", err)
 		s.redirectChanges(w, r, "Could not back up the current config: "+err.Error())
@@ -560,6 +571,12 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 	// Apply with the safety timeout armed. If this operator loses reachability,
 	// or the sessions never come up, BIRD reverts on its own.
 	res, err := s.client.ConfigureTimeout(applyCtx, s.applyTimeout, soft)
+	// BIRD arms its timer while handling the command, so it is running by the time
+	// BIRD answers: counting from the answer puts birdy's deadline at or after
+	// BIRD's revert, never before it. Counting from before the snapshot, the writes
+	// and `configure check` (a full parse of its own) put it early by however long
+	// those took.
+	deadline := time.Now().Add(time.Duration(s.applyTimeout) * time.Second)
 	if err != nil {
 		s.rollbackConfig(backup)
 		s.serverError(w, "configure timeout", err)
@@ -607,7 +624,6 @@ func (s *Server) applyConfig(w http.ResponseWriter, r *http.Request, cfg string,
 		s.serverError(w, "encode file set", err)
 		return
 	}
-	deadline := now.Add(time.Duration(s.applyTimeout) * time.Second)
 	id, err := s.store.CreateConfigVersion(store.ConfigVersion{
 		SHA256: newHash, Size: len(cfg), ConfigText: cfg, BackupPath: backup,
 		Status: store.ConfigPending, Deadline: deadline,

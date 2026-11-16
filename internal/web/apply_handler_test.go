@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
 	"github.com/floreabogdan/birdy/internal/store"
@@ -401,6 +403,77 @@ func TestApplyConfirmWhenBirdAlreadyReverted(t *testing.T) {
 	// off the unconfirmed filters.
 	if got := strings.Join(env.fc.calls, ","); got != "confirm,reload" {
 		t.Errorf("calls = %q, want confirm,reload", got)
+	}
+}
+
+// BIRD arms its revert timer while it handles `configure timeout`. birdy's
+// deadline must count from BIRD's answer, never from before the snapshot, the
+// writes and `configure check` — a full parse that takes most of a second on a
+// full-table router — or birdy reckons the revert happened before BIRD performs
+// it.
+func TestApplyDeadlineCountsFromBirdsAnswer(t *testing.T) {
+	env := applyReady(t)
+	env.fc.timeoutDelay = 50 * time.Millisecond
+	env.do(t, "POST", "/apply", nil)
+
+	pending, ok, _ := env.store.PendingConfigVersion()
+	if !ok {
+		t.Fatal("apply should leave a pending version")
+	}
+	earliest := env.fc.timeoutReturned.Add(time.Duration(env.srv.applyTimeout) * time.Second)
+	if pending.Deadline.Before(earliest) {
+		t.Fatalf("deadline %s is before BIRD's timer could fire (%s after its answer)",
+			pending.Deadline.Format(time.RFC3339Nano), earliest.Format(time.RFC3339Nano))
+	}
+}
+
+// setPendingDeadline moves the pending apply's recorded deadline, standing in for
+// the passage of time.
+func setPendingDeadline(t *testing.T, env *testEnv, deadline time.Time) {
+	t.Helper()
+	sabotageDB(t, env, fmt.Sprintf("UPDATE config_versions SET timeout_deadline = '%s' WHERE status = 'pending'",
+		deadline.UTC().Format(time.RFC3339Nano)))
+}
+
+// The page reloads itself as the countdown ends, and reconcile then records the
+// auto-revert and re-runs the filters. Doing that while BIRD's timer has not
+// fired yet reloads the table under the still-running new config (whose routes
+// then survive BIRD's soft revert), and lets a new apply stack on top of it. So
+// reconcile allows BIRD a grace period past the deadline before acting.
+func TestReconcileWaitsForBirdsRevert(t *testing.T) {
+	env := applyReady(t)
+	env.do(t, "POST", "/apply", nil)
+	pending, ok, _ := env.store.PendingConfigVersion()
+	if !ok {
+		t.Fatal("apply should leave a pending version")
+	}
+
+	setPendingDeadline(t, env, time.Now().Add(-time.Second))
+	env.fc.calls = nil
+	env.do(t, "GET", "/changes", nil)
+	if _, ok, _ := env.store.PendingConfigVersion(); !ok {
+		t.Fatal("reconcile acted the moment the deadline passed, before BIRD's revert is certain")
+	}
+	if len(env.fc.calls) != 0 {
+		t.Fatalf("nothing may reach BIRD before its revert, calls=%v", env.fc.calls)
+	}
+	// A new apply in that window would stack on the still-armed config.
+	if loc := flashOf(env.do(t, "POST", "/apply", nil)); !strings.Contains(loc, "pending") {
+		t.Fatalf("an apply during the grace period must be refused, flash=%q", loc)
+	}
+
+	setPendingDeadline(t, env, time.Now().Add(-revertGrace-time.Second))
+	env.fc.calls = nil
+	env.do(t, "GET", "/changes", nil)
+	v, err := env.store.GetConfigVersion(pending.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Status != store.ConfigReverted {
+		t.Fatalf("past the grace period the apply should be recorded as reverted, status=%q", v.Status)
+	}
+	if got := strings.Join(env.fc.calls, ","); got != "reload" {
+		t.Errorf("calls = %q, want reload", got)
 	}
 }
 
