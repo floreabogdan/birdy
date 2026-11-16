@@ -318,10 +318,25 @@ func (p *Poller) poll(ctx context.Context) {
 	}
 
 	for _, proto := range protocols {
-		up := isUp(proto)
 		prior, seen := prevStates[proto.Name]
+		up, known := sessionUp(proto)
+		var staleSince time.Time
+		if !known && seen {
+			// The row lost words in transit (see sessionUp). Keep what the last
+			// readable row said for a hiccup's worth of polls; past that, read the
+			// row at face value rather than let it hide a real change for good.
+			staleSince = prior.staleSince
+			if staleSince.IsZero() {
+				staleSince = now
+			}
+			if now.Sub(staleSince) < hiccupGrace {
+				prior.staleSince = staleSince
+				next[proto.Name] = prior
+				continue
+			}
+		}
 
-		state := ProtoState{Summary: proto, Up: up, LimitHit: map[string]bool{}}
+		state := ProtoState{Summary: proto, Up: up, LimitHit: map[string]bool{}, staleSince: staleSince}
 		switch {
 		case seen:
 			state.LastChange = prior.LastChange
@@ -412,11 +427,22 @@ func (p *Poller) poll(ctx context.Context) {
 	p.maybeSample(next, p.clock())
 }
 
-func isUp(p birdc.ProtocolSummary) bool {
-	if p.Proto == "BGP" {
-		return strings.TrimSpace(p.Info) == "Established"
+// sessionUp reports whether a protocol is up, and whether its row is complete
+// enough to tell. A BGP session is up when Info says Established. BIRD names the
+// BGP state in Info for every BGP protocol that is not down (Established, Active,
+// Connect, Passive, ...), and leaves it empty only for one that is down or
+// flushing, as a disabled peer is. So a BGP row in any other state with no Info
+// lost words in transit: reading it as down paged "went down" and then "flapped"
+// for a session that never moved. Its up is then only State's best guess.
+func sessionUp(p birdc.ProtocolSummary) (up, known bool) {
+	if p.Proto != "BGP" {
+		return p.State == "up", true
 	}
-	return p.State == "up"
+	info := strings.TrimSpace(p.Info)
+	if info == "" && p.State != "down" && p.State != "flush" {
+		return p.State == "up", false
+	}
+	return info == "Established", true
 }
 
 // isROATable reports whether a routing-table name is an RPKI ROA table. birdy

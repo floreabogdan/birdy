@@ -194,3 +194,90 @@ func TestProtocolGoneForLongerThanTheGraceIsForgotten(t *testing.T) {
 		t.Fatalf("a protocol leaving BIRD's list is not a session event, got %v", kinds)
 	}
 }
+
+// rowsReply wraps "show protocols" rows in the reply framing, so the test row
+// goes through the real parser exactly as BIRD's would.
+func rowsReply(rows ...string) birdc.Reply {
+	return birdc.Reply{
+		Blocks: []birdc.Block{
+			{Code: 2002, Lines: []string{"Name       Proto      Table      State  Since         Info"}},
+			{Code: 1002, Lines: rows},
+		},
+		Terminal: birdc.Block{Code: 0, Lines: []string{""}},
+	}
+}
+
+// BIRD names the BGP state in Info for every BGP protocol that is not down, so
+// a row in state "up" without it lost words in transit. It says nothing about
+// the session, and must not read as down: that paged "went down" and then
+// "flapped (down for 0s)".
+func TestTruncatedBGPRowKeepsThePriorState(t *testing.T) {
+	for name, row := range map[string]string{
+		"info missing":           "edge_v4    BGP        ---        up     12:00:00.124",
+		"table and info missing": "edge_v4    BGP        up     12:00:00.124",
+	} {
+		t.Run(name, func(t *testing.T) {
+			st := openTestStore(t)
+			fc := &fakeClient{
+				polls:   [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+				replyAt: map[int]birdc.Reply{1: rowsReply(row)},
+			}
+			p := New(fc, st, time.Second, nil)
+			clk := withClock(p)
+
+			p.poll(context.Background())
+			clk.advance(5 * time.Second)
+			p.poll(context.Background()) // the truncated row
+			if !p.Snapshot().States["edge_v4"].Up {
+				t.Error("a truncated row must not flip the session to down")
+			}
+			clk.advance(5 * time.Second)
+			p.poll(context.Background())
+
+			if kinds := eventKinds(t, st); len(kinds) != 0 {
+				t.Fatalf("a truncated row paged: %v", kinds)
+			}
+		})
+	}
+}
+
+// The other side of the line: a down or disabled BGP protocol really does have
+// an empty Info (captured from BIRD 2.17.5), and going down must still page.
+func TestDownBGPRowWithEmptyInfoStillAlerts(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{
+		polls:   [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+		replyAt: map[int]birdc.Reply{1: rowsReply("edge_v4    BGP        ---        down   12:23:07.869  ")},
+	}
+	p := New(fc, st, time.Second, nil)
+	p.poll(context.Background())
+	p.poll(context.Background())
+
+	if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventSessionDown {
+		t.Fatalf("events = %v, want [session_down]", kinds)
+	}
+}
+
+// A row that stays unreadable is no hiccup. After the grace it is read at face
+// value, so a format BIRD really sends cannot hide a session going down.
+func TestTruncatedRowPastTheGraceIsReadAtFaceValue(t *testing.T) {
+	st := openTestStore(t)
+	steps := map[int]birdc.Reply{}
+	for i := 1; i <= 15; i++ {
+		steps[i] = rowsReply("edge_v4    BGP        up     12:00:00.124")
+	}
+	fc := &fakeClient{
+		polls:   [][]birdc.ProtocolSummary{{bgp("edge_v4", "up", "Established")}},
+		replyAt: steps,
+	}
+	p := New(fc, st, time.Second, nil)
+	clk := withClock(p)
+	p.poll(context.Background())
+	for range 15 {
+		clk.advance(5 * time.Second)
+		p.poll(context.Background())
+	}
+	if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventSessionDown {
+		t.Fatalf("events = %v, want exactly one session_down once the grace ran out", kinds)
+	}
+}
