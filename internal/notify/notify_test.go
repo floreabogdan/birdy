@@ -486,3 +486,67 @@ func TestHeldBackAlertSaysItWasHeld(t *testing.T) {
 		t.Fatalf("messages = %q, want the third marked as held back", rec.messages)
 	}
 }
+
+// A remote birdy whose health check hovers around its 4 s timeout goes offline
+// and back on every 30 s check. Each transition stays on the timeline, but
+// paging for every one is noise: remote-instance down/up get the same cooldown
+// as session down/up, and the same promise that the latest state gets through.
+func TestInstanceEventsAreThrottled(t *testing.T) {
+	rec := newEventRecorder(t)
+	st := openStore(t)
+	if _, err := st.CreateAlertDestination(store.Destination{Name: "w", Type: store.AlertWebhook, Enabled: true, URL: rec.URL}); err != nil {
+		t.Fatal(err)
+	}
+	d := NewDispatcher(st, nil, 5*time.Minute)
+	start := time.Unix(1_700_000_000, 0)
+	now := start
+	d.now = func() time.Time { return now }
+
+	for i := range 8 { // four down/up cycles, one check every 30 s
+		now = start.Add(time.Duration(i) * 30 * time.Second)
+		kind := store.EventInstanceDown
+		if i%2 == 1 {
+			kind = store.EventInstanceUp
+		}
+		d.deliverAllSync(kind, "fra-rs1", "remote birdy fra-rs1 "+kind)
+	}
+	if got, want := rec.got(), []string{store.EventInstanceDown, store.EventInstanceUp}; strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("alerts = %v, want %v", got, want)
+	}
+	// It is still flapping when the window closes, last seen up — which is what
+	// the operator was told, so nothing more goes out.
+	now = start.Add(6 * time.Minute)
+	d.deliverHeldSync()
+	if got := rec.got(); len(got) != 2 {
+		t.Fatalf("alerts after the window = %v, want no more", got)
+	}
+}
+
+// Remote instances and BGP sessions are named independently, so an instance
+// called like a session must not overwrite that session's held-back state.
+func TestHeldBackStateIsPerSubject(t *testing.T) {
+	rec := newEventRecorder(t)
+	st := openStore(t)
+	if _, err := st.CreateAlertDestination(store.Destination{Name: "w", Type: store.AlertWebhook, Enabled: true, URL: rec.URL}); err != nil {
+		t.Fatal(err)
+	}
+	d := NewDispatcher(st, nil, 5*time.Minute)
+	start := time.Unix(1_700_000_000, 0)
+	now := start
+	d.now = func() time.Time { return now }
+
+	d.deliverAllSync(store.EventSessionDown, "edge", "session edge went down")
+	now = start.Add(time.Minute)
+	d.deliverAllSync(store.EventSessionUp, "edge", "session edge came back")
+	now = start.Add(2 * time.Minute)
+	d.deliverAllSync(store.EventSessionDown, "edge", "session edge went down") // held
+	now = start.Add(3 * time.Minute)
+	d.deliverAllSync(store.EventInstanceDown, "edge", "remote birdy edge is unreachable")
+	now = start.Add(6 * time.Minute)
+	d.deliverHeldSync()
+
+	want := []string{store.EventSessionDown, store.EventSessionUp, store.EventInstanceDown, store.EventSessionDown}
+	if got := rec.got(); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("alerts = %v, want %v", got, want)
+	}
+}

@@ -20,12 +20,24 @@ import (
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
-// throttled are the storm-prone session kinds a cooldown applies to. Config
-// events (apply/revert) are operator-initiated and infrequent, so they always
-// go through.
+// throttled are the storm-prone kinds a cooldown applies to: session events,
+// and a remote instance going down and up, which a health check hovering near
+// its timeout repeats on every pass. Config events (apply/revert) are
+// operator-initiated and infrequent, so they always go through.
 var throttled = map[string]bool{
 	store.EventSessionDown: true, store.EventSessionUp: true,
 	store.EventFlap: true, store.EventLimitHit: true, store.EventPrefixDrop: true,
+	store.EventInstanceDown: true, store.EventInstanceUp: true,
+}
+
+// subject names what a throttled event is about, for tracking the latest state
+// per thing: a remote instance and a BGP session are named independently and
+// may share a name.
+func subject(kind, protocol string) string {
+	if kind == store.EventInstanceDown || kind == store.EventInstanceUp {
+		return "instance|" + protocol
+	}
+	return "session|" + protocol
 }
 
 // Dispatcher fans one event out to every enabled destination. Safe for
@@ -41,8 +53,8 @@ type Dispatcher struct {
 
 	mu     sync.Mutex
 	last   map[string]time.Time    // (kind|protocol) -> last delivery, for throttling
-	told   map[string]string       // protocol -> kind of the last throttled alert delivered
-	held   map[string]notification // protocol -> newest event the cooldown held back
+	told   map[string]string       // subject -> kind of the last throttled alert delivered
+	held   map[string]notification // subject -> newest event the cooldown held back
 	outbox map[int64]chan delivery // destination ID -> its own delivery queue
 
 	queueOnce sync.Once
@@ -65,7 +77,8 @@ type delivery struct {
 }
 
 // NewDispatcher builds a dispatcher. cooldown suppresses a repeat of the same
-// session event for a protocol within the window; 0 disables throttling.
+// event for a session or remote instance within the window, and delivers the
+// latest held-back state once it closes; 0 disables throttling.
 func NewDispatcher(st *store.Store, log *slog.Logger, cooldown time.Duration) *Dispatcher {
 	if log == nil {
 		log = slog.Default()
@@ -82,52 +95,54 @@ func NewDispatcher(st *store.Store, log *slog.Logger, cooldown time.Duration) *D
 
 // throttle reports whether an event should be held back as a repeat, and
 // records this delivery when it is not. Only the storm-prone session kinds are
-// subject to it. A held-back event is kept as its protocol's newest news, for
+// subject to it. A held-back event is kept as its subject's newest news, for
 // takeHeld to deliver once the window closes.
 func (d *Dispatcher) throttle(n notification) bool {
 	if d.cooldown <= 0 || !throttled[n.kind] {
 		return false
 	}
-	key := n.kind + "|" + n.protocol
+	key, subj := n.kind+"|"+n.protocol, subject(n.kind, n.protocol)
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	now := d.now()
 	if last, ok := d.last[key]; ok && now.Sub(last) < d.cooldown {
-		d.held[n.protocol] = n
+		d.held[subj] = n
 		return true
 	}
 	d.last[key] = now
-	d.told[n.protocol] = n.kind
-	delete(d.held, n.protocol) // superseded: this is now the newest thing said
+	d.told[subj] = n.kind
+	delete(d.held, subj) // superseded: this is now the newest thing said
 	return false
 }
 
 // takeHeld returns, and records as delivered, the held-back events whose window
-// has closed and that differ from the last alert the operator got for that
-// protocol. The throttle is keyed per kind, so without this, down, flap, down
-// (held) leaves the operator's last word "flapping" while the session sits down,
-// and no further transition comes along to correct it. A held repeat of what
-// was last said (flap, flap) is dropped, as before.
+// has closed and that differ from the last alert the operator got about the
+// same session or instance. The throttle is keyed per kind, so without this,
+// down, flap, down (held) leaves the operator's last word "flapping" while the
+// session sits down, and no further transition comes along to correct it. A
+// held repeat of what was last said (flap, flap) is dropped, as before.
 func (d *Dispatcher) takeHeld() []notification {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	now := d.now()
 	var due []notification
-	for protocol, n := range d.held {
-		key := n.kind + "|" + protocol
+	for subj, n := range d.held {
+		key := n.kind + "|" + n.protocol
 		if now.Sub(d.last[key]) < d.cooldown {
 			continue
 		}
-		delete(d.held, protocol)
-		if d.told[protocol] == n.kind {
+		delete(d.held, subj)
+		if d.told[subj] == n.kind {
 			continue
 		}
 		d.last[key] = now
-		d.told[protocol] = n.kind
+		d.told[subj] = n.kind
 		n.message += " (held back by the alert cooldown)"
 		due = append(due, n)
 	}
-	sort.Slice(due, func(i, j int) bool { return due[i].protocol < due[j].protocol })
+	sort.Slice(due, func(i, j int) bool {
+		return subject(due[i].kind, due[i].protocol) < subject(due[j].kind, due[j].protocol)
+	})
 	return due
 }
 

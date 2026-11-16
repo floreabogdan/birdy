@@ -38,7 +38,7 @@ func cmdServer(args []string) error {
 	snapshotInterval := fs.Duration("snapshot-interval", 24*time.Hour, "how often to take a nightly database snapshot")
 	snapshotRetain := fs.Int("snapshot-retain", defaultSnapshotKeep, "number of nightly snapshots to keep")
 	connectTimeout := fs.Duration("connect-timeout", 30*time.Second, "how long to retry connecting to BIRD at startup")
-	alertCooldown := fs.Duration("alert-cooldown", 5*time.Minute, "suppress a repeat alert for the same session within this window (0 disables)")
+	alertCooldown := fs.Duration("alert-cooldown", 5*time.Minute, "suppress a repeat alert for the same session or remote instance within this window (0 disables)")
 	dropRatio := fs.Float64("prefix-drop-ratio", 0.5, "alert when a session's imported routes fall to this fraction of the previous poll (0 disables)")
 	metrics := fs.Bool("metrics", true, "serve the Prometheus /metrics endpoint (it is unauthenticated, so it stays closed until the access list is narrowed); --metrics=false disables it")
 	peeringDB := fs.Bool("peeringdb", true, "PeeringDB lookups on the peer form (dials out to peeringdb.com); --peeringdb=false disables it")
