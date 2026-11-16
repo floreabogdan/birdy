@@ -51,6 +51,10 @@ type SettingsView struct {
 	AccessWhitelist string
 	AccessErr       string
 	ConnectingIP    string
+	// AllowedHosts is the host-name list the browser UI answers to, against DNS
+	// rebinding (host_check.go).
+	AllowedHosts string
+	HostsErr     string
 	// WideOpen: bound beyond loopback with an allow-all list. Flagged here, on the
 	// page that fixes it, rather than on the dashboard — a warning you cannot act
 	// on from where it appears is just noise you learn to skip.
@@ -119,6 +123,11 @@ func (s *Server) renderSettings(w http.ResponseWriter, v SettingsView) {
 	if v.AccessErr == "" {
 		if settings, ok, err := s.store.GetSettings(); err == nil && ok {
 			v.AccessWhitelist = settings.AccessWhitelist
+		}
+	}
+	if v.HostsErr == "" {
+		if settings, ok, err := s.store.GetSettings(); err == nil && ok {
+			v.AllowedHosts = settings.AllowedHosts
 		}
 	}
 	// A rejected bogon edit keeps the text the user typed; otherwise load stored.

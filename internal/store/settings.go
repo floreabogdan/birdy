@@ -61,6 +61,10 @@ type Settings struct {
 	// always allowed and an empty list (or a 0.0.0.0/0 entry) means no
 	// restriction, so it defaults open and cannot lock out an SSH tunnel.
 	AccessWhitelist string
+
+	// AllowedHosts is the host names the browser UI answers to, beyond IP
+	// addresses and localhost (see ParseAllowedHosts). Stored as typed.
+	AllowedHosts string
 }
 
 // ValidateRRClusterID accepts an empty value (use the router ID) or an IPv4
@@ -116,14 +120,15 @@ func (s *Store) GetSettings() (Settings, bool, error) {
 		       rr_cluster_id, kernel_prefsrc_v4, kernel_prefsrc_v6,
 		       kernel_export_bgp_v4, kernel_export_bgp_v6,
 		       update_channel, instance_api_token_hash, instance_api_token_expires_at,
-		       instance_api_token_revoked, raw_config, applied_config_hash, access_whitelist
+		       instance_api_token_revoked, raw_config, applied_config_hash, access_whitelist,
+		       allowed_hosts
 		FROM settings WHERE id = 1`)
 	err := row.Scan(&st.RouterLabel, &st.LocalASN, &st.RouterID, &st.BirdSocketPath,
 		&st.ListenAddr, &st.WebhookURL, &st.RRClusterID, &st.KernelPrefSrcV4, &st.KernelPrefSrcV6,
 		&st.KernelExportBGPV4, &st.KernelExportBGPV6, &st.UpdateChannel, &st.InstanceAPITokenHash,
 		&st.InstanceAPITokenExpiresAt, &st.InstanceAPITokenRevoked,
 		&st.RawConfig, &st.AppliedConfigHash,
-		&st.AccessWhitelist)
+		&st.AccessWhitelist, &st.AllowedHosts)
 	if err == sql.ErrNoRows {
 		return Settings{}, false, nil
 	}

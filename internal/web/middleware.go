@@ -41,9 +41,8 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.Handler {
 // write endpoint or a sensitive page.
 func (s *Server) requireDashboardAuth(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := strings.TrimSpace(r.Header.Get("Authorization"))
-		if strings.HasPrefix(auth, "Bearer ") {
-			valid, err := s.store.VerifyInstanceAPIToken(strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")))
+		if token, ok := bearerToken(r); ok {
+			valid, err := s.store.VerifyInstanceAPIToken(token)
 			if err != nil {
 				s.serverError(w, "verify instance API token", err)
 				return
@@ -62,6 +61,17 @@ func (s *Server) requireDashboardAuth(next http.HandlerFunc) http.Handler {
 		}
 		s.requireAuth(next).ServeHTTP(w, r)
 	})
+}
+
+// bearerToken returns the request's Authorization bearer token, if it carries
+// one. The host check (host_check.go) relies on the same test as
+// requireDashboardAuth, so it lives in one place.
+func bearerToken(r *http.Request) (string, bool) {
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")), true
 }
 
 // cookieSecure decides the Secure flag for session and selection cookies.

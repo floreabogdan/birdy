@@ -8,7 +8,7 @@ import (
 
 // schemaVersion is the migration level this build expects. Bump it and add a
 // case to migrate() when the shape of an existing database has to change.
-const schemaVersion = 39
+const schemaVersion = 40
 
 // migrate brings an existing database up to schemaVersion. The CREATE TABLE
 // statements in schema.go are all IF NOT EXISTS and run unconditionally, so
@@ -491,6 +491,16 @@ func migrate(db *sql.DB) error {
 					return err
 				}
 			}
+		}
+	}
+
+	if version < 40 {
+		// Host names the browser UI answers to, against DNS rebinding. Empty on
+		// upgrade: IP addresses and localhost always work, so an operator who
+		// browsed by name gets in by IP or tunnel and adds the name — a default
+		// that guessed names would be the hole this closes.
+		if err := ensureColumn(tx, "settings", "allowed_hosts", `ALTER TABLE settings ADD COLUMN allowed_hosts TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
 		}
 	}
 
