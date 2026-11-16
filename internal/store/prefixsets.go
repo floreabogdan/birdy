@@ -84,7 +84,7 @@ func (e PrefixEntry) Pattern() string { return e.Prefix + e.Modifier }
 
 func (ps *PrefixSet) Validate() map[string]string {
 	var errs map[string]string
-	ps.Name, errs = validateNameDesc(ps.Name, ps.Description)
+	ps.Name, errs = validateNameDescMax(ps.Name, ps.Description, MaxPrefixSetNameLen)
 
 	if ps.Family != FamilyV4 && ps.Family != FamilyV6 {
 		errs["family"] = "Choose IPv4 or IPv6."

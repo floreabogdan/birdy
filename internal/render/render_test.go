@@ -1277,3 +1277,40 @@ func TestRenderRefusesTwoSymbolsOfOneName(t *testing.T) {
 		t.Errorf("raw config must not be scanned for symbols: %v", err)
 	}
 }
+
+// Every symbol the renderer builds from a name must fit BIRD's 64 characters
+// when the name is as long as the store allows. A new derived symbol with a
+// longer prefix or suffix fails here, rather than on a router's next apply.
+func TestDerivedSymbolsFitBIRDAtMaximumNameLength(t *testing.T) {
+	long := func(kind string, n int) string { return kind + strings.Repeat("x", n-len(kind)) }
+	in, p := customerChain()
+	set := in.PrefixSets[len(in.PrefixSets)-1]
+	set.Name, set.Originate = long("SET", store.MaxPrefixSetNameLen), true
+	in.PrefixSets[len(in.PrefixSets)-1] = set
+	in.Policies[0].Name = long("IMP", store.MaxPolicyNameLen)
+	exp := store.Policy{ID: 3, Name: long("EXP", store.MaxPolicyNameLen), Direction: store.DirExport, AnnounceEverything: true}
+	in.Policies = append(in.Policies, exp)
+	p.Name = long("peer", store.MaxPeerNameLen)
+	p.ImportPolicies, p.ExportPolicies = in.Policies[:2], []store.Policy{exp}
+	tmpl := store.PeerTemplate{ID: 1, Name: long("TMPL", 63), Role: store.RoleCustomer, ImportLimitAction: "restart"}
+	p.TemplateID, p.TemplateName = sql.NullInt64{Int64: 1, Valid: true}, tmpl.Name
+	in.Templates = []store.PeerTemplate{tmpl}
+	ibgp := ebgpPeer()
+	ibgp.ID, ibgp.Name, ibgp.Role, ibgp.RemoteASN = 2, long("core", store.MaxPeerNameLen), store.RoleIBGP, in.LocalASN
+	ibgp.NeighborIP, ibgp.NextHopSelf = "192.0.2.20", true
+	ibgp.ImportPolicies, ibgp.ExportPolicies = in.Policies[1:2], []store.Policy{exp}
+	in.Peers = []store.Peer{p, ibgp}
+
+	var longest string
+	for _, m := range symbolDecl.FindAllStringSubmatch(mustRender(t, in), -1) {
+		if len(m[2]) > len(longest) {
+			longest = m[2]
+		}
+		if len(m[2]) > 64 {
+			t.Errorf("%s %s is %d characters; BIRD refuses more than 64", m[1], m[2], len(m[2]))
+		}
+	}
+	if len(longest) != 64 {
+		t.Errorf("the caps should be tight: the longest symbol is %d characters (%s)", len(longest), longest)
+	}
+}

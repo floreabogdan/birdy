@@ -58,6 +58,18 @@ var ibgpExportDefaults = map[string]bool{IBGPExportAll: true, IBGPExportNone: tr
 // not a plain BIRD symbol is rejected at the model boundary, not escaped.
 var birdIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 
+// BIRD refuses a symbol longer than 64 characters ("Symbol too long"), and
+// birdy builds longer symbols out of three kinds of name. Each of those is
+// capped so the longest symbol rendered from it still fits; a name that fit on
+// its own but not inside its filter's name would save, then fail every apply.
+// Every other name is rendered as is, under birdIdent's 63.
+const (
+	birdSymbolMax       = 64
+	MaxPeerNameLen      = birdSymbolMax - len("ebgp_out_")  // filters ebgp_in_/ebgp_out_/ibgp_in_/ibgp_out_NAME
+	MaxPolicyNameLen    = birdSymbolMax - len("imp__v4")    // functions imp_/exp_/bh_NAME_v4 and _v6
+	MaxPrefixSetNameLen = birdSymbolMax - len("originate_") // the originating static protocol originate_NAME
+)
+
 // errAddrZone marks an address that parsed only because it carries an IPv6
 // zone ("fe80::1%eth0").
 var errAddrZone = errors.New("store: address carries a zone")
@@ -99,10 +111,16 @@ var reservedPeerNames = map[string]bool{"new": true, "seed": true, "preview": tr
 // adds its type-specific checks to the returned map, so the wording of these two
 // cannot drift between forms.
 func validateNameDesc(name, description string) (string, map[string]string) {
+	return validateNameDescMax(name, description, 63)
+}
+
+// validateNameDescMax is validateNameDesc for a kind whose name birdy also
+// builds longer symbols from, capped at maxLen (see MaxPeerNameLen).
+func validateNameDescMax(name, description string, maxLen int) (string, map[string]string) {
 	errs := map[string]string{}
 	name = strings.TrimSpace(name)
-	if !birdIdent.MatchString(name) {
-		errs["name"] = "Use letters, digits and underscore, starting with a letter or underscore (max 63)."
+	if !birdIdent.MatchString(name) || len(name) > maxLen {
+		errs["name"] = fmt.Sprintf("Use letters, digits and underscore, starting with a letter or underscore (max %d).", maxLen)
 	}
 	if strings.ContainsAny(description, "\"\n\r") {
 		errs["description"] = "Quotes and line breaks are not allowed."
@@ -259,7 +277,7 @@ func (p Peer) IsIBGP() bool { return p.Role == RoleIBGP }
 // form field so the UI can mark the offending input.
 func (p *Peer) Validate() map[string]string {
 	var errs map[string]string
-	p.Name, errs = validateNameDesc(p.Name, p.Description)
+	p.Name, errs = validateNameDescMax(p.Name, p.Description, MaxPeerNameLen)
 	if reservedPeerNames[p.Name] {
 		errs["name"] = "That name is a page under /peers and cannot be a peer. Choose another."
 	}

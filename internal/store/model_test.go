@@ -527,3 +527,52 @@ func TestConfigAddressesRefuseZones(t *testing.T) {
 		t.Fatalf("a link-local neighbor with an interface should validate: %v", errs)
 	}
 }
+
+// BIRD refuses a symbol longer than 64 characters, and birdy derives longer
+// symbols from three kinds of name: a peer's filters (ebgp_out_NAME), a
+// policy's functions (imp_NAME_v4) and a prefix set's originator
+// (originate_NAME). A name that fits on its own but not inside what is derived
+// from it saved fine and then failed every apply with "Symbol too long".
+func TestNameLengthLeavesRoomForDerivedSymbols(t *testing.T) {
+	name := func(n int) string { return "N" + strings.Repeat("x", n-1) }
+	cases := []struct {
+		kind     string
+		max      int
+		validate func(string) map[string]string
+	}{
+		{"peer", MaxPeerNameLen, func(n string) map[string]string { p := validPeer(); p.Name = n; return p.Validate() }},
+		{"policy", MaxPolicyNameLen, func(n string) map[string]string {
+			p := Policy{Name: n, Direction: DirImport, DefaultRoute: DefaultReject, BogonASNs: BogonASNsOff}
+			return p.Validate()
+		}},
+		{"prefix set", MaxPrefixSetNameLen, func(n string) map[string]string {
+			ps := PrefixSet{Name: n, Family: FamilyV4}
+			return ps.Validate()
+		}},
+		// Rendered under their own name only, so the 63 they always had.
+		{"AS set", 63, func(n string) map[string]string { as := ASSet{Name: n}; return as.Validate() }},
+		{"community", 63, func(n string) map[string]string { cd := CommunityDef{Name: n, A: 65000, B: 1}; return cd.Validate() }},
+		{"peer template", 63, func(n string) map[string]string {
+			tp := PeerTemplate{Name: n, Role: RoleUpstream, ImportLimitAction: "restart"}
+			return tp.Validate()
+		}},
+	}
+	for _, c := range cases {
+		if errs := c.validate(name(c.max)); errs["name"] != "" {
+			t.Errorf("%s: a %d-character name should be accepted: %s", c.kind, c.max, errs["name"])
+		}
+		if errs := c.validate(name(c.max + 1)); errs["name"] == "" {
+			t.Errorf("%s: a %d-character name should be refused", c.kind, c.max+1)
+		}
+	}
+	// The derived symbols those caps leave room for.
+	for _, sym := range []string{
+		"ebgp_out_" + name(MaxPeerNameLen),
+		"imp_" + name(MaxPolicyNameLen) + "_v4",
+		"originate_" + name(MaxPrefixSetNameLen),
+	} {
+		if len(sym) != 64 {
+			t.Errorf("%s is %d characters; the cap should leave it exactly at BIRD's 64", sym, len(sym))
+		}
+	}
+}

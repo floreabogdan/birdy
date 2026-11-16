@@ -88,7 +88,7 @@ func (p Policy) IsImport() bool { return p.Direction == DirImport }
 
 func (p *Policy) Validate() map[string]string {
 	var errs map[string]string
-	p.Name, errs = validateNameDesc(p.Name, p.Description)
+	p.Name, errs = validateNameDescMax(p.Name, p.Description, MaxPolicyNameLen)
 
 	if p.Direction != DirImport && p.Direction != DirExport {
 		errs["direction"] = "Choose import or export."
