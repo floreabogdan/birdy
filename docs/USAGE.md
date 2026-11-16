@@ -627,6 +627,32 @@ usual production answer; a public RTR endpoint is fine to start with. Timers lef
 at `0` mean "leave BIRD's default alone". Validation itself is turned on per
 import policy via the **RPKI ROV** knob (log-only or drop-invalid).
 
+**Highest RTR version** is normally left to BIRD. BIRD 2.16 and later offer RTR
+version 2 first and step down when the cache answers that it does not support it.
+A cache that does not answer that way keeps the session from ever coming up; it has
+been seen with Cloudflare's public RTR. Pin `1` for such a cache (rendered as
+`max version 1;`, BIRD 2.16+ only).
+
+**Is the data moving?** Each running RTR session's row shows its session ID,
+serial, RTR version, the ROAs it holds (IPv4 + IPv6), and how long birdy has seen
+its serial stand still. That last number exists because BIRD's own "last update" is
+the last successful *refresh*: a cache that keeps answering "nothing new" (a stale
+backend behind an anycast address) resets it every refresh interval, and the expire
+timer with it, while the ROA table stands still for days. The age alone does not mean
+stale, since a healthy cache can go hours without a new serial. The reliable sign is
+a feed whose ROA count falls behind another router on the same cache. The same numbers
+are on `/metrics` (`birdy_rpki_roas`, `birdy_rpki_serial`,
+`birdy_rpki_serial_unchanged_seconds`, `birdy_rpki_feed_established`), so a monitoring
+system that sees several routers can alert on exactly that. **Restart** (the circular
+arrow) drops the RTR session and reconnects: a new TCP connection, which against an
+anycast cache may land on a healthier backend. BGP sessions are not touched, the
+config is not changed, and the restart is recorded on the timeline. Not offered
+read-only.
+
+The more robust fix for a single misbehaving cache is a second, independent one:
+each RTR server is its own `protocol rpki` filling the same `rpki4`/`rpki6` tables, so
+two feeds back each other up.
+
 **Which policies validate** is a table of every import policy: its RPKI mode, what
 that does to an invalid route, and — the part that matters before you enforce — the
 peers riding on it. Policies doing *nothing* are listed too: one that carries half
@@ -719,6 +745,13 @@ button.
     that keep the BGP control plane reachable. The default route (0.0.0.0/0,
     ::/0) is exempt from these guards — it covers every address by definition
     and is not a targeted control-plane hijack.
+  - **Netlink receive buffer (MiB)** — if BIRD logs *Kernel dropped some netlink
+    messages, will resync on next scan*, its netlink socket overflowed during a burst
+    of route changes (typical when full tables go into the kernel), and the FIB was
+    out of step with BIRD until the next scan. Raise it: 16–64 MiB is a common fix.
+    `0` keeps BIRD's default (the host's `net.core.rmem_default`, a few hundred KiB).
+    Rendered as `netlink rx buffer` on both kernel protocols; Linux and BIRD 2.0.9+
+    only. BIRD sets it with `SO_RCVBUFFORCE`, so `net.core.rmem_max` does not cap it.
   - For a BGP session carried over GRE, WireGuard, or IPsec, set **Tunnel
     endpoint** on the peer to the remote outer address. Birdy then rejects every
     imported BGP route covering that address from kernel export. Keep an OS-level
