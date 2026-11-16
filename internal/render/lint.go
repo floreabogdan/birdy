@@ -207,6 +207,23 @@ func Lint(in Input) []Warning {
 		}
 	}
 
+	// Opting into RFC 7999 blackholing does nothing in a chain with no allow-list:
+	// the renderer honours a blackhole only inside prefixes the peer may announce,
+	// and without an accept-only set it has no record of which those are.
+	for _, p := range in.Peers {
+		if honoursBlackholes(p.ImportPolicies) {
+			continue
+		}
+		for _, pol := range p.ImportPolicies {
+			if pol.AcceptBlackhole {
+				add(SeverityDanger, p.Name,
+					"%s accepts blackhole requests, but this session's import chain has no accept-only prefix set, so none is honoured: birdy discards traffic only for addresses inside the peer's own prefixes (RFC 7999). Add a policy that accepts only the peer's prefix set.",
+					pol.Name)
+				break
+			}
+		}
+	}
+
 	for _, p := range in.Peers {
 		if p.IsIBGP() {
 			continue

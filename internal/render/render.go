@@ -240,9 +240,10 @@ func Sections(in Input) ([]Section, error) {
 	add("rpki/servers", "RPKI RTR servers", func(b *strings.Builder) error { writeRPKIProtocols(b, rtr); return nil })
 	add("sets/originators", "Originated prefixes", func(b *strings.Builder) error { return writeOriginators(b, sets) })
 	add("static", "Static routes", func(b *strings.Builder) error { writeStaticRoutes(b, statics); return nil })
+	blackhole := blackholeForms(peers)
 	for _, pol := range policies {
 		add("policies/"+pol.Name, "Policy "+pol.Name, func(b *strings.Builder) error {
-			if err := writePolicy(b, in, pol, setsByID, asSetsByID); err != nil {
+			if err := writePolicy(b, in, pol, setsByID, asSetsByID, blackhole[pol.Name]); err != nil {
 				return fmt.Errorf("policy %q: %w", pol.Name, err)
 			}
 			return nil
@@ -714,8 +715,10 @@ func writeStaticRoutes(b *strings.Builder, routes []store.StaticRoute) {
 	}
 }
 
-// writePolicy emits one function per address family.
-func writePolicy(b *strings.Builder, in Input, pol store.Policy, sets map[int64]store.PrefixSet, asSets map[int64]store.ASSet) error {
+// writePolicy emits one function per address family. An import policy that a
+// blackhole-honouring chain uses also gets its blackhole form, one more function
+// per family (see blackholeForms).
+func writePolicy(b *strings.Builder, in Input, pol store.Policy, sets map[int64]store.PrefixSet, asSets map[int64]store.ASSet, blackhole bool) error {
 	for _, fam := range []family{familyV4, familyV6} {
 		if pol.Description != "" {
 			fmt.Fprintf(b, "# %s\n", pol.Description)
@@ -723,11 +726,24 @@ func writePolicy(b *strings.Builder, in Input, pol store.Policy, sets map[int64]
 		fmt.Fprintf(b, "function %s\n{\n", policyFunc(pol, fam))
 		var err error
 		if pol.IsImport() {
-			err = writeImportBody(b, in, pol, fam, sets, asSets)
+			err = writeImportBody(b, in, pol, fam, sets, asSets, false)
 		} else {
 			err = writeExportBody(b, in, pol, fam, sets)
 		}
 		if err != nil {
+			return err
+		}
+		b.WriteString("}\n\n")
+	}
+	if !blackhole || !pol.IsImport() {
+		return nil
+	}
+	fmt.Fprintf(b, "# %s as it applies to an RFC 7999 blackhole request: the same checks,\n"+
+		"# without the prefix-length bounds or RPKI, and an allow-list only has to\n"+
+		"# cover the host route.\n", pol.Name)
+	for _, fam := range []family{familyV4, familyV6} {
+		fmt.Fprintf(b, "function %s\n{\n", blackholeFunc(pol, fam))
+		if err := writeImportBody(b, in, pol, fam, sets, asSets, true); err != nil {
 			return err
 		}
 		b.WriteString("}\n\n")
@@ -743,9 +759,56 @@ func policyFunc(pol store.Policy, fam family) string {
 	return prefix + pol.Name + "_" + fam.suffix + "()"
 }
 
+// blackholeFunc names an import policy's blackhole form. It is no longer than
+// policyFunc's name, so it fits wherever that does.
+func blackholeFunc(pol store.Policy, fam family) string {
+	return "bh_" + pol.Name + "_" + fam.suffix + "()"
+}
+
+// honoursBlackholes reports whether an import chain turns RFC 7999 blackhole
+// requests into discards: some policy in it opts in, and some policy in it is an
+// allow-list. The allow-list is not optional. RFC 7999 §3.3 honours a blackhole
+// only for a prefix the peer is authorised to announce, and the allow-lists are
+// the only record of that birdy has; without one, a peer could null-route any
+// address on the internet.
+func honoursBlackholes(chain []store.Policy) bool {
+	var optIn, allowList bool
+	for _, pol := range chain {
+		optIn = optIn || pol.AcceptBlackhole
+		allowList = allowList || pol.AcceptOnlySetID.Valid
+	}
+	return optIn && allowList
+}
+
+// blackholeForms names the import policies that need a blackhole form: every
+// member of a chain that honours blackholes. The form is written only where a
+// chain calls it, so a router that honours no blackhole renders exactly as it
+// did before blackhole requests went through the whole chain.
+func blackholeForms(peers []store.Peer) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range peers {
+		if !honoursBlackholes(p.ImportPolicies) {
+			continue
+		}
+		for _, pol := range p.ImportPolicies {
+			out[pol.Name] = true
+		}
+	}
+	return out
+}
+
 // writeImportBody emits only rejects. Falling off the end means "no objection";
 // the caller decides what to do with a route no policy rejected.
-func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family, sets map[int64]store.PrefixSet, asSets map[int64]store.ASSet) error {
+//
+// With blackhole set it writes the policy's blackhole form, for a host route
+// tagged BLACKHOLE (RFC 7999). Such a route is held to every check the policy
+// makes, with exactly the exemptions its length forces: the prefix-length bounds
+// do not apply, an allow-list is read as "inside one of these prefixes" rather
+// than "matches one of these patterns", and RPKI is not consulted — a ROA for a
+// /24 makes every /32 inside it invalid on length (RFC 9319 discourages the
+// maxLength that would cover it), so ROV would refuse the very requests RTBH
+// exists for. The allow-list coverage is what authorises the request instead.
+func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family, sets map[int64]store.PrefixSet, asSets map[int64]store.ASSet, blackhole bool) error {
 	// An accept-only set names the entire universe this policy permits. If it
 	// belongs to the other address family, then for this family the policy
 	// permits nothing — rejecting is the only safe reading. Silently emitting
@@ -773,29 +836,6 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 		}
 	}
 
-	// RFC 7999 blackhole: a host route tagged BLACKHOLE (65535, 666) is accepted
-	// past the prefix-length filter and turned into a discard, so a customer can
-	// null-route a single address under attack. It must come before the length
-	// reject that would otherwise drop the /32 or /128.
-	if pol.AcceptBlackhole {
-		cond := fmt.Sprintf("(65535, 666) ~ bgp_community && net.len = %d", fam.bits)
-		// RFC 7999 §3.2: only honour a blackhole for a host route that falls within
-		// one of the peer's authorised prefixes, so a peer cannot null-route an
-		// address it does not hold. Coverage is tested against the allow-list's base
-		// prefixes as supernets (each "+"), independent of how they match for normal
-		// routes. Reachable only with a usable, this-family allow-list — the checks
-		// above return before here otherwise.
-		if pol.AcceptOnlySetID.Valid {
-			ps := sets[pol.AcceptOnlySetID.Int64]
-			covers := make([]string, 0, len(ps.Entries))
-			for _, e := range ps.Entries {
-				covers = append(covers, e.Prefix+"+")
-			}
-			cond += fmt.Sprintf(" && net ~ [ %s ]", strings.Join(covers, ", "))
-		}
-		fmt.Fprintf(b, "\tif %s then {\n\t\tdest = RTD_BLACKHOLE;\n\t\taccept;\n\t}\n", cond)
-	}
-
 	// Rejects that drop everything not explicitly allowed stay bare, with the
 	// reason as a comment: BIRD logs a reject's message once per route, and a
 	// catch-all can match most of a full table on every session start and
@@ -817,7 +857,9 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 	// The default route is shorter than any sane minimum, so a policy that
 	// accepts it must not then reject it on length.
 	guardLen := pol.DefaultRoute != store.DefaultOnly && (minLen > 0 || maxLen > 0)
-	if guardLen {
+	if guardLen && blackhole {
+		b.WriteString("\t# a blackhole request is exempt from the prefix-length bounds\n")
+	} else if guardLen {
 		var conds []string
 		if minLen > 0 {
 			conds = append(conds, fmt.Sprintf("net.len < %d", minLen))
@@ -843,8 +885,24 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 		fmt.Fprintf(b, "\tif %s ~ %s then reject \"matched community %s\";\n", expr, attr, pol.MatchCommunity)
 	}
 	if pol.AcceptOnlySetID.Valid {
-		name := sets[pol.AcceptOnlySetID.Int64].Name
-		fmt.Fprintf(b, "\tif ! (net ~ %s) then reject;\t# not in %s\n", name, name)
+		ps := sets[pol.AcceptOnlySetID.Int64]
+		if blackhole {
+			// RFC 7999 §3.3: a blackhole is honoured only for an address inside a
+			// prefix the peer may announce. Coverage is tested against the set's
+			// base prefixes as supernets, whatever pattern each matches ordinary
+			// routes with — "203.0.113.0/24" admits the /24, not its host routes.
+			// Reachable only with a usable, this-family set: the checks at the top
+			// return before here otherwise.
+			var covers []string
+			for _, e := range ps.Entries {
+				if c := e.Prefix + "+"; !slices.Contains(covers, c) {
+					covers = append(covers, c)
+				}
+			}
+			fmt.Fprintf(b, "\tif ! (net ~ [ %s ]) then reject;\t# not inside %s\n", strings.Join(covers, ", "), ps.Name)
+		} else {
+			fmt.Fprintf(b, "\tif ! (net ~ %s) then reject;\t# not in %s\n", ps.Name, ps.Name)
+		}
 	}
 	// bgp_path.last is the AS that originated the route. Restricting it to the
 	// members of an expanded IRR AS-SET is how a transit provider says "announce
@@ -863,10 +921,12 @@ func writeImportBody(b *strings.Builder, in Input, pol store.Policy, fam family,
 	// against the ROAs its prefix holder published. Invalid means the origin is
 	// contradicted, not merely absent — "unknown" is the majority of the table
 	// and must never be dropped.
-	switch pol.ROV {
-	case store.ROVReject:
+	switch {
+	case blackhole && pol.ROV != store.ROVOff && pol.ROV != "":
+		b.WriteString("\t# RPKI is not consulted: a ROA rarely covers a host route\n")
+	case pol.ROV == store.ROVReject:
 		fmt.Fprintf(b, "\tif roa_check(%s, net, bgp_path.last) = ROA_INVALID then reject \"RPKI invalid\";\n", fam.roaTable)
-	case store.ROVLog:
+	case pol.ROV == store.ROVLog:
 		fmt.Fprintf(b, "\t# log only: invalid routes are tagged, not dropped\n")
 		fmt.Fprintf(b, "\tif roa_check(%s, net, bgp_path.last) = ROA_INVALID then bgp_large_community.add(RPKI_INVALID);\n", fam.roaTable)
 	}
@@ -1248,10 +1308,9 @@ func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 		fmt.Fprintf(b, "\tbgp_large_community.delete([(%d, *, *)]);\n", in.LocalASN)
 	}
 
-	// Tag where the route came from BEFORE the policy calls. A policy can accept a
-	// route — an RFC 7999 blackhole does — and an accept terminates the whole
-	// filter, so a tag added after the policy chain would never reach an accepted
-	// route, leaving it without the origin metadata every export policy selects on.
+	// Tag where the route came from BEFORE the policy calls, ahead of the branch a
+	// blackhole request takes below, so every route this filter accepts carries
+	// the origin metadata every export policy selects on.
 	//
 	// Operator-defined ingress tags identify this specific neighbor (for example,
 	// an IX route server or downstream) in addition to the broader automatic
@@ -1268,8 +1327,27 @@ func writePeerImportFilter(b *strings.Builder, in Input, p store.Peer, fam famil
 		fmt.Fprintf(b, "\tbgp_large_community.add(%s);\n", tag.name)
 	}
 
-	for _, pol := range p.ImportPolicies {
-		fmt.Fprintf(b, "\t%s;\n", policyFunc(pol, fam))
+	if honoursBlackholes(p.ImportPolicies) {
+		// RFC 7999: a host route tagged BLACKHOLE asks us to discard traffic to
+		// that address. It is a route like any other here — the import policies
+		// compose with AND for it too — so it runs the whole chain, in each
+		// policy's blackhole form, and is only discarded if every one of them
+		// lets it through. No import policy accepts: an accept inside one would
+		// end the filter and skip the rest of the chain.
+		fmt.Fprintf(b, "\t# A host route tagged BLACKHOLE (RFC 7999) must pass the whole chain too.\n"+
+			"\tif (65535, 666) ~ bgp_community && net.len = %d then {\n", fam.bits)
+		for _, pol := range p.ImportPolicies {
+			fmt.Fprintf(b, "\t\t%s;\n", blackholeFunc(pol, fam))
+		}
+		b.WriteString("\t\tdest = RTD_BLACKHOLE;\n\t} else {\n")
+		for _, pol := range p.ImportPolicies {
+			fmt.Fprintf(b, "\t\t%s;\n", policyFunc(pol, fam))
+		}
+		b.WriteString("\t}\n")
+	} else {
+		for _, pol := range p.ImportPolicies {
+			fmt.Fprintf(b, "\t%s;\n", policyFunc(pol, fam))
+		}
 	}
 
 	// Draining: deprefer everything this peer sends, so we route around it while

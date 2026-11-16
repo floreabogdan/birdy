@@ -630,6 +630,7 @@ func TestSymbolUsesFindsEveryOwnerOfAName(t *testing.T) {
 		{"master4", "built-in"},
 		// Derived names clash only when what they derive from exists.
 		{"imp_IMPORT_SANITY_v4", "built-in"},
+		{"bh_IMPORT_SANITY_v6", "built-in"}, // a policy's RFC 7999 blackhole form
 		{"ebgp_in_TRANSIT", "built-in"},
 		{"originate_BOGONS_V4", "built-in"},
 	} {
@@ -641,7 +642,7 @@ func TestSymbolUsesFindsEveryOwnerOfAName(t *testing.T) {
 			t.Errorf("%s: want one %s, got %+v", tc.name, tc.kind, uses)
 		}
 	}
-	for _, free := range []string{"FREE_NAME", "imp_NO_SUCH_POLICY_v4", "exp_transit", "ebgp_in_nobody", "originate_NOTHING"} {
+	for _, free := range []string{"FREE_NAME", "imp_NO_SUCH_POLICY_v4", "bh_NO_SUCH_POLICY_v4", "exp_transit", "ebgp_in_nobody", "originate_NOTHING"} {
 		if uses, err := s.SymbolUses(free); err != nil || len(uses) != 0 {
 			t.Errorf("%s should have no owner: %+v %v", free, uses, err)
 		}
