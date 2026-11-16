@@ -3,6 +3,7 @@ package birdc
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -26,6 +27,11 @@ type ConfigureResult struct {
 	// accepted reply, e.g. "8006-edge1: reload failed". Only Reload fills it.
 	Failed []string
 }
+
+// ErrNoReply marks a command that was written to BIRD but whose reply never
+// arrived. Unlike a failure to connect or send, BIRD may have acted on it — for
+// `configure timeout`, the new config may be running with the revert armed.
+var ErrNoReply = errors.New("birdc: command sent, but BIRD's reply never arrived")
 
 // Reply codes from BIRD's reconfigure commands that birdy acts on (they come
 // from cmd_reconfig_msg in BIRD's nest/cmds.c; verified against BIRD 2.17.5).
@@ -171,7 +177,8 @@ func (c *Client) configure(ctx context.Context, cmd string) (ConfigureResult, er
 
 // oneShot runs one command on a fresh, disposable connection with a generous
 // deadline — never the shared read connection, which uses a short timeout tuned
-// for "show" queries.
+// for "show" queries. A failure after the command was written is wrapped in
+// ErrNoReply, since BIRD may have acted on it.
 func (c *Client) oneShot(ctx context.Context, cmd string) (Reply, error) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "unix", c.path)
@@ -194,7 +201,7 @@ func (c *Client) oneShot(ctx context.Context, cmd string) (Reply, error) {
 	}
 	reply, err := readFrame(r)
 	if err != nil {
-		return Reply{}, ctxErr(ctx, err)
+		return Reply{}, fmt.Errorf("%w: %w", ErrNoReply, ctxErr(ctx, err))
 	}
 	return reply, nil
 }

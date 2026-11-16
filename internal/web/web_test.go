@@ -52,6 +52,10 @@ type fakeClient struct {
 	// reloadFailed is what BIRD lists as "8006-<proto>: reload failed" inside an
 	// otherwise accepted reload.
 	reloadFailed []string
+	// timeoutErr fails only `configure timeout`; afterTimeout runs once BIRD has
+	// armed the config, to break something in the steps that follow.
+	timeoutErr   error
+	afterTimeout func()
 }
 
 func (f *fakeClient) result(ok bool, msg string) (birdc.ConfigureResult, error) {
@@ -72,6 +76,12 @@ func (f *fakeClient) ConfigureTimeout(_ context.Context, seconds int, soft bool)
 	defer func() { f.timeoutReturned = time.Now() }()
 	if f.cfgErr != nil {
 		return birdc.ConfigureResult{}, f.cfgErr
+	}
+	if f.timeoutErr != nil {
+		return birdc.ConfigureResult{}, f.timeoutErr
+	}
+	if f.afterTimeout != nil {
+		f.afterTimeout()
 	}
 	return f.result(!f.cfgApplyFail, "applied")
 }

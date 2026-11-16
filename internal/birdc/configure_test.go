@@ -3,6 +3,7 @@ package birdc
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net"
 	"path/filepath"
 	"strings"
@@ -98,5 +99,46 @@ func TestReloadReportsFailedProtocols(t *testing.T) {
 	want := []string{"direct1", "b_norr", "edge2"}
 	if strings.Join(res.Failed, ",") != strings.Join(want, ",") {
 		t.Fatalf("Failed = %v, want %v", res.Failed, want)
+	}
+}
+
+// silentAfterCommand serves the banner, reads one command and hangs up without
+// answering: BIRD got the command but its reply never reached birdy.
+func silentAfterCommand(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "bird.ctl")
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			conn.Write([]byte(fixtureBanner))
+			bufio.NewReader(conn).ReadString('\n')
+			conn.Close()
+		}
+	}()
+	t.Cleanup(func() { ln.Close() })
+	return path
+}
+
+// A `configure timeout` whose reply is lost may have armed the new config: the
+// caller must be able to tell that apart from a command BIRD never received,
+// which certainly changed nothing.
+func TestConfigureErrorAfterSendIsUncertain(t *testing.T) {
+	c := &Client{path: silentAfterCommand(t)}
+	_, err := c.ConfigureTimeout(context.Background(), 60, true)
+	if !errors.Is(err, ErrNoReply) {
+		t.Fatalf("lost reply: err = %v, want ErrNoReply", err)
+	}
+
+	c = &Client{path: filepath.Join(t.TempDir(), "no-bird.ctl")}
+	_, err = c.ConfigureTimeout(context.Background(), 60, true)
+	if err == nil || errors.Is(err, ErrNoReply) {
+		t.Fatalf("unreachable socket: err = %v, want a plain error (nothing was sent)", err)
 	}
 }

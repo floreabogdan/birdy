@@ -3,6 +3,8 @@ package web
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -800,4 +802,163 @@ func cancelledCtx() context.Context {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	return ctx
+}
+
+// ownedPrev seeds a single-file config birdy owns, so a test can prove it is the
+// one on disk afterwards.
+func ownedPrev(t *testing.T, env *testEnv) []byte {
+	t.Helper()
+	prev := []byte("# prev\n")
+	if err := os.WriteFile(env.confPath, prev, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := env.store.SetAppliedConfigHash(hashBytes(prev)); err != nil {
+		t.Fatal(err)
+	}
+	return prev
+}
+
+// Once `configure timeout` has been written to BIRD, a lost reply does not mean
+// nothing happened: BIRD may be running the new config armed. Recording nothing
+// would let the next apply stack on it (making it BIRD's undo target), so birdy
+// records it as pending — a confirm then tells the two cases apart.
+func TestApplyLostTimeoutReplyIsRecordedAsPending(t *testing.T) {
+	env := applyReady(t)
+	prev := ownedPrev(t, env)
+	env.fc.timeoutErr = fmt.Errorf("%w: birdc: read: EOF", birdc.ErrNoReply)
+
+	rec := env.do(t, "POST", "/apply", nil)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("apply: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, ok, _ := env.store.PendingConfigVersion(); !ok {
+		t.Fatal("an apply BIRD may have armed must be recorded as pending")
+	}
+	if data, _ := os.ReadFile(env.confPath); string(data) != string(prev) {
+		t.Errorf("the previous config must be on disk while it may be armed, got %q", data)
+	}
+	if loc := flashOf(rec); !strings.Contains(loc, "may be running") {
+		t.Errorf("the operator should be told BIRD may be running it, flash=%q", loc)
+	}
+	// And nothing stacks on it.
+	if loc := flashOf(env.do(t, "POST", "/apply", nil)); !strings.Contains(loc, "pending") {
+		t.Errorf("a second apply must be refused while the first may be armed, flash=%q", loc)
+	}
+}
+
+// A failure before the command reached BIRD changed nothing: roll back, record
+// nothing.
+func TestApplyUnsentTimeoutRollsBack(t *testing.T) {
+	env := applyReady(t)
+	prev := ownedPrev(t, env)
+	env.fc.timeoutErr = errors.New("birdc: connect /run/bird/bird.ctl: connection refused")
+
+	env.do(t, "POST", "/apply", nil)
+	if _, ok, _ := env.store.PendingConfigVersion(); ok {
+		t.Error("an apply that never reached BIRD must not be recorded")
+	}
+	if data, _ := os.ReadFile(env.confPath); string(data) != string(prev) {
+		t.Errorf("the previous config must be restored, got %q", data)
+	}
+}
+
+// If the previous config cannot be put back on disk after BIRD armed the new
+// one, BIRD is still armed: the apply must be recorded so it can be confirmed or
+// rolled back, and resolving it must make another attempt at the files.
+func TestApplyRecordedWhenPostArmRestoreFails(t *testing.T) {
+	env := applyReady(t)
+	prev := ownedPrev(t, env)
+	var hidden, backupConf string
+	env.fc.afterTimeout = func() {
+		dirs, _ := filepath.Glob(filepath.Join(filepath.Dir(env.confPath), "bird-backups", "bird.*"))
+		if len(dirs) != 1 {
+			t.Fatalf("want one backup dir, got %v", dirs)
+		}
+		backupConf = filepath.Join(dirs[0], "bird.conf")
+		hidden = backupConf + ".away"
+		if err := os.Rename(backupConf, hidden); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rec := env.do(t, "POST", "/apply", nil)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("apply: code=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if _, ok, _ := env.store.PendingConfigVersion(); !ok {
+		t.Fatal("BIRD is armed; the apply must be recorded even though the restore failed")
+	}
+	if loc := flashOf(rec); !strings.Contains(loc, "WARNING") {
+		t.Errorf("the operator should be warned the files were not restored, flash=%q", loc)
+	}
+
+	// The backup is readable again; rolling back must put it on disk.
+	if err := os.Rename(hidden, backupConf); err != nil {
+		t.Fatal(err)
+	}
+	env.do(t, "POST", "/apply/rollback", nil)
+	if data, _ := os.ReadFile(env.confPath); string(data) != string(prev) {
+		t.Errorf("rolling back must restore the previous config on disk, got %q", data)
+	}
+}
+
+// If the version cannot be recorded, nothing would ever resolve the armed config
+// and the next apply would stack on it. BIRD's state is known at that point —
+// birdy armed it a moment ago — so it is undone right away.
+func TestApplyUndoneWhenVersionCannotBeRecorded(t *testing.T) {
+	env := applyReady(t)
+	prev := ownedPrev(t, env)
+	sabotageDB(t, env, "CREATE TRIGGER no_versions BEFORE INSERT ON config_versions BEGIN SELECT RAISE(ABORT, 'disk full'); END")
+
+	rec := env.do(t, "POST", "/apply", url.Values{"soft": {"on"}, "ackRisks": {"on"}})
+	if got := strings.Join(env.fc.calls, ","); got != "check,timeout,reload,undo,reload" {
+		t.Errorf("calls = %q, want the armed config undone and the filters re-run", got)
+	}
+	if data, _ := os.ReadFile(env.confPath); string(data) != string(prev) {
+		t.Errorf("the previous config must be on disk, got %q", data)
+	}
+	if loc := flashOf(rec); !strings.Contains(loc, "undone") {
+		t.Errorf("the operator should be told the apply was undone, flash=%q", loc)
+	}
+}
+
+// A confirm that cannot write the new files must not leave half of them on disk:
+// a BIRD restart would load that mix. Put the previous config back; BIRD is
+// still armed, so the apply stays pending for another try.
+func TestConfirmWriteFailureRestoresFiles(t *testing.T) {
+	env := applyReady(t)
+	prev := ownedPrev(t, env)
+	env.do(t, "POST", "/apply", nil)
+	pending, ok, _ := env.store.PendingConfigVersion()
+	if !ok {
+		t.Fatal("apply should leave a pending version")
+	}
+	var set struct {
+		Includes []struct{ Name string } `json:"includes"`
+	}
+	if err := json.Unmarshal([]byte(pending.ConfigFiles), &set); err != nil || len(set.Includes) < 2 {
+		t.Fatalf("pending file set: %v (%d includes)", err, len(set.Includes))
+	}
+	// A directory where the second include goes makes the write fail after the
+	// first include is already in place.
+	dir := filepath.Dir(env.confPath)
+	blocker := filepath.Join(dir, filepath.FromSlash(set.Includes[1].Name))
+	if err := os.MkdirAll(filepath.Join(blocker, "x"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	env.fc.calls = nil
+
+	env.do(t, "POST", "/apply/confirm", nil)
+	if data, _ := os.ReadFile(env.confPath); string(data) != string(prev) {
+		t.Errorf("bird.conf must be the previous config, got %q", data)
+	}
+	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(set.Includes[0].Name))); !os.IsNotExist(err) {
+		t.Errorf("the include written before the failure must be removed again (stat err %v)", err)
+	}
+	if len(env.fc.calls) != 0 {
+		t.Errorf("BIRD must not be asked to confirm what is not on disk, calls=%v", env.fc.calls)
+	}
+	if _, ok, _ := env.store.PendingConfigVersion(); !ok {
+		t.Error("BIRD is still armed; the apply must stay pending")
+	}
 }
