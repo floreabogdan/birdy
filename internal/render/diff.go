@@ -25,9 +25,6 @@ func (h Hunk) Header() string {
 
 // Diff computes a unified diff between old and new with the given amount of
 // context. An empty result means the two texts are identical.
-//
-// birdy diffs whole config files that are mostly identical between renders, so
-// a plain O(n*m) LCS is fine: a bird.conf is thousands of lines, not millions.
 func Diff(oldText, newText string, context int) []Hunk {
 	if oldText == newText {
 		return nil
@@ -36,7 +33,7 @@ func Diff(oldText, newText string, context int) []Hunk {
 		context = 0
 	}
 	oldLines, newLines := splitLines(oldText), splitLines(newText)
-	script := lcsScript(oldLines, newLines)
+	script := editScript(oldLines, newLines)
 	return hunks(script, context)
 }
 
@@ -58,46 +55,205 @@ type edit struct {
 	newLine int
 }
 
-func lcsScript(a, b []string) []edit {
-	n, m := len(a), len(b)
-	// lengths[i][j] = length of the LCS of a[i:] and b[j:]
-	lengths := make([][]int, n+1)
-	for i := range lengths {
-		lengths[i] = make([]int, m+1)
-	}
-	for i := n - 1; i >= 0; i-- {
-		for j := m - 1; j >= 0; j-- {
-			if a[i] == b[j] {
-				lengths[i][j] = lengths[i+1][j+1] + 1
-			} else {
-				lengths[i][j] = max(lengths[i+1][j], lengths[i][j+1])
+// editScript returns a shortest edit script turning a into b, with every run of
+// changes written as its removals followed by its additions.
+//
+// It runs on the router, on every Changes page load, over a bird.conf that
+// IRR-expanded prefix sets can push past 20,000 lines — so it must not cost
+// what a textbook LCS table does, (n+1)×(m+1) ints, about 3 GB at that size.
+// Instead: lines are interned to ints; the common head and tail, which is
+// nearly all of a config between two renders, are matched outright; lines only
+// one side has are set aside, since they can never match; and what is left is
+// aligned with Myers' O((n+m)·d) algorithm in linear space. Memory is
+// proportional to the two files, and time to their size times the number of
+// differing lines.
+func editScript(a, b []string) []edit {
+	ids := make(map[string]int, len(a))
+	intern := func(lines []string) []int {
+		out := make([]int, len(lines))
+		for i, l := range lines {
+			id, ok := ids[l]
+			if !ok {
+				id = len(ids)
+				ids[l] = id
 			}
+			out[i] = id
+		}
+		return out
+	}
+	x, y := intern(a), intern(b)
+
+	pre := 0
+	for pre < len(x) && pre < len(y) && x[pre] == y[pre] {
+		pre++
+	}
+	suf := 0
+	for suf < len(x)-pre && suf < len(y)-pre && x[len(x)-1-suf] == y[len(y)-1-suf] {
+		suf++
+	}
+	xm, ym := x[pre:len(x)-suf], y[pre:len(y)-suf]
+
+	// Keep only the lines the other side also has, remembering where each came
+	// from. Dropping the rest cannot shorten a common subsequence: a line only
+	// one file holds is an edit in every script. It is what keeps two mostly
+	// different files — a hand-written config before adoption — from costing
+	// the worst case.
+	inX := make(map[int]bool, len(xm))
+	for _, id := range xm {
+		inX[id] = true
+	}
+	inY := make(map[int]bool, len(ym))
+	for _, id := range ym {
+		inY[id] = true
+	}
+	var xs, ys, xAt, yAt []int
+	for i, id := range xm {
+		if inY[id] {
+			xs, xAt = append(xs, id), append(xAt, i)
+		}
+	}
+	for j, id := range ym {
+		if inX[id] {
+			ys, yAt = append(ys, id), append(yAt, j)
 		}
 	}
 
-	var out []edit
-	i, j := 0, 0
-	for i < n && j < m {
-		switch {
-		case a[i] == b[j]:
-			out = append(out, edit{' ', a[i], i + 1, j + 1})
-			i++
-			j++
-		case lengths[i+1][j] >= lengths[i][j+1]:
+	out := make([]edit, 0, len(a)+len(b)-pre-suf)
+	for k := range pre {
+		out = append(out, edit{' ', a[k], k + 1, k + 1})
+	}
+	i, j := pre, pre // next line of a and of b not yet written
+	advance := func(toA, toB int) {
+		for ; i < toA; i++ {
 			out = append(out, edit{'-', a[i], i + 1, 0})
-			i++
-		default:
+		}
+		for ; j < toB; j++ {
 			out = append(out, edit{'+', b[j], 0, j + 1})
-			j++
 		}
 	}
-	for ; i < n; i++ {
-		out = append(out, edit{'-', a[i], i + 1, 0})
+	for _, m := range matchLines(xs, ys, 0, 0, nil) {
+		mi, mj := pre+xAt[m[0]], pre+yAt[m[1]]
+		advance(mi, mj)
+		out = append(out, edit{' ', a[mi], mi + 1, mj + 1})
+		i, j = mi+1, mj+1
 	}
-	for ; j < m; j++ {
-		out = append(out, edit{'+', b[j], 0, j + 1})
+	advance(len(a)-suf, len(b)-suf)
+	for k := range suf {
+		mi, mj := len(a)-suf+k, len(b)-suf+k
+		out = append(out, edit{' ', a[mi], mi + 1, mj + 1})
 	}
 	return out
+}
+
+// matchLines appends to out, in order, the index pairs of a longest common
+// subsequence of a and b, offset by (ao, bo). It splits the problem at the
+// middle snake of a shortest edit path and recurses on each half, so it never
+// holds more than two diagonal vectors at a time.
+func matchLines(a, b []int, ao, bo int, out [][2]int) [][2]int {
+	n := 0
+	for n < len(a) && n < len(b) && a[n] == b[n] {
+		out = append(out, [2]int{ao + n, bo + n})
+		n++
+	}
+	a, b, ao, bo = a[n:], b[n:], ao+n, bo+n
+	s := 0
+	for s < len(a) && s < len(b) && a[len(a)-1-s] == b[len(b)-1-s] {
+		s++
+	}
+	a, b = a[:len(a)-s], b[:len(b)-s]
+	if len(a) > 0 && len(b) > 0 {
+		if x, y, ok := middleSnake(a, b); ok {
+			out = matchLines(a[:x], b[:y], ao, bo, out)
+			out = matchLines(a[x:], b[y:], ao+x, bo+y, out)
+		}
+	}
+	for k := range s {
+		out = append(out, [2]int{ao + len(a) + k, bo + len(b) + k})
+	}
+	return out
+}
+
+// middleSnake finds a point (x, y) that lies on a shortest edit path from (0, 0)
+// to (len(a), len(b)) by running Myers' greedy search forward from the start and
+// backward from the end until the two meet (Myers 1986, §4b; the bookkeeping
+// follows Neil Fraser's diff-match-patch bisect). Both halves either side of the
+// point need fewer edits than the whole, so recursing on them terminates. ok is
+// false when a and b have nothing in common. The caller has already stripped
+// any common head and tail, and neither slice is empty.
+func middleSnake(a, b []int) (x, y int, ok bool) {
+	n, m := len(a), len(b)
+	maxD := (n + m + 1) / 2
+	// Two spare slots: the search starts from off+1, which is past 2·maxD when
+	// both slices hold a single line.
+	off, size := maxD, 2*maxD+2
+	// v1[off+k] is the furthest x reached on diagonal k going forward, v2 the
+	// same going backward from the end, measured from the end.
+	v1, v2 := make([]int, size), make([]int, size)
+	for i := range v1 {
+		v1[i], v2[i] = -1, -1
+	}
+	v1[off+1], v2[off+1] = 0, 0
+	delta := n - m
+	// With an odd delta the forward search is the one that meets the backward.
+	front := delta%2 != 0
+	// Diagonals that ran off the grid are not searched again.
+	k1start, k1end, k2start, k2end := 0, 0, 0, 0
+	for d := range maxD {
+		for k1 := -d + k1start; k1 <= d-k1end; k1 += 2 {
+			k1o := off + k1
+			var x1 int
+			if k1 == -d || (k1 != d && v1[k1o-1] < v1[k1o+1]) {
+				x1 = v1[k1o+1]
+			} else {
+				x1 = v1[k1o-1] + 1
+			}
+			y1 := x1 - k1
+			for x1 < n && y1 < m && a[x1] == b[y1] {
+				x1++
+				y1++
+			}
+			v1[k1o] = x1
+			switch {
+			case x1 > n:
+				k1end += 2
+			case y1 > m:
+				k1start += 2
+			case front:
+				if k2o := off + delta - k1; k2o >= 0 && k2o < size && v2[k2o] != -1 && x1 >= n-v2[k2o] {
+					return x1, y1, true
+				}
+			}
+		}
+		for k2 := -d + k2start; k2 <= d-k2end; k2 += 2 {
+			k2o := off + k2
+			var x2 int
+			if k2 == -d || (k2 != d && v2[k2o-1] < v2[k2o+1]) {
+				x2 = v2[k2o+1]
+			} else {
+				x2 = v2[k2o-1] + 1
+			}
+			y2 := x2 - k2
+			for x2 < n && y2 < m && a[n-x2-1] == b[m-y2-1] {
+				x2++
+				y2++
+			}
+			v2[k2o] = x2
+			switch {
+			case x2 > n:
+				k2end += 2
+			case y2 > m:
+				k2start += 2
+			case !front:
+				if k1o := off + delta - k2; k1o >= 0 && k1o < size && v1[k1o] != -1 {
+					x1 := v1[k1o]
+					if x1 >= n-x2 {
+						return x1, x1 - (k1o - off), true
+					}
+				}
+			}
+		}
+	}
+	return 0, 0, false
 }
 
 // hunks groups the edit script into unified-diff hunks, keeping `context`
@@ -213,7 +369,7 @@ func SectionDiff(oldText string, in Input, context int) ([]FileChange, error) {
 		lineOf = append(lineOf, len(secs)-1)
 	}
 
-	script := lcsScript(oldLines, newLines)
+	script := editScript(oldLines, newLines)
 
 	perSec := make([][]edit, len(secs))
 	cur := 0

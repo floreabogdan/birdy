@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/netip"
 	"strings"
@@ -103,7 +104,10 @@ func (st *Settings) ValidateKernelPrefSrcV6() string {
 	if st.KernelPrefSrcV6 == "" {
 		return ""
 	}
-	addr, err := netip.ParseAddr(st.KernelPrefSrcV6)
+	addr, err := parseConfigAddr(st.KernelPrefSrcV6)
+	if errors.Is(err, errAddrZone) {
+		return zoneMsg
+	}
 	if err != nil || !addr.Is6() || addr.Is4In6() {
 		return "Enter an IPv6 address, or leave blank to let the kernel choose."
 	}

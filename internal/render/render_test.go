@@ -983,32 +983,165 @@ func TestBFDTimersRender(t *testing.T) {
 	}
 }
 
-func TestAcceptBlackholeRenders(t *testing.T) {
+// customerChain is the shape RFC 7999 blackholing is meant for: CUST_IN opts
+// in and carries the hygiene checks, CUST_PFX is the customer's allow-list.
+func customerChain() (Input, store.Peer) {
+	in := baseInput()
+	in.PrefixSets = append(bogonSets(), store.PrefixSet{
+		ID: 30, Name: "CUST_PFX", Family: store.FamilyV4,
+		Entries: []store.PrefixEntry{{Prefix: "203.0.113.0/24"}, {Prefix: "198.51.100.0/24", Modifier: "{24,24}"}},
+	})
+	custIn := store.Policy{ID: 1, Name: "CUST_IN", Direction: store.DirImport,
+		DefaultRoute: store.DefaultReject, MinLenV4: 8, MaxLenV4: 24, MinLenV6: 12, MaxLenV6: 48,
+		RejectBogonPrefixes: true, RejectOwnASN: true, BogonASNs: store.BogonASNsAll, AcceptBlackhole: true}
+	custPfx := store.Policy{ID: 2, Name: "CUST_PFX", Direction: store.DirImport,
+		DefaultRoute: store.DefaultReject, AcceptOnlySetID: sql.NullInt64{Int64: 30, Valid: true}}
+	in.Policies = []store.Policy{custIn, custPfx}
+	p := ebgpPeer()
+	p.Role = store.RoleCustomer
+	p.ImportPolicies = []store.Policy{custIn, custPfx}
+	in.Peers = []store.Peer{p}
+	return in, p
+}
+
+// Import policies compose with AND, and a blackhole request is no exception.
+// It used to be accepted inside the opting-in policy's own function, and an
+// accept ends the whole filter: a customer whose chain was [CUST_IN, CUST_PFX]
+// could blackhole 8.8.8.8/32 — installed as a discard, tagged FROM_CUSTOMER and
+// re-announced upstream — because CUST_PFX never ran, and neither did the
+// bogon or own-ASN checks after the accept.
+func TestBlackholeRunsTheWholeChain(t *testing.T) {
+	in, _ := customerChain()
+	cfg := mustRender(t, in)
+
+	for _, fn := range []string{"function imp_CUST_IN_v4", "function imp_CUST_PFX_v4", "function bh_CUST_IN_v4", "function bh_CUST_PFX_v4"} {
+		body := block(t, cfg, fn)
+		if strings.Contains(body, "accept;") || strings.Contains(body, "RTD_BLACKHOLE") {
+			t.Errorf("an import policy only ever rejects; %s accepts or discards:\n%s", fn, body)
+		}
+	}
+
+	f := block(t, cfg, "filter ebgp_in_edge_v4")
+	want := "\tif (65535, 666) ~ bgp_community && net.len = 32 then {\n" +
+		"\t\tbh_CUST_IN_v4();\n" +
+		"\t\tbh_CUST_PFX_v4();\n" +
+		"\t\tdest = RTD_BLACKHOLE;\n" +
+		"\t} else {\n" +
+		"\t\timp_CUST_IN_v4();\n" +
+		"\t\timp_CUST_PFX_v4();\n" +
+		"\t}\n"
+	if !strings.Contains(f, want) {
+		t.Errorf("a blackhole request must pass every policy in the chain before it is discarded:\n%s", f)
+	}
+
+	// The exemption is the length, and nothing else.
+	bh := block(t, cfg, "function bh_CUST_IN_v4")
+	if strings.Contains(bh, "net.len") {
+		t.Errorf("a blackhole request is exempt from the length bounds:\n%s", bh)
+	}
+	for _, check := range []string{
+		`if net ~ BOGONS_V4 then reject "bogon prefix";`,
+		`if bgp_path ~ [65551] then reject "our own ASN in AS path";`,
+		`if bgp_path ~ BOGON_ASNS then reject "bogon ASN in AS path";`,
+	} {
+		if !strings.Contains(bh, check) {
+			t.Errorf("a blackhole request must still pass %q:\n%s", check, bh)
+		}
+	}
+	// The allow-list is read as "inside one of these", from every allow-list in
+	// the chain — not just one in the policy that opted in.
+	if pfx := block(t, cfg, "function bh_CUST_PFX_v4"); !strings.Contains(pfx,
+		"\tif ! (net ~ [ 203.0.113.0/24+, 198.51.100.0/24+ ]) then reject;\t# not inside CUST_PFX") {
+		t.Errorf("a blackhole request must fall inside the allow-list:\n%s", pfx)
+	}
+	// Ordinary routes are filtered exactly as before.
+	if fn := block(t, cfg, "function imp_CUST_IN_v4"); !strings.Contains(fn, `if net.len < 8 || net.len > 24 then reject "prefix length out of bounds";`) {
+		t.Errorf("ordinary routes keep their length bounds:\n%s", fn)
+	}
+}
+
+// RFC 7999 §3.3: honour a blackhole only for a prefix the peer is authorised to
+// announce. The allow-lists are birdy's only record of that, so a chain that
+// opts in without one honours nothing — the tagged host route is filtered like
+// any other route — and lint says why.
+func TestBlackholeNeedsAnAllowList(t *testing.T) {
 	in := baseInput()
 	pol := store.Policy{ID: 1, Name: "CUST_IN", Direction: store.DirImport,
 		DefaultRoute: store.DefaultReject, MinLenV4: 8, MaxLenV4: 24, AcceptBlackhole: true}
 	in.Policies = []store.Policy{pol}
 	p := ebgpPeer()
+	p.Role = store.RoleCustomer
 	p.ImportPolicies = []store.Policy{pol}
 	in.Peers = []store.Peer{p}
 
-	out, err := Config(in)
-	if err != nil {
-		t.Fatal(err)
+	cfg := mustRender(t, in)
+	if strings.Contains(cfg, "RTD_BLACKHOLE") || strings.Contains(cfg, "bh_CUST_IN") {
+		t.Errorf("without an allow-list no blackhole may be honoured:\n%s", cfg)
 	}
-	// v4 function: blackhole accept for a /32, before the length reject.
-	fn := out[strings.Index(out, "function imp_CUST_IN_v4"):]
-	fn = fn[:strings.Index(fn, "\n}")]
-	if !strings.Contains(fn, "(65535, 666) ~ bgp_community && net.len = 32") {
-		t.Errorf("v4 should accept a blackhole /32:\n%s", fn)
+	if !strings.Contains(block(t, cfg, "function imp_CUST_IN_v4"), "prefix length out of bounds") {
+		t.Error("the tagged host route still meets the length bounds")
 	}
-	if !strings.Contains(fn, "dest = RTD_BLACKHOLE;") {
-		t.Error("a blackhole route should be discarded")
+	var found bool
+	for _, w := range Lint(in) {
+		if w.Peer == p.Name && strings.Contains(w.Message, "blackhole") {
+			found = true
+		}
 	}
-	bh := strings.Index(fn, "RTD_BLACKHOLE")
-	lenReject := strings.Index(fn, "prefix length out of bounds")
-	if bh < 0 || lenReject < 0 || bh > lenReject {
-		t.Error("the blackhole accept must come before the prefix-length reject")
+	if !found {
+		t.Errorf("lint should say why the blackhole option does nothing: %+v", Lint(in))
+	}
+}
+
+// The blackhole form of a policy is rendered only where a chain uses it, so a
+// router that honours no blackholes renders byte for byte as before.
+func TestBlackholeFormOnlyWhereUsed(t *testing.T) {
+	in, _ := customerChain()
+	other := sanityPolicy()
+	other.ID = 9
+	in.Policies = append(in.Policies, other)
+	up := ebgpPeer()
+	up.ID, up.Name, up.NeighborIP = 2, "upstream", "198.51.100.9"
+	up.ImportPolicies = []store.Policy{other}
+	in.Peers = append(in.Peers, up)
+
+	cfg := mustRender(t, in)
+	if strings.Contains(cfg, "bh_IMPORT_SANITY") {
+		t.Errorf("a policy no blackhole chain uses needs no blackhole form:\n%s", cfg)
+	}
+	if strings.Contains(block(t, cfg, "filter ebgp_in_upstream"), "65535, 666") {
+		t.Error("a session that honours no blackholes must not test for them")
+	}
+
+	in.Peers = in.Peers[1:]
+	if cfg := mustRender(t, in); strings.Contains(cfg, "bh_") || strings.Contains(cfg, "RTD_BLACKHOLE") {
+		t.Errorf("with no chain honouring blackholes nothing about them is rendered:\n%s", cfg)
+	}
+}
+
+// RPKI is not consulted for a blackhole request: a ROA for a /24 marks every
+// /32 inside it invalid on length (RFC 9319 discourages a maxLength that would
+// cover it), so ROV would refuse exactly the requests RTBH exists for. What
+// authorises the request is the allow-list coverage above; the origin AS set
+// still applies.
+func TestBlackholeFormSkipsRPKIKeepsOriginSet(t *testing.T) {
+	in, p := customerChain()
+	in.ASSets = []store.ASSet{{ID: 40, Name: "CUST_ASNS", Entries: []store.ASNRange{{Low: 64497, High: 64497}}}}
+	in.RPKIServers = []store.RPKIServer{{Name: "rtr", Host: "192.0.2.10", Port: 323, Enabled: true}}
+	in.Policies[1].ROV = store.ROVReject
+	in.Policies[1].OriginASSetID = sql.NullInt64{Int64: 40, Valid: true}
+	p.ImportPolicies = in.Policies
+	in.Peers = []store.Peer{p}
+
+	cfg := mustRender(t, in)
+	bh := block(t, cfg, "function bh_CUST_PFX_v4")
+	if strings.Contains(bh, "roa_check") {
+		t.Errorf("RPKI must not judge a blackhole request:\n%s", bh)
+	}
+	if !strings.Contains(bh, "if ! (bgp_path.last ~ CUST_ASNS) then reject;") {
+		t.Errorf("the origin AS set still applies to a blackhole request:\n%s", bh)
+	}
+	if !strings.Contains(block(t, cfg, "function imp_CUST_PFX_v4"), "roa_check") {
+		t.Error("ordinary routes keep RPKI validation")
 	}
 }
 
@@ -1036,49 +1169,19 @@ func TestDrainSurvivesImportLocalPref(t *testing.T) {
 	}
 }
 
-// RFC 7999 §3.2: a blackhole is honoured only for a host route covered by the
-// peer's allow-list, so a peer cannot null-route an address it does not hold.
-func TestBlackholeRequiresAllowListCoverage(t *testing.T) {
-	in := baseInput()
-	in.PrefixSets = append(bogonSets(), store.PrefixSet{
-		ID: 30, Name: "CUST_PFX", Family: store.FamilyV4,
-		Entries: []store.PrefixEntry{{Prefix: "203.0.113.0/24"}},
-	})
-	pol := store.Policy{ID: 1, Name: "CUST_IN", Direction: store.DirImport,
-		DefaultRoute: store.DefaultReject, AcceptBlackhole: true,
-		AcceptOnlySetID: sql.NullInt64{Int64: 30, Valid: true}}
-	in.Policies = []store.Policy{pol}
-	p := ebgpPeer()
-	p.ImportPolicies = []store.Policy{pol}
-	in.Peers = []store.Peer{p}
-
-	fn := block(t, mustRender(t, in), "function imp_CUST_IN_v4")
-	if !strings.Contains(fn, "(65535, 666) ~ bgp_community && net.len = 32 && net ~ [ 203.0.113.0/24+ ]") {
-		t.Errorf("blackhole accept should be gated on allow-list coverage:\n%s", fn)
-	}
-}
-
-// A blackhole accepted inside a policy still carries the origin tag: the tag is
-// added before the policy chain, so an accept mid-chain cannot skip it (which
-// would leave the route untagged and unselectable by every export policy).
+// A blackhole request carries the origin tag like any accepted route, or no
+// export policy could select it: the tag is added ahead of the chain, before
+// the filter branches on whether the route is a blackhole request.
 func TestBlackholeKeepsOriginTag(t *testing.T) {
-	in := baseInput()
-	pol := store.Policy{ID: 1, Name: "CUST_IN", Direction: store.DirImport,
-		DefaultRoute: store.DefaultReject, AcceptBlackhole: true}
-	in.Policies = []store.Policy{pol}
-	p := ebgpPeer()
-	p.Role = store.RoleCustomer
-	p.ImportPolicies = []store.Policy{pol}
-	in.Peers = []store.Peer{p}
-
+	in, _ := customerChain()
 	f := block(t, mustRender(t, in), "filter ebgp_in_edge_v4")
 	tag := strings.Index(f, "bgp_large_community.add(FROM_CUSTOMER);")
-	call := strings.Index(f, "imp_CUST_IN_v4();")
-	if tag < 0 || call < 0 {
-		t.Fatalf("expected the origin tag and the policy call:\n%s", f)
+	branch := strings.Index(f, "(65535, 666) ~ bgp_community")
+	if tag < 0 || branch < 0 {
+		t.Fatalf("expected the origin tag and the blackhole branch:\n%s", f)
 	}
-	if tag > call {
-		t.Errorf("origin tag must be added BEFORE the policy call so a blackhole accept keeps it:\n%s", f)
+	if tag > branch {
+		t.Errorf("the origin tag must be added before the chain, blackhole branch included:\n%s", f)
 	}
 }
 
@@ -1172,5 +1275,42 @@ func TestRenderRefusesTwoSymbolsOfOneName(t *testing.T) {
 	in.Peers, in.RawConfig = []store.Peer{p}, "/*\ndefine LOCAL_ASN = 1;\n*/"
 	if _, err := Config(in); err != nil {
 		t.Errorf("raw config must not be scanned for symbols: %v", err)
+	}
+}
+
+// Every symbol the renderer builds from a name must fit BIRD's 64 characters
+// when the name is as long as the store allows. A new derived symbol with a
+// longer prefix or suffix fails here, rather than on a router's next apply.
+func TestDerivedSymbolsFitBIRDAtMaximumNameLength(t *testing.T) {
+	long := func(kind string, n int) string { return kind + strings.Repeat("x", n-len(kind)) }
+	in, p := customerChain()
+	set := in.PrefixSets[len(in.PrefixSets)-1]
+	set.Name, set.Originate = long("SET", store.MaxPrefixSetNameLen), true
+	in.PrefixSets[len(in.PrefixSets)-1] = set
+	in.Policies[0].Name = long("IMP", store.MaxPolicyNameLen)
+	exp := store.Policy{ID: 3, Name: long("EXP", store.MaxPolicyNameLen), Direction: store.DirExport, AnnounceEverything: true}
+	in.Policies = append(in.Policies, exp)
+	p.Name = long("peer", store.MaxPeerNameLen)
+	p.ImportPolicies, p.ExportPolicies = in.Policies[:2], []store.Policy{exp}
+	tmpl := store.PeerTemplate{ID: 1, Name: long("TMPL", 63), Role: store.RoleCustomer, ImportLimitAction: "restart"}
+	p.TemplateID, p.TemplateName = sql.NullInt64{Int64: 1, Valid: true}, tmpl.Name
+	in.Templates = []store.PeerTemplate{tmpl}
+	ibgp := ebgpPeer()
+	ibgp.ID, ibgp.Name, ibgp.Role, ibgp.RemoteASN = 2, long("core", store.MaxPeerNameLen), store.RoleIBGP, in.LocalASN
+	ibgp.NeighborIP, ibgp.NextHopSelf = "192.0.2.20", true
+	ibgp.ImportPolicies, ibgp.ExportPolicies = in.Policies[1:2], []store.Policy{exp}
+	in.Peers = []store.Peer{p, ibgp}
+
+	var longest string
+	for _, m := range symbolDecl.FindAllStringSubmatch(mustRender(t, in), -1) {
+		if len(m[2]) > len(longest) {
+			longest = m[2]
+		}
+		if len(m[2]) > 64 {
+			t.Errorf("%s %s is %d characters; BIRD refuses more than 64", m[1], m[2], len(m[2]))
+		}
+	}
+	if len(longest) != 64 {
+		t.Errorf("the caps should be tight: the longest symbol is %d characters (%s)", len(longest), longest)
 	}
 }

@@ -1,9 +1,9 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/floreabogdan/birdy/internal/store"
@@ -109,13 +109,17 @@ func (s *Server) handleCommunitySave(w http.ResponseWriter, r *http.Request) {
 		} else {
 			err = s.store.UpdateCommunityDef(cd)
 		}
-		if err != nil {
-			if isUniqueViolation(err) {
-				errs["name"] = "A community with this name already exists."
-			} else {
-				s.serverError(w, "save community", err)
-				return
-			}
+		var inUse *store.CommunityInUseError
+		switch {
+		case err == nil:
+		case isUniqueViolation(err):
+			errs["name"] = "A community with this name already exists."
+		case errors.As(err, &inUse):
+			errs["name"] = "Still referenced by name from " + strings.Join(inUse.Users, ", ") +
+				", so it cannot be renamed. Point them at another community first, or keep this name."
+		default:
+			s.serverError(w, "save community", err)
+			return
 		}
 	}
 	if len(errs) == 0 {
@@ -187,42 +191,9 @@ func (s *Server) checkCommunityRefs(text string) string {
 }
 
 // communityInUse lists the peers, peer templates and policies that reference a
-// community by name. A template counts even with no peers linked: attaching one
-// later copies its references onto the peer.
+// community by name.
 func (s *Server) communityInUse(name string) ([]string, error) {
-	var users []string
-	peers, err := s.store.ListPeers()
-	if err != nil {
-		return nil, err
-	}
-	for _, p := range peers {
-		if slices.Contains(store.NamedCommunityRefs(p.ExportCommunities), name) {
-			users = append(users, "peer "+p.Name)
-		}
-		if slices.Contains(store.NamedCommunityRefs(p.ImportCommunities), name) {
-			users = append(users, "peer "+p.Name)
-		}
-	}
-	templates, err := s.store.ListPeerTemplates()
-	if err != nil {
-		return nil, err
-	}
-	for _, t := range templates {
-		if slices.Contains(store.NamedCommunityRefs(t.ExportCommunities), name) ||
-			slices.Contains(store.NamedCommunityRefs(t.ImportCommunities), name) {
-			users = append(users, "peer template "+t.Name)
-		}
-	}
-	policies, err := s.store.ListPolicies()
-	if err != nil {
-		return nil, err
-	}
-	for _, pol := range policies {
-		if slices.Contains(store.NamedCommunityRefs(pol.MatchCommunity), name) {
-			users = append(users, "policy "+pol.Name)
-		}
-	}
-	return users, nil
+	return s.store.CommunityUsers(name)
 }
 
 func (s *Server) renderCommunityForm(w http.ResponseWriter, v communityFormView) {
