@@ -133,3 +133,17 @@ func TestSMTPSendCompletes(t *testing.T) {
 		t.Fatalf("send to a well-behaved server: %v", err)
 	}
 }
+
+// STARTTLS mode is a promise that mail — alerts, and the config backup after
+// every apply — does not cross the network in the clear. A server that does not
+// offer STARTTLS (or an attacker stripping the offer from its EHLO reply) must
+// fail the send, not quietly downgrade it to plaintext.
+func TestStartTLSRefusesPlaintextFallback(t *testing.T) {
+	host, port := fakeSMTP(t, "") // its EHLO reply offers no STARTTLS
+	d := emailDest("mail", host, port)
+	d.SMTPSecurity = store.SMTPStartTLS
+	err := NewDispatcher(openStore(t), nil, 0).SendTest(d)
+	if err == nil || !strings.Contains(err.Error(), "STARTTLS") {
+		t.Fatalf("err = %v, want a refusal naming STARTTLS", err)
+	}
+}

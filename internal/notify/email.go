@@ -49,10 +49,13 @@ func sendSMTP(d store.Destination, tos []string, msg string, timeout time.Durati
 	defer client.Close()
 
 	if d.SMTPSecurity == store.SMTPStartTLS {
-		if ok, _ := client.Extension("STARTTLS"); ok {
-			if err := client.StartTLS(&tls.Config{ServerName: d.SMTPHost}); err != nil {
-				return fmt.Errorf("starttls: %w", err)
-			}
+		// Fail closed: the offer arrives in plaintext, so anyone on the path can
+		// strip it, and falling back would send the login and the mail in the clear.
+		if ok, _ := client.Extension("STARTTLS"); !ok {
+			return fmt.Errorf("the server did not offer STARTTLS, so nothing was sent; choose no encryption for this destination if plaintext is acceptable")
+		}
+		if err := client.StartTLS(&tls.Config{ServerName: d.SMTPHost}); err != nil {
+			return fmt.Errorf("starttls: %w", err)
 		}
 	}
 	if auth != nil {
