@@ -69,41 +69,125 @@ func TestOpenCreatesPrivateDatabase(t *testing.T) {
 	}
 }
 
-// An install made by an older birdy has a 0644 database; opening it must
-// tighten the file and any sidecars already lying next to it, with no operator
-// action.
-func TestOpenTightensExistingDatabase(t *testing.T) {
+// An install made by an older birdy has a 0644 database; opening it must stop
+// every local user reading it, with no operator action. Only the "other" bits
+// go: the group bits are the operator's (a backup job reading the file through
+// its group must keep working after the upgrade), and so are the owner's.
+func TestOpenStripsOtherAccessFromExistingDatabase(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX permission bits")
 	}
-	path := filepath.Join(t.TempDir(), "birdy.db")
-	if err := os.WriteFile(path, nil, 0o644); err != nil {
+	for _, tc := range []struct{ before, after os.FileMode }{
+		{0o644, 0o640}, {0o640, 0o640}, {0o666, 0o660}, {0o660, 0o660}, {0o604, 0o600}, {0o600, 0o600},
+	} {
+		path := filepath.Join(t.TempDir(), "birdy.db")
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(path, tc.before); err != nil { // exact, whatever the umask
+			t.Fatal(err)
+		}
+		// A second connection held open keeps the sidecars (created with the
+		// main file's mode) on disk, the way a crashed or still-running process
+		// would.
+		raw, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := raw.Exec(`CREATE TABLE unrelated (x INTEGER)`); err != nil {
+			t.Fatal(err)
+		}
+		if got := mode(t, path+"-wal"); got != tc.before {
+			t.Fatalf("setup: -wal mode = %o, want %o", got, tc.before)
+		}
+
+		st, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range []string{path, path + "-wal", path + "-shm"} {
+			if got := mode(t, p); got != tc.after {
+				t.Errorf("%s: mode %o became %o, want %o", filepath.Base(p), tc.before, got, tc.after)
+			}
+		}
+		st.Close()
+		raw.Close()
+	}
+}
+
+// "birdy server" must keep starting on an install whose birdy.db is a symlink
+// (0.7.0 followed it), so it has its own explicit entry point; plain Open — what
+// root-run "birdy init" uses — keeps refusing.
+func TestOpenFollowingSymlink(t *testing.T) {
+	dir := t.TempDir()
+	realDir := filepath.Join(dir, "data")
+	if err := os.Mkdir(realDir, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	// A second connection held open keeps the (0644) sidecars on disk, the way a
-	// crashed or still-running process would.
-	raw, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)")
-	if err != nil {
-		t.Fatal(err)
+	target := filepath.Join(realDir, "real.db")
+	link := filepath.Join(dir, "birdy.db")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
 	}
-	defer raw.Close()
-	if _, err := raw.Exec(`CREATE TABLE unrelated (x INTEGER)`); err != nil {
-		t.Fatal(err)
+	if got, ok := SymlinkTarget(link); !ok || got != target {
+		t.Errorf("SymlinkTarget(link) = %q, %v; want %q, true", got, ok, target)
 	}
-	if got := mode(t, path+"-wal"); got != 0o644 {
-		t.Fatalf("setup: -wal mode = %o, want 644", got)
+	if got, ok := SymlinkTarget(target); ok {
+		t.Errorf("SymlinkTarget(regular or missing file) = %q, true", got)
 	}
 
-	st, err := Open(path)
+	// Dangling link: the target is created, private, as a fresh database.
+	st, err := OpenFollowingSymlink(link)
+	if err != nil {
+		t.Fatalf("server-style open through a symlink: %v", err)
+	}
+	if _, err := st.CreateUser("admin", "hash"); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		// SQLite keeps the sidecars next to the real file.
+		for _, p := range []string{target, target + "-wal", target + "-shm"} {
+			if got := mode(t, p); got != 0o600 {
+				t.Errorf("%s mode = %o, want 600", filepath.Base(p), got)
+			}
+		}
+	}
+	st.Close()
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link itself must be left as it is: %v", err)
+	}
+
+	// Existing target, world-readable as 0.7.0 left it: followed and tightened.
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(target, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err = OpenFollowingSymlink(link)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
-	for _, p := range []string{path, path + "-wal", path + "-shm"} {
-		if got := mode(t, p); got != 0o600 {
-			t.Errorf("%s mode = %o, want 600", filepath.Base(p), got)
+	if ok, err := st.HasAnyUser(); err != nil || !ok {
+		t.Errorf("the linked database's contents were not found: %v %v", ok, err)
+	}
+	st.Close()
+	if runtime.GOOS != "windows" {
+		if got := mode(t, target); got != 0o640 {
+			t.Errorf("linked database mode = %o, want 640", got)
 		}
 	}
+
+	// The strict default is unchanged.
+	if st, err := Open(link); err == nil {
+		st.Close()
+		t.Fatal("plain Open followed the symlink")
+	}
+	// And a regular path behaves exactly like Open.
+	st, err = OpenFollowingSymlink(filepath.Join(dir, "plain.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
 }
 
 // birdy init runs as root in a directory the service account owns. A symlink
@@ -306,6 +390,23 @@ func TestPermissionWarnings(t *testing.T) {
 	}
 	if got := PermissionWarnings(path); len(got) != 0 {
 		t.Errorf("a 0750 directory and 0600 file should not warn: %v", got)
+	}
+	// Group access is the operator's choice (a backup job), not a finding.
+	if err := os.Chmod(path, 0o660); err != nil {
+		t.Fatal(err)
+	}
+	if got := PermissionWarnings(path); len(got) != 0 {
+		t.Errorf("a group-readable database should not warn: %v", got)
+	}
+	// "Other" access still on the file means Open could not remove it.
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := PermissionWarnings(path); len(got) != 1 || !strings.Contains(got[0], path) {
+		t.Errorf("a world-readable database should warn once, naming it: %v", got)
+	}
+	if err := os.Chmod(path, 0o640); err != nil {
+		t.Fatal(err)
 	}
 	for _, m := range []os.FileMode{0o755, 0o751, 0o754} {
 		if err := os.Chmod(dir, m); err != nil {

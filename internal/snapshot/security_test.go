@@ -471,3 +471,78 @@ func TestPreRestoreBackupIsComplete(t *testing.T) {
 		t.Errorf("unexpected file left after restore: %s", name)
 	}
 }
+
+// With birdy.db a symlink, "birdy server" still runs (as 0.7.0 did) but a
+// restore can never be applied: ApplyPendingRestore refuses to swap a file in
+// over a symlink, and that refusal stops the server starting. So the upload is
+// turned away here, while the server is up and can say why, instead of staging
+// something that would keep birdy down at its next restart.
+func TestStageRestoreRefusedWhenDatabaseIsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	realPath := filepath.Join(dir, "real.db")
+	s := openStore(t, realPath)
+	link := filepath.Join(dir, "birdy.db")
+	if err := os.Symlink(realPath, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	m := NewManager(link, filepath.Join(dir, "snapshots"), 3)
+	p, err := m.CreateTempSnapshot(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(p)
+
+	err = m.StageRestore(snap)
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("StageRestore with a symlinked database: err=%v", err)
+	}
+	if m.HasPendingRestore() {
+		t.Fatal("a restore that can never be applied was staged")
+	}
+}
+
+// A restore replaces the database file, and must not quietly change who can
+// read it: an install that shares the database with a group (a backup job,
+// birdy:birdy 0640) keeps that after restoring. Access for "other" is never
+// carried over.
+func TestRestoreKeepsDatabaseGroupAccess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission bits")
+	}
+	for _, tc := range []struct{ before, after os.FileMode }{{0o640, 0o640}, {0o600, 0o600}, {0o664, 0o660}} {
+		dir := t.TempDir()
+		dbPath := filepath.Join(dir, "birdy.db")
+		s := openStore(t, dbPath)
+		m := NewManager(dbPath, filepath.Join(dir, "snapshots"), 3)
+		p, err := m.CreateTempSnapshot(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snap, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Remove(p)
+		if err := m.StageRestore(snap); err != nil {
+			t.Fatal(err)
+		}
+		s.Close()
+		if err := os.Chmod(dbPath, tc.before); err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyPendingRestore(dbPath, nil); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != tc.after {
+			t.Errorf("database was %o before the restore and is %o after, want %o", tc.before, got, tc.after)
+		}
+	}
+}

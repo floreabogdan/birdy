@@ -270,6 +270,12 @@ func (m *Manager) StageRestore(data []byte) error {
 	if len(data) < 16 || string(data[:15]) != "SQLite format 3" {
 		return fmt.Errorf("snapshot: not a valid SQLite database file")
 	}
+	// ApplyPendingRestore refuses to swap a file in over a symlink, and a refused
+	// restore stops birdy starting. Say no now, while the UI is up to show the
+	// reason, rather than stage something that keeps birdy down after a restart.
+	if info, err := os.Lstat(m.dbPath); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+		return fmt.Errorf("snapshot: cannot restore while the database path %s is a symbolic link; point --db at the real file and try again", m.dbPath)
+	}
 	f, err := os.CreateTemp(filepath.Dir(m.dbPath), filepath.Base(m.dbPath)+".restore-upload-*") // O_EXCL, mode 0600
 	if err != nil {
 		return fmt.Errorf("snapshot: stage restore: %w", err)
@@ -335,7 +341,15 @@ func ApplyPendingRestore(dbPath string, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("snapshot: database to be replaced: %w", err)
 	}
+	// The restored database is private unless the one it replaces was shared
+	// with a group (a backup job reading it as 0640): then it keeps that, as it
+	// did when the restore was written into the existing file. Access for
+	// "other" is never carried over.
+	restoredMode := fs.FileMode(0o600)
 	if hasDB {
+		if info, err := os.Lstat(dbPath); err == nil {
+			restoredMode = info.Mode().Perm() &^ 0o007
+		}
 		// In WAL mode the most recent commits may exist only in the -wal file
 		// (always, after an unclean stop). The backup is the way back from a
 		// restore that turns out to be the wrong one, so it takes both: the two
@@ -365,11 +379,11 @@ func ApplyPendingRestore(dbPath string, log *slog.Logger) error {
 			return fmt.Errorf("snapshot: remove stale sidecar: %w", err)
 		}
 	}
-	// Staged files are created 0600; tighten one that was not (staged by an older
-	// birdy, or copied into place by hand) before it becomes the database.
-	if pendingInfo.Mode().Perm()&0o077 != 0 {
-		if err := os.Chmod(pending, 0o600); err != nil {
-			return fmt.Errorf("snapshot: restrict restored database: %w", err)
+	// Set before the rename, so the database never appears under its real name
+	// with the wrong mode.
+	if pendingInfo.Mode().Perm() != restoredMode {
+		if err := os.Chmod(pending, restoredMode); err != nil {
+			return fmt.Errorf("snapshot: set restored database permissions: %w", err)
 		}
 	}
 	// The staged file is in the same directory, so this is the atomic
