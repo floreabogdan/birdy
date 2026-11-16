@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	birdconf "github.com/floreabogdan/birdy/internal/render"
+	"github.com/floreabogdan/birdy/internal/store"
 )
 
 // The whole point of birdy is that the config it renders actually loads in BIRD.
@@ -112,5 +113,41 @@ func TestIntegrationBFDTimersParseInBird(t *testing.T) {
 	}
 	if !res.OK {
 		t.Fatalf("bird -p rejected the BFD timers:\n%s\n\n--- config ---\n%s", res.Output, cfg)
+	}
+}
+
+// The two production fixes — a pinned RTR version on an RPKI protocol and a
+// larger netlink receive buffer on the kernel protocols — must load in BIRD.
+func TestIntegrationRTRVersionAndNetlinkBufferParseInBird(t *testing.T) {
+	env := applyReady(t)
+
+	in, reason, err := env.srv.renderInput(false)
+	if err != nil {
+		t.Fatalf("build render input: %v", err)
+	}
+	if reason != "" {
+		t.Fatalf("model cannot render: %s", reason)
+	}
+	in.RPKIServers = append(in.RPKIServers, store.RPKIServer{
+		Name: "cf_pinned", Host: "rtr.rpki.cloudflare.com", Port: 8282, Enabled: true,
+		Refresh: 900, Retry: 90, Expire: 172800, MaxVersion: 1,
+	})
+	in.KernelNetlinkRxBufferMB = 32
+	cfg, err := birdconf.Config(in)
+	if err != nil {
+		t.Fatalf("render config: %v", err)
+	}
+	for _, want := range []string{"max version 1;", "netlink rx buffer 33554432;"} {
+		if !strings.Contains(cfg, want) {
+			t.Fatalf("rendered config is missing %q", want)
+		}
+	}
+
+	res := birdconf.Check(context.Background(), "bird", cfg)
+	if res.Skipped != "" {
+		t.Skipf("bird not available: %s", res.Skipped)
+	}
+	if !res.OK {
+		t.Fatalf("bird -p rejected the config:\n%s\n\n--- config ---\n%s", res.Output, cfg)
 	}
 }

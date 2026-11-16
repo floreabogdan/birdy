@@ -165,3 +165,27 @@ func TestKernelExportProtectsControlPlaneAddresses(t *testing.T) {
 		}
 	}
 }
+
+// The netlink receive buffer is BIRD's per-kernel-protocol option (BIRD uses the
+// largest across them), set in MiB in birdy and rendered in bytes. Unset, it is
+// not rendered at all: the option is Linux-only and BIRD 2.0.9+.
+func TestKernelNetlinkRxBuffer(t *testing.T) {
+	in := baseInput()
+	if out := mustRender(t, in); strings.Contains(out, "netlink rx buffer") {
+		t.Errorf("rendered a netlink buffer nobody asked for:\n%s", out)
+	}
+
+	in.KernelNetlinkRxBufferMB = 8
+	out := mustRender(t, in)
+	for _, proto := range []string{"protocol kernel kernel4 {", "protocol kernel kernel6 {"} {
+		i := strings.Index(out, proto)
+		if i < 0 {
+			t.Fatalf("missing %q", proto)
+		}
+		block := out[i:]
+		block = block[:strings.Index(block, "\n}\n")]
+		if !strings.Contains(block, "\tnetlink rx buffer 8388608;\n") {
+			t.Errorf("%s is missing \"netlink rx buffer 8388608;\":\n%s", proto, block)
+		}
+	}
+}

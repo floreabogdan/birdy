@@ -37,8 +37,15 @@ type Settings struct {
 	KernelPrefSrcV6 string
 	// KernelExportBGPV4 and KernelExportBGPV6 install only BIRD's selected BGP
 	// route for each prefix into the host FIB. They default off.
-	KernelExportBGPV4         bool
-	KernelExportBGPV6         bool
+	KernelExportBGPV4 bool
+	KernelExportBGPV6 bool
+	// KernelNetlinkRxBufferMB sets the kernel protocols' netlink receive buffer,
+	// in MiB; 0 leaves BIRD's default (the host's net.core.rmem_default, a few
+	// hundred KiB). A router exporting full tables to the FIB overflows that during
+	// bulk churn and logs "Kernel dropped some netlink messages", after which the
+	// FIB is out of step with BIRD until the next scan. Linux and BIRD 2.0.9+ only,
+	// which is why it is opt-in rather than a default.
+	KernelNetlinkRxBufferMB   int
 	UpdateChannel             string
 	InstanceAPITokenHash      string
 	InstanceAPITokenExpiresAt string
@@ -107,6 +114,19 @@ func (st *Settings) ValidateKernelPrefSrcV6() string {
 	return ""
 }
 
+// MaxNetlinkRxBufferMB bounds the netlink receive buffer. BIRD sets it with
+// SO_RCVBUFFORCE, so the kernel's rmem_max does not cap it and a typo of an
+// extra zero or two would pin that much kernel memory.
+const MaxNetlinkRxBufferMB = 1024
+
+// ValidateKernelNetlinkRxBuffer accepts 0 (BIRD's default) up to MaxNetlinkRxBufferMB.
+func (st *Settings) ValidateKernelNetlinkRxBuffer() string {
+	if st.KernelNetlinkRxBufferMB < 0 || st.KernelNetlinkRxBufferMB > MaxNetlinkRxBufferMB {
+		return fmt.Sprintf("Enter a size in MiB between 1 and %d, or 0 to keep BIRD's default.", MaxNetlinkRxBufferMB)
+	}
+	return ""
+}
+
 // GetSettings returns the single settings row, or (Settings{}, false, nil) if
 // birdy hasn't been initialized yet.
 func (s *Store) GetSettings() (Settings, bool, error) {
@@ -114,13 +134,13 @@ func (s *Store) GetSettings() (Settings, bool, error) {
 	row := s.db.QueryRow(`
 		SELECT router_label, local_asn, router_id, bird_socket_path, listen_addr, webhook_url,
 		       rr_cluster_id, kernel_prefsrc_v4, kernel_prefsrc_v6,
-		       kernel_export_bgp_v4, kernel_export_bgp_v6,
+		       kernel_export_bgp_v4, kernel_export_bgp_v6, kernel_netlink_rx_buffer_mb,
 		       update_channel, instance_api_token_hash, instance_api_token_expires_at,
 		       instance_api_token_revoked, raw_config, applied_config_hash, access_whitelist
 		FROM settings WHERE id = 1`)
 	err := row.Scan(&st.RouterLabel, &st.LocalASN, &st.RouterID, &st.BirdSocketPath,
 		&st.ListenAddr, &st.WebhookURL, &st.RRClusterID, &st.KernelPrefSrcV4, &st.KernelPrefSrcV6,
-		&st.KernelExportBGPV4, &st.KernelExportBGPV6, &st.UpdateChannel, &st.InstanceAPITokenHash,
+		&st.KernelExportBGPV4, &st.KernelExportBGPV6, &st.KernelNetlinkRxBufferMB, &st.UpdateChannel, &st.InstanceAPITokenHash,
 		&st.InstanceAPITokenExpiresAt, &st.InstanceAPITokenRevoked,
 		&st.RawConfig, &st.AppliedConfigHash,
 		&st.AccessWhitelist)
@@ -139,10 +159,10 @@ func (s *Store) SaveSettings(st Settings) error {
 	_, err := s.db.Exec(`
 		INSERT INTO settings (id, router_label, local_asn, router_id, bird_socket_path, listen_addr,
 		                      webhook_url, rr_cluster_id, kernel_prefsrc_v4, kernel_prefsrc_v6,
-		                      kernel_export_bgp_v4, kernel_export_bgp_v6, update_channel,
-		                      instance_api_token_hash, instance_api_token_expires_at,
+		                      kernel_export_bgp_v4, kernel_export_bgp_v6, kernel_netlink_rx_buffer_mb,
+		                      update_channel, instance_api_token_hash, instance_api_token_expires_at,
 		                      instance_api_token_revoked, raw_config, created_at, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			router_label = excluded.router_label,
 			local_asn = excluded.local_asn,
@@ -155,6 +175,7 @@ func (s *Store) SaveSettings(st Settings) error {
 			kernel_prefsrc_v6 = excluded.kernel_prefsrc_v6,
 			kernel_export_bgp_v4 = excluded.kernel_export_bgp_v4,
 			kernel_export_bgp_v6 = excluded.kernel_export_bgp_v6,
+			kernel_netlink_rx_buffer_mb = excluded.kernel_netlink_rx_buffer_mb,
 			update_channel = excluded.update_channel,
 			instance_api_token_hash = excluded.instance_api_token_hash,
 			instance_api_token_expires_at = excluded.instance_api_token_expires_at,
@@ -163,7 +184,7 @@ func (s *Store) SaveSettings(st Settings) error {
 			updated_at = excluded.updated_at
 	`, st.RouterLabel, st.LocalASN, st.RouterID, st.BirdSocketPath, st.ListenAddr, st.WebhookURL,
 		st.RRClusterID, st.KernelPrefSrcV4, st.KernelPrefSrcV6, st.KernelExportBGPV4,
-		st.KernelExportBGPV6, normalizedUpdateChannel(st.UpdateChannel), st.InstanceAPITokenHash,
+		st.KernelExportBGPV6, st.KernelNetlinkRxBufferMB, normalizedUpdateChannel(st.UpdateChannel), st.InstanceAPITokenHash,
 		st.InstanceAPITokenExpiresAt, st.InstanceAPITokenRevoked, st.RawConfig, ts, ts)
 	if err != nil {
 		return fmt.Errorf("store: save settings: %w", err)

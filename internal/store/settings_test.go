@@ -96,3 +96,37 @@ func TestSaveUpdateChannelCreatesSettingsRow(t *testing.T) {
 		t.Fatalf("update channel = %q", got.UpdateChannel)
 	}
 }
+
+func TestValidateKernelNetlinkRxBuffer(t *testing.T) {
+	for _, tc := range []struct {
+		mb int
+		ok bool
+	}{{0, true}, {1, true}, {64, true}, {MaxNetlinkRxBufferMB, true}, {-1, false}, {MaxNetlinkRxBufferMB + 1, false}} {
+		st := Settings{KernelNetlinkRxBufferMB: tc.mb}
+		if msg := st.ValidateKernelNetlinkRxBuffer(); (msg == "") != tc.ok {
+			t.Errorf("%d MB: msg = %q, want ok=%v", tc.mb, msg, tc.ok)
+		}
+	}
+}
+
+func TestSettingsKernelNetlinkRxBufferRoundTrip(t *testing.T) {
+	s := openTest(t)
+	st, _, err := s.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.KernelNetlinkRxBufferMB != 0 {
+		t.Fatalf("default = %d MB, want 0 (BIRD's own default)", st.KernelNetlinkRxBufferMB)
+	}
+	st.KernelNetlinkRxBufferMB = 32
+	if err := s.SaveSettings(st); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := s.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.KernelNetlinkRxBufferMB != 32 {
+		t.Errorf("KernelNetlinkRxBufferMB = %d after a round trip, want 32", got.KernelNetlinkRxBufferMB)
+	}
+}

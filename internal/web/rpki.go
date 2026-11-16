@@ -1,10 +1,13 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/floreabogdan/birdy/internal/birdc"
+	"github.com/floreabogdan/birdy/internal/poller"
 	"github.com/floreabogdan/birdy/internal/store"
 )
 
@@ -29,6 +32,8 @@ type rpkiView struct {
 	// Live indexes the running BIRD protocols so an RTR session's state shows
 	// up here once a config carrying it has been applied.
 	Live map[string]protoRow
+	// Feeds is what each running RTR session says about its data, by name.
+	Feeds map[string]rpkiFeedRow
 
 	// Policies is every import policy and what it does about RPKI — including the
 	// ones doing nothing, because "which of my policies is not validating, and who
@@ -65,6 +70,51 @@ type rpkiPolicyRow struct {
 
 func (r rpkiPolicyRow) Validates() bool { return r.ROV == store.ROVLog || r.ROV == store.ROVReject }
 
+// rpkiFeedRow is one RTR session as the RPKI page shows it: whether its data is
+// moving (session, serial and how long that serial has stood still) and how much
+// of it there is. The ROA count is the number to hold against another router on
+// the same cache; the age alone does not say "stale", because a healthy cache can
+// go hours without a new serial.
+type rpkiFeedRow struct {
+	Live         bool
+	Status       string
+	Established  bool
+	Version      int
+	HasSession   bool
+	SessionID    int64
+	Serial       int64
+	ROAs4, ROAs6 int
+	SerialAge    string
+}
+
+func feedRows(feeds map[string]poller.RPKIFeed, now time.Time) map[string]rpkiFeedRow {
+	rows := make(map[string]rpkiFeedRow, len(feeds))
+	for name, f := range feeds {
+		rows[name] = rpkiFeedRow{
+			Live: true, Status: f.Cache.Status, Established: f.Cache.Status == "Established",
+			Version: f.Cache.Version, HasSession: f.Cache.SessionID >= 0 && f.Cache.Serial >= 0,
+			SessionID: f.Cache.SessionID, Serial: f.Cache.Serial,
+			ROAs4: f.ROAs4, ROAs6: f.ROAs6, SerialAge: ageText(f.SerialAge(now)),
+		}
+	}
+	return rows
+}
+
+// ageText renders a duration at the precision an operator reads it at: "4d 2h",
+// "3h 10m", "7m".
+func ageText(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "under a minute"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+	default:
+		return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
+	}
+}
+
 type rpkiFormView struct {
 	Active   string
 	ReadOnly bool
@@ -91,7 +141,7 @@ func (s *Server) handleRPKIPage(w http.ResponseWriter, r *http.Request) {
 	serverPage := pageSlice(servers, sOff, sLimit)
 	v := rpkiView{Active: "rpki", ReadOnly: s.readOnly, Servers: serverPage,
 		ServerPager: pagerForNamed(r, "soffset", sOff, sLimit, len(serverPage), len(servers)),
-		Live:        s.liveStates(), Flash: s.flashMsg(w, r)}
+		Live:        s.liveStates(), Feeds: feedRows(s.poller.RPKIFeeds(), time.Now()), Flash: s.flashMsg(w, r)}
 	// Which peers ride on each import policy. A policy that validates nothing but
 	// carries every session is a very different thing from one nobody uses, and the
 	// old list of names could not tell them apart.
@@ -185,6 +235,7 @@ func rpkiFromForm(r *http.Request) store.RPKIServer {
 		Refresh:     formInt(r, "refresh"),
 		Retry:       formInt(r, "retry"),
 		Expire:      formInt(r, "expire"),
+		MaxVersion:  formInt(r, "maxVersion"),
 	}
 }
 
@@ -267,6 +318,36 @@ func (s *Server) lastEnabledServerGuard(srv store.RPKIServer) string {
 	}
 	return "This is the last enabled RTR server, and " + strings.Join(validating, ", ") +
 		" still validates against it. Without ROA data every route would be \"unknown\" and nothing would be checked. Turn RPKI off on those policies first."
+}
+
+// handleRPKIRestart bounces one RTR session: a new TCP connection to the cache,
+// which against an anycast cache may land on a healthier backend. It is the
+// remedy for a feed that stays connected and refreshing while its serial and ROA
+// count stand still. birdy leaves the decision to the operator, who can see the
+// serial, its age and the ROA count on this page: a healthy public cache has been
+// seen to go hours without a new serial, so a timer cannot tell stale from quiet.
+func (s *Server) handleRPKIRestart(w http.ResponseWriter, r *http.Request) {
+	srv, ok := namedEntity(s, w, r, s.store.GetRPKIServerByName, "RPKI server")
+	if !ok {
+		return
+	}
+	if s.readOnly {
+		s.flashRedirect(w, r, "/rpki", "birdy is running read-only, so it sends no commands to BIRD.", true)
+		return
+	}
+	if !srv.Enabled {
+		s.flashRedirect(w, r, "/rpki", srv.Name+" is disabled, so BIRD is not running it.", true)
+		return
+	}
+	if err := s.client.RestartProtocol(r.Context(), srv.Name); err != nil {
+		s.flashRedirect(w, r, "/rpki", "Could not restart "+srv.Name+": "+err.Error(), true)
+		return
+	}
+	if err := s.store.InsertAudit(s.actor(r), store.EventRPKIRestart, "Restarted the RTR session "+srv.Name); err != nil {
+		s.log.Warn("could not record the RTR restart", "error", err)
+	}
+	s.poller.RefreshRPKISoon()
+	s.flashRedirect(w, r, "/rpki", "Restarted "+srv.Name+". BIRD is reconnecting to the cache; the new session shows here within seconds.", false)
 }
 
 func (s *Server) handleRPKIDelete(w http.ResponseWriter, r *http.Request) {

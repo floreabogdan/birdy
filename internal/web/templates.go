@@ -71,6 +71,8 @@ var funcs = template.FuncMap{
 			class, label = "badge-danger", "bird down"
 		case store.EventBirdReachable:
 			class, label = "badge-success", "bird up"
+		case store.EventRPKIRestart:
+			class, label = "badge-info", "rpki"
 		}
 		return template.HTML(`<span class="badge ` + class + `">` + template.HTMLEscapeString(label) + `</span>`)
 	},

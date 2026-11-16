@@ -149,3 +149,26 @@ func TestLintRPKILogOnlyEverywhere(t *testing.T) {
 		t.Error("with a rejecting policy present, log-only should not be flagged")
 	}
 }
+
+// A pinned RTR version renders as BIRD's "max version"; left to BIRD, nothing
+// is rendered, so a config from before the setting existed is unchanged.
+func TestRPKIMaxVersion(t *testing.T) {
+	in := baseInput()
+	in.PrefixSets = bogonSets()
+	in.Policies = []store.Policy{rovPolicy(store.ROVReject)}
+
+	in.RPKIServers = []store.RPKIServer{rtr()}
+	if out := mustRender(t, in); strings.Contains(out, "max version") {
+		t.Errorf("an unpinned server rendered a version pin:\n%s", out)
+	}
+
+	pinned := rtr()
+	pinned.MaxVersion = 1
+	in.RPKIServers = []store.RPKIServer{pinned}
+	out := mustRender(t, in)
+	block := out[strings.Index(out, "protocol rpki cloudflare {"):]
+	block = block[:strings.Index(block, "}\n\n")]
+	if !strings.Contains(block, "\tmax version 1;\n") {
+		t.Errorf("pinned server is missing \"max version 1;\" in its protocol block:\n%s", block)
+	}
+}

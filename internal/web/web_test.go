@@ -40,7 +40,13 @@ type fakeClient struct {
 	cfgReloadFail  bool // reload reports a non-OK result (e.g. a peer without route-refresh)
 	cfgErr         error
 	calls          []string
-	lastSoft       bool // whether the last ConfigureTimeout asked for a soft reconfigure
+	lastSoft       bool     // whether the last ConfigureTimeout asked for a soft reconfigure
+	restarts       []string // protocols RestartProtocol was asked to bounce
+}
+
+func (f *fakeClient) RestartProtocol(_ context.Context, name string) error {
+	f.restarts = append(f.restarts, name)
+	return nil
 }
 
 func (f *fakeClient) result(ok bool, msg string) (birdc.ConfigureResult, error) {

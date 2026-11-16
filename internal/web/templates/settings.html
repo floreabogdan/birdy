@@ -85,6 +85,12 @@
 								<label class="check-row"><input type="checkbox" name="kernelExportBgpV6" {{if .Settings.KernelExportBGPV6}}checked{{end}}> Install selected IPv6 BGP routes</label>
 								<div class="hint">Advanced router mode. Exports only BIRD's selected <code class="mono">RTS_BGP</code> route for each prefix, never a blanket <code class="mono">export all</code>. Routes covering configured peers or local control-plane addresses are excluded. This can install a full Internet table. Linux forwarding and firewall policy are configured separately.</div>
 							</div>
+							<div class="field">
+								<label for="kernelNetlinkRxBufferMb">Netlink receive buffer (MiB)</label>
+								<input type="number" id="kernelNetlinkRxBufferMb" name="kernelNetlinkRxBufferMb" class="mono" value="{{.Settings.KernelNetlinkRxBufferMB}}" min="0" max="1024">
+								<div class="hint">If BIRD logs <em>Kernel dropped some netlink messages, will resync on next scan</em>, its netlink socket overflowed during a burst of route changes &mdash; typical when full tables go into the kernel &mdash; and the FIB is out of step with BIRD until the next scan. 16&ndash;64 MiB is a common fix. 0 keeps BIRD's default (the host's <code class="mono">net.core.rmem_default</code>). Linux only; needs BIRD 2.0.9 or later.</div>
+								{{with index .IdentityErrs "kernelNetlinkRxBufferMb"}}<div class="field-error">{{.}}</div>{{end}}
+							</div>
 							<button type="submit" class="btn btn-primary">Save identity</button>
 						</form>
 					</div>

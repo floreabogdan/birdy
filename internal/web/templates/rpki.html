@@ -56,7 +56,7 @@
 				</p>
 				<div class="table-scroll">
 				<table>
-					<thead><tr><th>Name</th><th>Remote</th><th class="num">Refresh</th><th class="num">Expire</th><th>Enabled</th><th>In BIRD</th><th class="num">Actions</th></tr></thead>
+					<thead><tr><th>Name</th><th>Remote</th><th class="num">Refresh</th><th class="num">Expire</th><th>Enabled</th><th>In BIRD</th><th>Data</th><th class="num">Actions</th></tr></thead>
 					<tbody data-search-target>
 						{{range .Servers}}
 						<tr>
@@ -74,7 +74,19 @@
 								{{else if not .Enabled}}<span class="text-muted" title="A disabled server is not rendered into the config at all.">not rendered</span>
 								{{else}}<span class="badge badge-warning" title="It is in the candidate config, but birdy has not applied one.">not applied</span>{{end}}
 							</td>
+							<td>
+								{{$feed := index $.Feeds .Name}}
+								{{if $feed.Live}}
+								<div class="mono">{{if $feed.HasSession}}session {{$feed.SessionID}} &middot; serial {{$feed.Serial}}{{else}}{{$feed.Status}}, no data yet{{end}} <span class="text-muted">&middot; RTR v{{$feed.Version}}</span></div>
+								<div class="text-muted" style="font-size:0.75rem" title="ROAs this feed holds (IPv4 + IPv6), and how long birdy has seen its serial stand still. BIRD's own &quot;last update&quot; resets on every refresh, even when nothing changed. Compare the ROA count with another router on the same cache: a feed that falls behind while its serial stands still is stale, and a restart gives it a new connection.">{{comma $feed.ROAs4}} + {{comma $feed.ROAs6}} ROAs &middot; serial unchanged for {{$feed.SerialAge}}</div>
+								{{else}}<span class="text-muted">&mdash;</span>{{end}}
+							</td>
 							<td class="row-actions">
+								{{if and (not $.ReadOnly) .Enabled $feed.Live}}
+								<form method="post" action="/rpki/{{.Name}}/restart" data-confirm="Restart the RTR session {{.Name}}? BIRD drops it and reconnects to the cache; BGP sessions are not touched.">
+									<button type="submit" class="icon-action" title="Restart the RTR session {{.Name}}" aria-label="Restart the RTR session {{.Name}}">{{template "icon-refresh"}}</button>
+								</form>
+								{{end}}
 								<a class="icon-action a-primary" href="/rpki/{{.Name}}/edit" title="Edit {{.Name}}" aria-label="Edit {{.Name}}">{{template "icon-edit"}}</a>
 								<form method="post" action="/rpki/{{.Name}}/delete" data-confirm="Delete RTR server {{.Name}}?">
 									<button type="submit" class="icon-action a-danger" title="Delete {{.Name}}" aria-label="Delete {{.Name}}">{{template "icon-trash"}}</button>
@@ -82,7 +94,7 @@
 							</td>
 						</tr>
 						{{else}}
-						<tr><td colspan="7" class="empty">
+						<tr><td colspan="8" class="empty">
 							No RTR server. <a href="/rpki/new">Add one</a> before switching a policy to validate.
 						</td></tr>
 						{{end}}

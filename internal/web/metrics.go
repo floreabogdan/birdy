@@ -2,8 +2,13 @@ package web
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
+	"time"
+
+	"github.com/floreabogdan/birdy/internal/poller"
 )
 
 // handleMetrics exposes birdy's poll state in Prometheus text format. It is
@@ -81,8 +86,38 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeCounts("birdy_bgp_routes_exported", "Routes exported (announced) to a session.", func(r protoRow) int { return r.Exported })
 	writeCounts("birdy_bgp_routes_filtered", "Routes received from a session but rejected on import.", func(r protoRow) int { return r.Filtered })
 
+	writeRPKIMetrics(&b, metric, s.poller.RPKIFeeds(), time.Now())
+
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	_, _ = w.Write([]byte(b.String()))
+}
+
+// writeRPKIMetrics exposes each RTR session's data so a monitoring system that
+// sees several routers can do what one router cannot: notice a feed whose ROA
+// count falls behind the others on the same cache while its serial stands still —
+// connected, refreshing, and stale. The serial's age alone is not that signal; a
+// healthy cache can go hours without a new serial.
+func writeRPKIMetrics(b *strings.Builder, metric func(name, typ, help string), feeds map[string]poller.RPKIFeed, now time.Time) {
+	names := slices.Sorted(maps.Keys(feeds))
+	metric("birdy_rpki_feed_established", "gauge", "Whether an RPKI protocol's RTR session is established (1) or not (0).")
+	for _, n := range names {
+		fmt.Fprintf(b, "birdy_rpki_feed_established{name=%q} %d\n", esc(n), b2i(feeds[n].Cache.Status == "Established"))
+	}
+	metric("birdy_rpki_roas", "gauge", "ROAs an RPKI feed holds, by address family.")
+	for _, n := range names {
+		fmt.Fprintf(b, "birdy_rpki_roas{name=%q,afi=\"ipv4\"} %d\n", esc(n), feeds[n].ROAs4)
+		fmt.Fprintf(b, "birdy_rpki_roas{name=%q,afi=\"ipv6\"} %d\n", esc(n), feeds[n].ROAs6)
+	}
+	metric("birdy_rpki_serial", "gauge", "The RTR serial an RPKI feed is on; absent until its first sync. Serials are per session.")
+	for _, n := range names {
+		if f := feeds[n]; f.Cache.Serial >= 0 {
+			fmt.Fprintf(b, "birdy_rpki_serial{name=%q} %d\n", esc(n), f.Cache.Serial)
+		}
+	}
+	metric("birdy_rpki_serial_unchanged_seconds", "gauge", "How long birdy has seen an RPKI feed's session and serial stand still (counted from birdy's start at most).")
+	for _, n := range names {
+		fmt.Fprintf(b, "birdy_rpki_serial_unchanged_seconds{name=%q} %d\n", esc(n), int64(feeds[n].SerialAge(now).Seconds()))
+	}
 }
 
 // esc escapes a Prometheus label value. Peer/proto names are plain BIRD symbols,
