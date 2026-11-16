@@ -58,6 +58,7 @@ Writing `bird.conf` is still a deliberate act you take in the UI, not something 
 **Observe**
 - Live sessions, per-peer detail, on-demand looking glass
 - Timeline of flaps and limit hits
+- RPKI feed health: serial, age and ROA count per RTR session
 - Alerts to Slack, Discord, email, or a webhook
 
 </td>
@@ -227,7 +228,9 @@ things follow from that, and both are one setting away:
   no Prometheus or Grafana needed to see when a session started leaking. Hover one and it names the
   point under the cursor: how many routes, and when
 - A Prometheus `/metrics` endpoint (on once the access list is narrowed) and a public `/healthz` probe
-- Login rate-limiting (per-IP lockout) and a downloadable off-box backup bundle
+- Login rate-limiting (a per-client lockout, IPv6 counted per /64, and a router-wide budget that never
+  locks out loopback), DNS-rebinding protection (an allowed-host-name list), and a downloadable off-box
+  backup bundle
 - Live BIRD-code preview on every editor: the generated config updates as you type, before you save
 - Every table paginated with numbered pages — the route browsers, the timeline, the apply history, and
   each library list
@@ -264,7 +267,10 @@ things follow from that, and both are one setting away:
 - Bogon prefixes and bogon ASNs, editable, in Settings
 - RPKI: RTR servers and per-policy validation (log-only or drop-invalid). The dry run says how many
   routes BIRD is tagging invalid right now — **the number you would drop by enforcing** — and lists
-  them; a table shows every import policy, whether it validates, and which peers ride on it
+  them; a table shows every import policy, whether it validates, and which peers ride on it. Each RTR
+  session shows its serial, how long that serial has stood still, and the ROAs it holds (also on
+  `/metrics`), so a feed that is connected but stale is visible, and it can be restarted from there.
+  The highest RTR version can be pinned per server, for a cache that will not negotiate down
 - A raw config block for everything birdy does not model, checked by `bird -p` before it saves
 
 **Preview and apply**
