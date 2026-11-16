@@ -121,31 +121,48 @@ func (c *Client) commandLocked(ctx context.Context, cmd string) (Reply, error) {
 	if err := ctx.Err(); err != nil {
 		return Reply{}, err
 	}
-	// Capture the connection in a local: the AfterFunc callback runs on another
-	// goroutine, so it must not touch the c.conn field this method may nil out on
-	// error. Closing the captured conn is safe and idempotent, and unblocks any
-	// in-flight read/write when ctx is cancelled.
-	conn := c.conn
-	if err := conn.SetDeadline(deadlineFor(ctx, c.timeout)); err != nil {
-		return Reply{}, err
-	}
-	stop := context.AfterFunc(ctx, func() { conn.Close() })
-	defer stop()
 	if strings.ContainsAny(cmd, "\r\n") {
 		return Reply{}, fmt.Errorf("birdc: command must not contain newlines")
 	}
+	// Capture the connection in a local: the AfterFunc callback runs on another
+	// goroutine, so it must not touch the c.conn field this method nils out.
+	// Closing the captured conn is safe and idempotent, and unblocks any
+	// in-flight read/write when ctx is cancelled.
+	conn := c.conn
+	if err := conn.SetDeadline(deadlineFor(ctx, c.timeout)); err != nil {
+		// The usual cause is a conn already closed under us; keeping it would fail
+		// every later command the same way.
+		c.dropLocked()
+		return Reply{}, err
+	}
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	if _, err := fmt.Fprintf(conn, "%s\n", cmd); err != nil {
-		conn.Close()
-		c.conn = nil
+		stop()
+		c.dropLocked()
 		return Reply{}, ctxErr(ctx, fmt.Errorf("birdc: write: %w", err))
 	}
 	reply, err := readFrame(c.r)
+	// stop reports false when the cancel hook has already run (or is running):
+	// the reply made it in, but the conn is closed or about to be. A cancel that
+	// lands just as the reply arrives would otherwise leave c.conn pointing at a
+	// dead socket that Command never reconnects, wedging the shared client — and
+	// the poller with it — until birdy restarts.
+	if !stop() || err != nil {
+		c.dropLocked()
+	}
 	if err != nil {
-		conn.Close()
-		c.conn = nil
 		return Reply{}, ctxErr(ctx, err)
 	}
 	return reply, nil
+}
+
+// dropLocked closes and forgets the shared connection, so the next Command
+// reconnects instead of reusing a socket in an unknown state. Caller holds c.mu.
+func (c *Client) dropLocked() {
+	if c.conn != nil {
+		c.conn.Close()
+		c.conn = nil
+	}
 }
 
 // deadlineFor returns the sooner of now+timeout and ctx's own deadline, so a

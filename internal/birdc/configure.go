@@ -3,6 +3,7 @@ package birdc
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -18,7 +19,26 @@ const configureTimeout = 30 * time.Second
 type ConfigureResult struct {
 	OK      bool
 	Message string
+	// Code is BIRD's terminal reply code. Most callers need only OK, but some
+	// replies BIRD does not mark as errors still mean "nothing happened" — see
+	// ConfigureConfirm.
+	Code int
+	// Failed names the protocols BIRD reported an error for inside an otherwise
+	// accepted reply, e.g. "8006-edge1: reload failed". Only Reload fills it.
+	Failed []string
 }
+
+// ErrNoReply marks a command that was written to BIRD but whose reply never
+// arrived. Unlike a failure to connect or send, BIRD may have acted on it — for
+// `configure timeout`, the new config may be running with the revert armed.
+var ErrNoReply = errors.New("birdc: command sent, but BIRD's reply never arrived")
+
+// Reply codes from BIRD's reconfigure commands that birdy acts on (they come
+// from cmd_reconfig_msg in BIRD's nest/cmds.c; verified against BIRD 2.17.5).
+const (
+	CodeReconfigConfirmed = 18 // "Reconfiguration confirmed": an armed timeout was stopped
+	CodeNothingToDo       = 19 // "Nothing to do": no armed reconfigure to confirm or undo
+)
 
 // The configure commands all act on the daemon's own configured config file —
 // the path BIRD was started with (-c), which birdy must write to. BIRD's CLI
@@ -52,8 +72,18 @@ func (c *Client) ConfigureTimeout(ctx context.Context, seconds int, soft bool) (
 }
 
 // ConfigureConfirm keeps a timeout-armed reconfigure that would otherwise revert.
+//
+// Only CodeReconfigConfirmed is OK. With no timer armed BIRD answers
+// CodeNothingToDo, which is not an error code — but it means BIRD is no longer
+// running the armed config: the timeout already reverted it, BIRD restarted, or
+// a plain `birdc configure` replaced it. Reporting that as a successful confirm
+// would have the caller record a config as kept that BIRD is not running.
 func (c *Client) ConfigureConfirm(ctx context.Context) (ConfigureResult, error) {
-	return c.configure(ctx, "configure confirm")
+	res, err := c.configure(ctx, "configure confirm")
+	if err == nil && res.Code != CodeReconfigConfirmed {
+		res.OK = false
+	}
+	return res, err
 }
 
 // DaemonConfigPath returns the file BIRD reads its configuration from, parsed
@@ -110,42 +140,76 @@ func (c *Client) ConfigureUndo(ctx context.Context) (ConfigureResult, error) {
 //
 // It is best-effort: re-import needs the peer's route-refresh capability, and a
 // peer that lacks it cannot be refreshed without a restart. BIRD reports that per
-// protocol and still reloads the rest, so the caller treats a non-OK result as a
-// warning, not a failure — the config it applies is unaffected either way.
+// protocol ("8006-edge1: reload failed") and still reloads the rest, ending the
+// reply with an ordinary 0000 — so OK only says BIRD took the command, and Failed
+// names the protocols it could not reload. A direct protocol is always among
+// them: it has nothing to re-import. The caller treats failures as a warning,
+// not an apply failure — the config it applies is unaffected either way.
 func (c *Client) Reload(ctx context.Context) (ConfigureResult, error) {
-	return c.configure(ctx, "reload all")
+	reply, err := c.oneShot(ctx, "reload all")
+	if err != nil {
+		return ConfigureResult{}, err
+	}
+	res := configureResult(reply)
+	for _, b := range reply.Blocks {
+		if b.Code < 8000 || b.Code >= 10000 {
+			continue
+		}
+		// BIRD folds consecutive lines with the same code into one block, so every
+		// line of an error block is one protocol's "<name>: <reason>".
+		for _, line := range b.Lines {
+			if name, _, _ := strings.Cut(strings.TrimSpace(line), ":"); name != "" {
+				res.Failed = append(res.Failed, name)
+			}
+		}
+	}
+	return res, nil
 }
 
-// configure runs one configure command on a fresh, disposable connection with a
-// generous deadline — never the shared read connection, which uses a short
-// timeout tuned for "show" queries.
+// configure runs one configure command and summarises BIRD's answer.
 func (c *Client) configure(ctx context.Context, cmd string) (ConfigureResult, error) {
+	reply, err := c.oneShot(ctx, cmd)
+	if err != nil {
+		return ConfigureResult{}, err
+	}
+	return configureResult(reply), nil
+}
+
+// oneShot runs one command on a fresh, disposable connection with a generous
+// deadline — never the shared read connection, which uses a short timeout tuned
+// for "show" queries. A failure after the command was written is wrapped in
+// ErrNoReply, since BIRD may have acted on it.
+func (c *Client) oneShot(ctx context.Context, cmd string) (Reply, error) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "unix", c.path)
 	if err != nil {
-		return ConfigureResult{}, ctxErr(ctx, fmt.Errorf("birdc: connect %s: %w", c.path, err))
+		return Reply{}, ctxErr(ctx, fmt.Errorf("birdc: connect %s: %w", c.path, err))
 	}
 	defer conn.Close()
 	// Cancelling ctx closes the socket, aborting a configure that hangs.
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
 	if err := conn.SetDeadline(deadlineFor(ctx, configureTimeout)); err != nil {
-		return ConfigureResult{}, err
+		return Reply{}, err
 	}
 	r := bufio.NewReader(conn)
 	if _, err := readFrame(r); err != nil { // banner
-		return ConfigureResult{}, ctxErr(ctx, fmt.Errorf("birdc: reading banner: %w", err))
+		return Reply{}, ctxErr(ctx, fmt.Errorf("birdc: reading banner: %w", err))
 	}
 	if _, err := fmt.Fprintf(conn, "%s\n", cmd); err != nil {
-		return ConfigureResult{}, ctxErr(ctx, fmt.Errorf("birdc: write: %w", err))
+		return Reply{}, ctxErr(ctx, fmt.Errorf("birdc: write: %w", err))
 	}
 	reply, err := readFrame(r)
 	if err != nil {
-		return ConfigureResult{}, ctxErr(ctx, err)
+		return Reply{}, fmt.Errorf("%w: %w", ErrNoReply, ctxErr(ctx, err))
 	}
+	return reply, nil
+}
 
-	// Join every line BIRD returned, dropping the "Reading configuration from
-	// <path>" progress line — the path means nothing to the operator.
+// configureResult joins every line BIRD returned into the operator-facing
+// message, dropping the "Reading configuration from <path>" progress line — the
+// path means nothing to the operator.
+func configureResult(reply Reply) ConfigureResult {
 	var msg []string
 	for _, line := range append(reply.Lines(), reply.Terminal.Lines...) {
 		line = strings.TrimSpace(line)
@@ -156,11 +220,12 @@ func (c *Client) configure(ctx context.Context, cmd string) (ConfigureResult, er
 	}
 	text := strings.Join(msg, "; ")
 
+	code := reply.Terminal.Code
 	if reply.IsError() {
-		return ConfigureResult{OK: false, Message: text}, nil
+		return ConfigureResult{OK: false, Message: text, Code: code}
 	}
 	if text == "" {
 		text = "OK"
 	}
-	return ConfigureResult{OK: true, Message: text}, nil
+	return ConfigureResult{OK: true, Message: text, Code: code}
 }
