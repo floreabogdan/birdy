@@ -478,3 +478,43 @@ func TestTotalRoutesExcludesROATables(t *testing.T) {
 		t.Fatalf("TotalRoutes = %d, want 10 (ROA tables excluded)", got)
 	}
 }
+
+// A peer that was just applied, or renamed, is first seen in Connect or Active
+// and establishes moments later. That is a session being born: it used to page
+// "Session down" and then "Session flapping". First sight is a baseline; the
+// establish is an ordinary session_up.
+func TestPollerNewProtocolIsABaselineNotADown(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{polls: [][]birdc.ProtocolSummary{
+		{bgp("edge_v4", "up", "Established")},
+		{bgp("edge_v4", "up", "Established"), bgp("ix_peer", "start", "Connect")}, // just applied
+		{bgp("edge_v4", "up", "Established"), bgp("ix_peer", "up", "Established")},
+	}}
+	p := New(fc, st, time.Second, nil)
+	clk := withClock(p)
+	for range 3 {
+		p.poll(context.Background())
+		clk.advance(5 * time.Second)
+	}
+	if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventSessionUp {
+		t.Fatalf("events = %v, want only [session_up] for the new peer establishing", kinds)
+	}
+}
+
+// The same holds after a birdy restart: a session still in Connect on the first
+// poll that establishes a few seconds later did not flap, it came up.
+func TestPollerSessionUpAfterRestartIsNotAFlap(t *testing.T) {
+	st := openTestStore(t)
+	fc := &fakeClient{polls: [][]birdc.ProtocolSummary{
+		{bgp("edge_v4", "start", "Connect")},
+		{bgp("edge_v4", "up", "Established")},
+	}}
+	p := New(fc, st, time.Second, nil)
+	clk := withClock(p)
+	p.poll(context.Background())
+	clk.advance(10 * time.Second)
+	p.poll(context.Background())
+	if kinds := eventKinds(t, st); len(kinds) != 1 || kinds[0] != store.EventSessionUp {
+		t.Fatalf("events = %v, want [session_up]", kinds)
+	}
+}

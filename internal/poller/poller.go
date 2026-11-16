@@ -48,8 +48,9 @@ const statusInterval = 30 * time.Second
 
 // ProtoState is the poller's last-known view of one protocol.
 type ProtoState struct {
-	Summary    birdc.ProtocolSummary
-	Up         bool
+	Summary birdc.ProtocolSummary
+	Up      bool
+	// LastChange is when the poller saw Up change; zero until it has seen one.
 	LastChange time.Time
 	LimitHit   map[string]bool // by channel AFI
 	// Channels holds the per-AFI route counts and limits from the most
@@ -337,17 +338,19 @@ func (p *Poller) poll(ctx context.Context) {
 		}
 
 		state := ProtoState{Summary: proto, Up: up, LimitHit: map[string]bool{}, staleSince: staleSince}
-		switch {
-		case seen:
+		if seen {
 			state.LastChange = prior.LastChange
 			maps.Copy(state.LimitHit, prior.LimitHit)
-		default:
-			state.LastChange = now
 		}
 
 		state.Disabled = disabled[proto.Name]
 
-		if !first && (!seen || prior.Up != up) {
+		// A protocol seen for the first time (every one on the first poll, and
+		// later a peer just applied or renamed) is a baseline, not a change: such a
+		// peer shows up in Connect or Active and establishes a moment later, which
+		// paged "went down" and then "flapped". LastChange stays zero until a real
+		// change, so that first establish is a plain session_up, not a flap.
+		if seen && prior.Up != up {
 			state.LastChange = now
 			// Only BGP sessions get down/up/flap events. Infrastructure protocols
 			// (RPKI, device, kernel, static, direct) are not sessions, and treating
@@ -356,7 +359,7 @@ func (p *Poller) poll(ctx context.Context) {
 			// A peer disabled in the model is excluded for the same reason: its
 			// session going down is the change working, not a fault.
 			if proto.Proto == "BGP" && !state.Disabled {
-				p.recordTransition(proto, prior, seen, up, now)
+				p.recordTransition(proto, prior, up, now)
 			}
 		}
 
@@ -472,13 +475,13 @@ func (p *Poller) checkPrefixDrop(proto birdc.ProtocolSummary, prior ProtoState, 
 	}
 }
 
-func (p *Poller) recordTransition(proto birdc.ProtocolSummary, prior ProtoState, seen bool, up bool, now time.Time) {
+func (p *Poller) recordTransition(proto birdc.ProtocolSummary, prior ProtoState, up bool, now time.Time) {
 	kind := store.EventSessionDown
 	msg := fmt.Sprintf("%s (%s) went down", proto.Name, proto.Proto)
 	if up {
 		kind = store.EventSessionUp
 		msg = fmt.Sprintf("%s (%s) established", proto.Name, proto.Proto)
-		if seen && !prior.LastChange.IsZero() && now.Sub(prior.LastChange) < flapWindow {
+		if !prior.LastChange.IsZero() && now.Sub(prior.LastChange) < flapWindow {
 			kind = store.EventFlap
 			msg = fmt.Sprintf("%s (%s) flapped (down for %s)", proto.Name, proto.Proto, now.Sub(prior.LastChange).Round(time.Second))
 		}
