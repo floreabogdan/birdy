@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-17
+
 > **Upgrading:** everyone is signed out once (sessions are now stored hashed; schema
 > version 42). Nothing else needs doing: rendered config is unchanged, and existing
 > objects, webhooks, instances and stored config versions keep working. A database file
@@ -870,7 +872,8 @@ router and gives you:
 - Multi-arch release binaries (Linux amd64/arm64/arm, FreeBSD, macOS) and a
   multi-arch container image on GHCR.
 
-[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/floreabogdan/birdy/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/floreabogdan/birdy/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/floreabogdan/birdy/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/floreabogdan/birdy/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/floreabogdan/birdy/compare/v0.4.1...v0.5.0
