@@ -128,9 +128,20 @@ Grab the archive for your platform from the
 against `SHA256SUMS.txt`, and install it:
 
 ```sh
+sha256sum -c --ignore-missing SHA256SUMS.txt
 tar -xzf birdy_*_linux_amd64.tar.gz
 sudo install birdy /usr/local/bin/birdy
 birdy version
+```
+
+`SHA256SUMS.txt` comes from the same release page, so it catches a damaged download,
+not a tampered release. From 0.7.1 on every release asset (and the container image)
+also carries signed build provenance, which proves it was built by this repository's
+release workflow from the tagged commit. Check it with the GitHub CLI:
+
+```sh
+gh attestation verify birdy_*_linux_amd64.tar.gz -R floreabogdan/birdy
+gh attestation verify oci://ghcr.io/floreabogdan/birdy:0.7.1 -R floreabogdan/birdy
 ```
 
 ### Option B — `go install`

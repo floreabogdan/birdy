@@ -105,6 +105,9 @@ Grab the archive for your platform from the [latest release](https://github.com/
 (linux amd64/arm64/arm, freebsd, macOS), verify it, and drop the binary on the router:
 
 ```sh
+sha256sum -c --ignore-missing SHA256SUMS.txt
+# from 0.7.1 on, releases also carry signed build provenance:
+gh attestation verify birdy_*_linux_amd64.tar.gz -R floreabogdan/birdy
 tar -xzf birdy_*_linux_amd64.tar.gz
 sudo install birdy /usr/local/bin/birdy
 ```
@@ -173,8 +176,12 @@ docker run -d --name birdy --restart unless-stopped \
   -p 127.0.0.1:8080:8080 \
   -v birdy-data:/var/lib/birdy \
   -v /run/bird:/run/bird:ro \
-  ghcr.io/floreabogdan/birdy:latest
+  ghcr.io/floreabogdan/birdy:latest \
+  server --read-only --listen 0.0.0.0:8080
 ```
+
+It is `--read-only` that makes this a viewer: the `:ro` on the socket mount does not stop a
+process connecting to the socket.
 
 The image bundles the `bird` binary so `bird -p` syntax checks work inside the container. See
 [`docker-compose.yml`](docker-compose.yml) for a Compose setup and the notes on enabling apply.

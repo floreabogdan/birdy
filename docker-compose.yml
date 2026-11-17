@@ -34,13 +34,28 @@ services:
       # birdy's database and snapshots. Holds BGP MD5 passwords in the clear
       # once you configure peers, so treat this volume as a secret.
       - birdy-data:/var/lib/birdy
-      # BIRD's control socket. Read-only is enough for a viewer; drop ":ro" if
-      # you enable apply (birdy sends "configure" over this socket).
+      # BIRD's control socket. ":ro" only stops birdy creating or removing files
+      # in that directory: a read-only mount does not stop a process connecting
+      # to a socket inside it. What makes this a viewer is --read-only above.
+      # The socket is root:bird 0660 on most hosts, so the container also needs
+      # the host's bird group (see group_add below).
       - /run/bird:/run/bird:ro
+    # The host's `bird` group id, so birdy may open the control socket:
+    #   getent group bird | cut -d: -f3
+    # group_add: ["<gid>"]
+
+    # Nothing in the container needs to write outside its volume or gain
+    # privileges, so lock it down. /tmp is where "bird -p" checks a candidate.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
     # ── To enable apply (drop the viewer mode) ───────────────────────────────
-    # 1. Drop --read-only from `command`, and make the socket mount writable
-    #    (remove the ":ro" above).
+    # 1. Drop --read-only from `command`.
     # 2. Mount BIRD's config so birdy can write it, and make sure --bird-conf
     #    matches the path BIRD was started with (bird -c):
     #      - /etc/bird:/etc/bird

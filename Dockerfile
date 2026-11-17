@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 
 # ── build ────────────────────────────────────────────────────────────────
-FROM golang:1.26-alpine AS build
+# Both base images are pinned by digest so a build is reproducible and a moved
+# tag cannot change what ships; Dependabot (docker ecosystem) bumps the digests.
+FROM golang:1.26-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS build
 WORKDIR /src
 
 # Cache modules first.
@@ -17,16 +19,25 @@ RUN CGO_ENABLED=0 go build -trimpath \
       -o /out/birdy ./cmd/birdy
 
 # ── runtime ──────────────────────────────────────────────────────────────
-FROM alpine:3.20
+# Alpine's "bird2" package, not "bird": since Alpine 3.22 "bird" is BIRD 3, and
+# the syntax check has to parse the config the way the BIRD 2.x daemon on the
+# host will.
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 # ca-certificates: outbound TLS (PeeringDB, SMTP over TLS).
-# bird: the "bird -p" parser birdy uses to syntax-check a candidate config.
+# bird2: the "bird -p" parser birdy uses to syntax-check a candidate config.
 #       This is NOT the running daemon — that stays on the host and is reached
 #       over the mounted control socket.
-RUN apk add --no-cache ca-certificates bird \
- && addgroup -S birdy \
- && adduser -S -G birdy -H -h /var/lib/birdy birdy \
- && mkdir -p /var/lib/birdy \
- && chown birdy:birdy /var/lib/birdy
+# apk upgrade: take fixes published since the pinned base image was built.
+#
+# The birdy account keeps uid 101 / gid 102, the ids every image up to 0.7.0
+# used, so an existing birdy-data volume stays owned by it across the upgrade.
+# The state directory holds BGP session passwords in the clear, so it is
+# birdy's alone (0750).
+RUN apk upgrade --no-cache \
+ && apk add --no-cache ca-certificates bird2 \
+ && addgroup -S -g 102 birdy \
+ && adduser -S -u 101 -G birdy -H -h /var/lib/birdy birdy \
+ && install -d -o birdy -g birdy -m 0750 /var/lib/birdy
 
 COPY --from=build /out/birdy /usr/local/bin/birdy
 

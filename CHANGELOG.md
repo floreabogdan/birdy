@@ -6,6 +6,80 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+> **Upgrading:** everyone is signed out once (sessions are now stored hashed; schema
+> version 42). Nothing else needs doing: rendered config is unchanged, and existing
+> objects, webhooks, instances and stored config versions keep working. A database file
+> that was readable by every local user loses that access; group access is kept. Once
+> a database has been opened by this version, do not go back to 0.7.0 on it.
+
+Security hardening from a review of the whole codebase. None of these was known to be
+exploited; the ones that change what birdy does by default are held for 0.8.0.
+
+### Security
+- **Database files are private.** birdy creates `birdy.db` and its sidecars 0600, and
+  removes access for "other" from an existing one (the lab found 0644 after a plain
+  `birdy init`). `birdy server` warns when the state directory is open to every local
+  user. The manual-install instructions and the container now create it 0750.
+- **Session tokens are stored as a SHA-256 hash**, so a snapshot or backup file no
+  longer contains a working login.
+- **A restored database is no longer trusted for file paths.** A stored config version
+  may only write `birdy.d/NN-name.conf` files that match the text `bird -p` checked,
+  and a pending apply's backup must be inside birdy's backup directory. Before, a
+  crafted backup could make an apply write outside `birdy.d`, or copy any readable file
+  into `bird.conf`.
+- **A restore upload is checked before it is staged** (integrity check, schema version,
+  an account present), instead of only its first 15 bytes, and is swapped in atomically.
+  birdy refuses to open a database written by a newer birdy.
+- **Names that are BIRD commands are refused** for new peers, templates, sets,
+  communities, BMP stations and RTR servers (`all`, `configure`, `show`, `restart` and
+  nine more). An RTR server named `all` used to turn Restart into `restart all`. Restart
+  now also needs the name to be a running RPKI protocol. Existing objects keep their
+  names.
+- **Request bodies are capped**: 8 KiB for the sign-in form (it used to parse up to
+  10 MB before the rate limiter), 1 MiB generally, 10 MiB for the list forms.
+- **Alert webhooks no longer follow redirects**, which let a receiver point the router's
+  POST at an internal address.
+- **Instance addresses are checked when connecting**, not only when saved, so a name
+  re-pointed at loopback or link-local later is refused.
+- **An instance token reads less**: at most the 50 newest events, without operator
+  names, and no longer skips the host-name check when sent from a browser. A failed
+  instance poll no longer writes the instance URL into the timeline. Tokens can be
+  revoked in `--read-only` mode.
+- **The IP allow-list no longer fails open.** If it cannot be read, the list in force
+  is kept; at startup birdy falls back to loopback only. Link-local IPv6 clients now
+  match a listed `fe80::/10`.
+- **Root-run commands do not follow symlinks** planted in directories the service
+  account controls: `birdy init`, the pending-restore swap, ownership repair and the
+  `birdy doctor` write probes.
+- Authenticated pages and downloads are sent `Cache-Control: no-store`. The update
+  page only links to this repository. A password over 72 bytes gets a form error, not
+  an internal error.
+
+### Added
+- **A fuller audit trail.** Sign-ins and sign-outs, username and password changes,
+  database downloads and restores, raw config, router settings, bogons, prefix and AS
+  sets, static routes, RTR and BMP servers, session import and alert destinations are
+  now recorded with the operator's name. Refused sign-ins are logged with the client
+  address. Sign-in rows age out with `--event-retain`; the rest are kept.
+- **Signed build provenance** for every release asset and the container image, checked
+  with `gh attestation verify <file> -R floreabogdan/birdy`.
+
+### Changed
+- **The container image is built on Alpine 3.24 with BIRD 2.19** (`bird2`). The old
+  base, Alpine 3.20, has been out of support since April 2026. The birdy account keeps
+  uid 101 / gid 102, so existing volumes work unchanged.
+- Snapshot and backup downloads are temporary copies and no longer push a nightly
+  snapshot out of retention. Pruning only removes birdy's own snapshot files.
+  `--snapshot-retain` below 1 keeps 1.
+- Config files are synced to disk before an apply asks BIRD to load them.
+- In `--read-only` mode an expired pending apply is recorded as reverted without
+  rewriting files or commanding BIRD.
+- `birdy init` validates every input before it writes anything, so a bad `--router-id`
+  no longer leaves a half-initialised database.
+- The release workflow pins every action to a commit, verifies the nfpm download,
+  and runs the tests before it builds. The Compose example drops capabilities and runs
+  read-only.
+
 ## [0.7.0] - 2026-11-16
 
 > **Upgrading:** birdy now answers a browser only when it is addressed by IP, as

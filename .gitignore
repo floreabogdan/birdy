@@ -9,6 +9,8 @@
 *.db
 *.db-shm
 *.db-wal
+# Restore leftovers: birdy.db.pending-restore, birdy.db.before-restore-<ts>
+*.db.*
 /snapshots/
 
 # Design references: third-party screenshots, not ours to redistribute.
