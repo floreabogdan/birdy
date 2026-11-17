@@ -222,6 +222,14 @@ func (s *Server) handleSettingsBogons(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "save bogon ASNs", err)
 		return
 	}
+	// Generated filters drop whatever is in these lists, so a change here is a
+	// change to what the router accepts.
+	if r.FormValue("restore") == "defaults" {
+		s.audit(r, "restored the default bogon lists")
+	} else {
+		s.audit(r, fmt.Sprintf("updated the bogon lists (%d IPv4 prefixes, %d IPv6 prefixes, %d ASN entries)",
+			len(v4.Entries), len(v6.Entries), len(asns)))
+	}
 	s.settingsRedirect(w, r, "bogons", "Bogon lists saved")
 }
 
@@ -318,6 +326,7 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	before := settings
 	settings.RouterLabel = label
 	settings.RouterID = routerID
 	settings.LocalASN = sql.NullInt64{Int64: asn, Valid: true}
@@ -331,7 +340,54 @@ func (s *Server) handleSettingsIdentity(w http.ResponseWriter, r *http.Request) 
 		s.serverError(w, "save settings", err)
 		return
 	}
+	if changes := routerSettingsChanges(before, settings); len(changes) > 0 {
+		s.audit(r, "updated the router settings: "+strings.Join(changes, ", "))
+	} else {
+		s.audit(r, "saved the router settings (no changes)")
+	}
 	s.settingsRedirect(w, r, "general", "Router identity saved")
+}
+
+// routerSettingsChanges lists, for the audit trail, what the identity form
+// changed: each field as "name old → new". These are the values every rendered
+// config starts from (who the router is, what it installs in the kernel), none
+// of them secret, so the row says exactly what moved rather than just "saved".
+func routerSettingsChanges(before, after store.Settings) []string {
+	var out []string
+	add := func(name, was, now string) {
+		if was == now {
+			return
+		}
+		show := func(v string) string {
+			if v == "" {
+				return "(unset)"
+			}
+			return v
+		}
+		out = append(out, name+" "+show(was)+" → "+show(now))
+	}
+	asn := func(v sql.NullInt64) string {
+		if !v.Valid {
+			return ""
+		}
+		return strconv.FormatInt(v.Int64, 10)
+	}
+	onOff := func(v bool) string {
+		if v {
+			return "on"
+		}
+		return "off"
+	}
+	add("label", before.RouterLabel, after.RouterLabel)
+	add("router ID", before.RouterID, after.RouterID)
+	add("local ASN", asn(before.LocalASN), asn(after.LocalASN))
+	add("route reflector cluster ID", before.RRClusterID, after.RRClusterID)
+	add("kernel preferred source (IPv4)", before.KernelPrefSrcV4, after.KernelPrefSrcV4)
+	add("kernel preferred source (IPv6)", before.KernelPrefSrcV6, after.KernelPrefSrcV6)
+	add("kernel export of BGP routes (IPv4)", onOff(before.KernelExportBGPV4), onOff(after.KernelExportBGPV4))
+	add("kernel export of BGP routes (IPv6)", onOff(before.KernelExportBGPV6), onOff(after.KernelExportBGPV6))
+	add("netlink receive buffer (MB)", strconv.Itoa(before.KernelNetlinkRxBufferMB), strconv.Itoa(after.KernelNetlinkRxBufferMB))
+	return out
 }
 
 // maxRawConfig bounds the escape hatch. It is a router config, not a document;
@@ -395,6 +451,9 @@ func (s *Server) handleSettingsRaw(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "save raw config", err)
 		return
 	}
+	// The block goes into bird.conf verbatim, so it is as much a config change
+	// as any model edit. Its size, not its text: it may hold passwords.
+	s.audit(r, fmt.Sprintf("updated the raw config block (%d bytes)", len(raw)))
 	msg := "Raw config saved"
 	if unchecked {
 		msg = "Raw config saved, but not checked: " + reason
@@ -461,6 +520,7 @@ func (s *Server) apiSnapshotDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
+	s.auditTransfer(r, "downloaded a database snapshot")
 	w.Header().Set("Content-Type", "application/vnd.sqlite3")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", s.snap.DownloadName()))
 	_, _ = io.Copy(w, f)
@@ -499,6 +559,7 @@ func (s *Server) apiSnapshotRestore(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.auditTransfer(r, fmt.Sprintf("staged a database restore (%d bytes); it replaces the database at the next restart", len(data)))
 	writeJSON(w, map[string]string{
 		"status":  "staged",
 		"message": "Restore staged. Restart birdy (systemctl restart birdy) to apply it.",

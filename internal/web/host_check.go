@@ -41,9 +41,14 @@ func (s *Server) hostAllowed(r *http.Request) bool {
 // cannot reach them:
 //
 //   - The dashboard and timeline API with a bearer token, which is how other
-//     birdy instances read this one. A rebound page does not have the token, and
-//     requireDashboardAuth answers a wrong one with 401 — it never falls back to
-//     the session cookie when a Bearer header is present.
+//     birdy instances read this one — unless the request comes from a browser.
+//     requireDashboardAuth answers a wrong token with 401 and never falls back
+//     to the session cookie when a Bearer header is present, but a token is a
+//     long-lived secret that gets pasted into other panels: a rebound page that
+//     has one could otherwise use it through the operator's browser, from the
+//     operator's allow-listed address. birdy's own federation client sends no
+//     Fetch Metadata (internal/federation sets Authorization, Accept and
+//     User-Agent only), so the same test as below tells the two apart.
 //   - /metrics and /healthz, unless the request comes from a browser. Prometheus
 //     and health checkers commonly use the router's name and send no Fetch
 //     Metadata; current browsers (Chrome, Firefox, Safari 16.4+) send Sec-Fetch-*
@@ -54,15 +59,20 @@ func hostCheckExempt(r *http.Request) bool {
 	switch r.URL.Path {
 	case "/api/dashboard", "/api/events":
 		_, ok := bearerToken(r)
-		return ok
+		return ok && !fromBrowser(r)
 	case "/metrics", "/healthz":
-		return r.Header.Get("Sec-Fetch-Site") == "" && r.Header.Get("Sec-Fetch-Mode") == ""
+		return !fromBrowser(r)
 	}
 	return false
 }
 
-// requestHostname reduces a Host header to the form names are compared in:
-// lower case, no port, no IPv6 brackets, no trailing dot.
+// fromBrowser reports whether a request carries Fetch Metadata, which every
+// current browser adds to every request and which page script cannot remove
+// or forge. Machine clients (another birdy, Prometheus, curl) send none.
+func fromBrowser(r *http.Request) bool {
+	return r.Header.Get("Sec-Fetch-Site") != "" || r.Header.Get("Sec-Fetch-Mode") != ""
+}
+
 func requestHostname(host string) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h

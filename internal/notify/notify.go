@@ -85,11 +85,23 @@ func NewDispatcher(st *store.Store, log *slog.Logger, cooldown time.Duration) *D
 	}
 	return &Dispatcher{
 		store: st, log: log, cooldown: cooldown, smtpTimeout: smtpTimeout, now: time.Now,
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: newWebhookClient(),
 		last:   map[string]time.Time{},
 		told:   map[string]string{},
 		held:   map[string]notification{},
 		outbox: map[int64]chan delivery{},
+	}
+}
+
+// newWebhookClient is the HTTP client alerts are POSTed with. It never follows
+// a redirect: a 307 or 308 keeps the method and the body, so a receiver (or
+// whoever answers at its address) could otherwise have birdy re-send the alert
+// to any address it names, loopback and metadata services included. The 3xx
+// comes back as the response instead, and postJSON reports it as a failure.
+func newWebhookClient() *http.Client {
+	return &http.Client{
+		Timeout:       10 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 }
 
@@ -427,7 +439,8 @@ func (d *Dispatcher) deliver(dest store.Destination, a alert) error {
 	}
 }
 
-// postJSON marshals v and POSTs it, treating any non-2xx as an error. Its errors
+// postJSON marshals v and POSTs it, treating any non-2xx as an error — a
+// redirect included, which is never followed. Its errors
 // name only the scheme and host: a Slack or Discord webhook URL is itself the
 // credential, and these errors are logged and shown in the browser.
 func (d *Dispatcher) postJSON(rawURL string, v any) error {
@@ -447,6 +460,13 @@ func (d *Dispatcher) postJSON(rawURL string, v any) error {
 		return fmt.Errorf("POST %s: %w", redactURL(rawURL), withoutURL(err))
 	}
 	defer resp.Body.Close()
+	// Redirects are not followed (see newWebhookClient). Say so rather than
+	// leaving the operator to work out why a 3xx counts as a failure, and leave
+	// the Location out: it is the receiver's to choose and may carry a secret.
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return fmt.Errorf("%s answered with a redirect (HTTP %d); birdy does not follow webhook redirects, so use the final URL",
+			redactURL(rawURL), resp.StatusCode)
+	}
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("%s returned HTTP %d", redactURL(rawURL), resp.StatusCode)
 	}

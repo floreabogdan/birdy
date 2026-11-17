@@ -233,6 +233,14 @@ func newTestEnv(t *testing.T, readOnly bool, opts ...func(*Config)) *testEnv {
 		t.Fatal(err)
 	}
 	srv := New(cfg)
+	// Remote instances in these tests are httptest servers on loopback, which
+	// the production federation client will not connect to. Only this hook is
+	// swapped; TestRemoteInstanceOnBlockedAddressIsRefusedAtDialTime puts the
+	// default back to prove what production does.
+	srv.instanceHTTP = &http.Client{
+		Timeout:       5 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 
 	hash, err := HashPassword("correct horse battery staple")
 	if err != nil {

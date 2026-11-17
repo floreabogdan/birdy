@@ -24,6 +24,8 @@ const (
 	EventInstanceDown  = "instance_down"
 	EventInstanceUp    = "instance_up"
 	EventRPKIRestart   = "rpki_restart" // an operator restarted an RTR session
+	EventAuth          = "auth"         // sign-in or sign-out; pruned with the retention window (credential changes are model_change and kept)
+	EventBackup        = "backup"       // the database left the router (snapshot/backup download) or a restore was staged
 )
 
 // Event is one entry on the timeline: a session transition, flap, import-limit
@@ -139,8 +141,13 @@ func (s *Store) CountEvents() (int, error) {
 // snapshot grow with it. Operator actions (rows with an actor) are kept
 // whatever their age: they are the audit trail of who changed what, and they
 // arrive at human speed, so they never were the growth.
+//
+// Rows of kind auth are the exception among rows with an actor, and age out
+// with the rest. A sign-in changes nothing on the router, and it does not
+// arrive at human speed: a script that logs in on a timer writes one per run.
 func (s *Store) PruneEvents(before time.Time) (int64, error) {
-	res, err := s.db.Exec(`DELETE FROM events WHERE ts < ? AND actor = ''`, before.UTC().Format(time.RFC3339Nano))
+	res, err := s.db.Exec(`DELETE FROM events WHERE ts < ? AND (actor = '' OR kind = ?)`,
+		before.UTC().Format(time.RFC3339Nano), EventAuth)
 	if err != nil {
 		return 0, fmt.Errorf("store: prune events: %w", err)
 	}
@@ -153,7 +160,7 @@ func (s *Store) PruneEvents(before time.Time) (int64, error) {
 
 // AlertKinds are the fault/notable event kinds the top-bar bell counts as
 // unread. Recoveries (session_up, bird_reachable, instance_up) and operator
-// actions (config_apply, config_revert, model_change, irr_refresh) are
+// actions (config_apply, config_revert, model_change, irr_refresh, auth, backup) are
 // deliberately excluded — the bell is for problems, not for your own edits or
 // for a session that came back. Returned as a stable slice so the SQL IN-clause
 // order is deterministic.

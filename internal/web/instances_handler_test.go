@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -225,5 +226,46 @@ func TestSelectedRemoteDashboardIsReadOnlyView(t *testing.T) {
 	env.srv.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "remote_v6") || !strings.Contains(rec.Body.String(), `"instanceRemote":true`) {
 		t.Fatalf("remote dashboard: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// An instance whose saved URL passes the save-time check can still end up
+// pointing at this router itself or a metadata service: the name is re-pointed
+// later, or it did not resolve when it was saved. CreateInstance stands in for
+// that here (it stores a loopback URL the form would have refused), and the
+// production client — instanceHTTP nil — must refuse to connect.
+func TestRemoteInstanceOnBlockedAddressIsRefusedAtDialTime(t *testing.T) {
+	reached := false
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached = true
+		_, _ = w.Write([]byte(`{"instanceName":"remote-edge"}`))
+	}))
+	defer remote.Close()
+	env := newTestEnv(t, false)
+	env.srv.instanceHTTP = nil // what production runs
+	id, err := env.store.CreateInstance("remote-edge", remote.URL, strings.Repeat("b", 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard", nil)
+	req.AddCookie(env.cookie)
+	req.AddCookie(&http.Cookie{Name: instanceCookieName, Value: fmt.Sprint(id)})
+	rec := httptest.NewRecorder()
+	env.srv.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "cannot be a remote Birdy target") {
+		t.Errorf("dashboard should report the refusal: %s", rec.Body.String())
+	}
+
+	env.srv.refreshInstanceHealth(context.Background())
+	instance, _, err := env.store.GetInstance(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(instance.LastError, "cannot be a remote Birdy target") {
+		t.Errorf("health check should record the refusal, got %q", instance.LastError)
+	}
+	if reached {
+		t.Fatal("birdy connected to a loopback address as a remote instance")
 	}
 }

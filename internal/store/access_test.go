@@ -49,3 +49,43 @@ func TestAccessAllowed(t *testing.T) {
 		t.Error("a v4-mapped address should match a v4 prefix")
 	}
 }
+
+// A zoned address never matches a netip.Prefix, so the zone a link-local
+// client arrives with is dropped before matching.
+func TestAccessAllowedIgnoresZone(t *testing.T) {
+	list, errs := ParseAccessWhitelist("fe80::/10")
+	if len(errs) != 0 {
+		t.Fatal(errs)
+	}
+	if !AccessAllowed(list, netip.MustParseAddr("fe80::1%eth0")) {
+		t.Error("a zoned link-local client must match fe80::/10")
+	}
+	if AccessAllowed(list, netip.MustParseAddr("2001:db8::1%eth0")) {
+		t.Error("the zone must not make an outside address match")
+	}
+}
+
+// An entry written in IPv4-mapped IPv6 form matched no client in 0.7.0
+// (clients are compared in plain IPv4 form), and it must go on matching none:
+// reading ::ffff:0:0/96 as 0.0.0.0/0 would turn an inert line into allow-all
+// on upgrade. Such entries are kept exactly as written.
+func TestParseAccessWhitelistLeavesIPv4MappedPrefixesAlone(t *testing.T) {
+	for in, want := range map[string]string{
+		"::ffff:10.0.0.0/104": "::ffff:10.0.0.0/104",
+		"::ffff:0.0.0.0/96":   "::ffff:0.0.0.0/96",
+	} {
+		list, errs := ParseAccessWhitelist(in)
+		if len(errs) != 0 || len(list) != 1 || list[0].String() != want {
+			t.Errorf("%s: list=%v errs=%v, want %s", in, list, errs, want)
+			continue
+		}
+		for _, client := range []string{"10.9.8.7", "198.51.100.5", "2001:db8::1"} {
+			if AccessAllowed(list, netip.MustParseAddr(client)) {
+				t.Errorf("%s must not start admitting %s", in, client)
+			}
+		}
+		if !AccessRestricted(list) {
+			t.Errorf("%s must still count as a restricting list", in)
+		}
+	}
+}

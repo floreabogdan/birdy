@@ -12,6 +12,13 @@ import (
 
 const sessionTTL = 7 * 24 * time.Hour
 
+// MaxPasswordBytes is the longest password bcrypt accepts: it hashes the first
+// 72 bytes and GenerateFromPassword refuses more rather than silently ignore
+// the rest. Bytes, not characters — a non-ASCII character is two to four.
+// Checked wherever a password is set (the profile page, `birdy init`), so the
+// operator is told the limit instead of meeting bcrypt's error.
+const MaxPasswordBytes = 72
+
 // dummyPasswordHash is compared against when the submitted username does not
 // exist, so a failed login spends the same bcrypt time whether or not the user
 // is real — closing a username-enumeration timing oracle. Cost matches
@@ -77,11 +84,18 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	// Refused and failed sign-ins go to the server log, not the timeline: a
+	// guessing bot would bury the audit trail, and the timeline is readable by
+	// instance tokens. The line has where it came from and why it was refused.
+	// Never the password, and the username only cut short and cleaned
+	// (logUsername) — it is whatever a stranger typed.
 	if code, refused := loginRefusalCodes[verdict]; refused {
+		s.log.Warn("login refused", "client", clientAddr(r).String(), "verdict", code, "username", logUsername(username))
 		http.Redirect(w, r, "/login?error="+code, http.StatusSeeOther)
 		return
 	}
 	if !matched {
+		s.log.Warn("login failed", "client", clientAddr(r).String(), "verdict", "wrong username or password", "username", logUsername(username))
 		http.Redirect(w, r, "/login?error=1", http.StatusSeeOther)
 		return
 	}
@@ -108,10 +122,18 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		accent = "green"
 	}
 	s.setThemeCookie(w, r, mode, accent)
+	// The request has no session yet, so the actor is named directly. The
+	// client address goes to the server log only: the timeline is read more
+	// widely than the journal.
+	if err := s.store.InsertAudit(user.Username, store.EventAuth, "signed in"); err != nil {
+		s.log.Warn("failed to record audit event", "error", err)
+	}
+	s.log.Info("login succeeded", "client", clientAddr(r).String(), "username", user.Username)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	s.auditAs(r, store.EventAuth, "signed out")
 	if cookie, err := r.Cookie(sessionCookieName); err == nil {
 		if err := s.store.DeleteSession(cookie.Value); err != nil {
 			s.log.Warn("failed to delete session", "error", err)

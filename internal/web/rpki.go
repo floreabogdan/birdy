@@ -286,6 +286,7 @@ func (s *Server) handleRPKISave(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(errs) == 0 {
+		s.audit(r, savedVerb(isNew)+" RPKI server "+srv.Name)
 		s.flashRedirect(w, r, "/rpki", "Saved "+srv.Name, false)
 		return
 	}
@@ -376,5 +377,6 @@ func (s *Server) handleRPKIDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "delete RPKI server", err)
 		return
 	}
+	s.audit(r, "deleted RPKI server "+srv.Name)
 	s.flashRedirect(w, r, "/rpki", "Deleted "+srv.Name, false)
 }

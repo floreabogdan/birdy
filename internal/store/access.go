@@ -41,6 +41,11 @@ func ParseAccessWhitelist(text string) ([]netip.Prefix, []string) {
 
 func parseCIDROrIP(tok string) (netip.Prefix, string) {
 	if p, err := netip.ParsePrefix(tok); err == nil {
+		// A prefix written in IPv4-mapped IPv6 form (::ffff:10.0.0.0/104) is
+		// kept as written, although clients are matched in plain IPv4 form and
+		// so it matches none of them. It never did, and reading it as the IPv4
+		// prefix it resembles would widen access on upgrade — ::ffff:0:0/96
+		// would become 0.0.0.0/0, which allows everything.
 		return p.Masked(), ""
 	}
 	if a, err := netip.ParseAddr(tok); err == nil {
@@ -77,7 +82,10 @@ func AccessAllowed(prefixes []netip.Prefix, ip netip.Addr) bool {
 	if len(prefixes) == 0 {
 		return true
 	}
-	ip = ip.Unmap()
+	// Unmapped, and without the zone a link-local IPv6 client arrives with
+	// (fe80::1%eth0): netip.Prefix.Contains is false for every zoned address,
+	// so fe80::/10 in the list would otherwise match none of its clients.
+	ip = ip.Unmap().WithZone("")
 	for _, p := range prefixes {
 		if p.Bits() == 0 { // 0.0.0.0/0 or ::/0 — allow all
 			return true

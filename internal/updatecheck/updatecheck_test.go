@@ -2,6 +2,7 @@ package updatecheck
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -83,5 +84,41 @@ func TestStableAvailable(t *testing.T) {
 		if got := stableAvailable(tc.current, tc.latest); got != tc.want {
 			t.Errorf("stableAvailable(%q, %q) = %v, want %v", tc.current, tc.latest, got, tc.want)
 		}
+	}
+}
+
+// The "view release" link is rendered into the updates page, so it is only ever
+// taken from the API response when it points into birdy's own repository; any
+// other value falls back to the fixed releases page.
+func TestResultURLIsPinnedToTheRepository(t *testing.T) {
+	const good = "https://github.com/floreabogdan/birdy/releases/tag/v0.3.8"
+	for _, tc := range []struct{ name, htmlURL, want string }{
+		{"release in the repo", good, good},
+		{"commit in the repo", "https://github.com/floreabogdan/birdy/commit/abcdef1234567890", "https://github.com/floreabogdan/birdy/commit/abcdef1234567890"},
+		{"another site", "https://example/release", releasesURL},
+		{"another repository", "https://github.com/someone/else/releases/tag/v9", releasesURL},
+		{"prefix without the slash", "https://github.com/floreabogdan/birdy-evil/releases", releasesURL},
+		{"lookalike host", "https://github.com.evil.example/floreabogdan/birdy/", releasesURL},
+		{"climbs out of the repo", "https://github.com/floreabogdan/birdy/../../evil/repo", releasesURL},
+		{"script URL", "javascript:alert(1)", releasesURL},
+		{"plain http", "http://github.com/floreabogdan/birdy/releases", releasesURL},
+		{"missing", "", releasesURL},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v0.3.8", "sha": "abcdef1234567890", "html_url": tc.htmlURL})
+			}))
+			defer srv.Close()
+			for _, channel := range []string{ChannelStable, ChannelDevelopment} {
+				c := &Client{BaseURL: srv.URL, HTTP: srv.Client(), TTL: time.Hour}
+				res, err := c.Check(context.Background(), channel, "0.3.7", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if res.URL != tc.want {
+					t.Errorf("%s: URL = %q, want %q", channel, res.URL, tc.want)
+				}
+			}
+		})
 	}
 }

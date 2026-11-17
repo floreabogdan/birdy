@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -123,7 +124,7 @@ func (s *Server) refreshInstanceHealth(ctx context.Context) {
 			defer func() { <-sem }()
 			checkCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
 			defer cancel()
-			latency, checkErr := (federation.Client{BaseURL: instance.BaseURL, Token: instance.Token}).Check(checkCtx)
+			latency, checkErr := s.remote(instance.BaseURL, instance.Token).Check(checkCtx)
 			if checkErr != nil && ctx.Err() != nil {
 				// The whole batch was cancelled (shutdown, or the handler's own
 				// timeout) — not evidence the instance is down. Don't persist a
@@ -149,7 +150,10 @@ func (s *Server) refreshInstanceHealth(ctx context.Context) {
 			}
 			if oldStatus != "unknown" && oldStatus != newStatus {
 				if newStatus == "offline" {
-					s.emitEvent(store.EventInstanceDown, instance.Name, "Remote Birdy instance "+instance.Name+" is unreachable: "+lastError)
+					// Not lastError: Go's HTTP client quotes the whole request URL
+					// in its error, and this message goes onto the timeline (which
+					// instance tokens can read) and out to alert destinations.
+					s.emitEvent(store.EventInstanceDown, instance.Name, "Remote Birdy instance "+instance.Name+" is unreachable: "+withoutURL(checkErr).Error())
 				} else if oldStatus == "offline" {
 					s.emitEvent(store.EventInstanceUp, instance.Name, "Remote Birdy instance "+instance.Name+" is reachable again")
 				}
@@ -206,6 +210,27 @@ func (s *Server) localInstanceName() string {
 	return "This Birdy"
 }
 
+// withoutURL peels off the *url.Error the HTTP client wraps every failure in;
+// its message quotes the full request URL. What is left (a dial, TLS or timeout
+// error) names at most the host and port. Same idea as notify.withoutURL, for
+// the same reason: the text ends up where more people read it than should see
+// a URL. An error that never was a *url.Error comes back unchanged.
+func withoutURL(err error) error {
+	var ue *url.Error
+	for errors.As(err, &ue) {
+		err = ue.Err
+	}
+	return err
+}
+
+// remote is the client for one remote Birdy. Every read of another instance
+// goes through it, so they all share the federation package's guarded
+// transport (no redirects, and no connection to a loopback, link-local or
+// unspecified address whatever the saved name resolves to).
+func (s *Server) remote(baseURL, token string) federation.Client {
+	return federation.Client{BaseURL: baseURL, Token: token, HTTP: s.instanceHTTP}
+}
+
 func validateInstanceURL(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
@@ -216,35 +241,29 @@ func validateInstanceURL(raw string) (string, error) {
 	// unspecified address, and multicast. Private/ULA ranges are allowed on
 	// purpose — routers commonly observe each other over management networks.
 	if addr, perr := netip.ParseAddr(u.Hostname()); perr == nil {
-		if blockedInstanceAddr(addr) {
+		if federation.BlockedAddr(addr) {
 			return "", fmt.Errorf("that address cannot be a remote Birdy target")
 		}
 	} else {
 		// A DNS name could resolve into a blocked range (the classic
 		// metadata.internal SSRF the literal check above cannot see). Resolve and
-		// apply the same block to every address it maps to. A lookup failure is
-		// left to the connection attempt rather than blocking a temporarily
-		// unresolvable target from being added; a rebind between this check and a
-		// later fetch is a residual risk under the operator-controlled model.
+		// apply the same block to every address it maps to. This is the friendly
+		// error, not the enforcement: a lookup failure is let through so a
+		// temporarily unresolvable target can still be added, and a name can be
+		// re-pointed after it is saved. Both are caught where it counts — the
+		// federation client refuses a blocked address when it connects, with the
+		// same predicate (federation.BlockedAddr).
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		if addrs, lerr := net.DefaultResolver.LookupNetIP(ctx, "ip", u.Hostname()); lerr == nil {
 			for _, addr := range addrs {
-				if blockedInstanceAddr(addr) {
+				if federation.BlockedAddr(addr) {
 					return "", fmt.Errorf("that host resolves to an address that cannot be a remote Birdy target")
 				}
 			}
 		}
 	}
 	return strings.TrimRight(u.String(), "/"), nil
-}
-
-// blockedInstanceAddr reports whether an address can only be an SSRF pivot
-// rather than a reachable remote Birdy: loopback, link-local (including the
-// cloud metadata range), unspecified, or multicast.
-func blockedInstanceAddr(addr netip.Addr) bool {
-	addr = addr.Unmap()
-	return addr.IsLoopback() || addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() || addr.IsUnspecified() || addr.IsMulticast()
 }
 
 func normalizeInstanceTags(raw string) (string, error) {
@@ -492,7 +511,7 @@ func (s *Server) apiInstanceTest(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	latency, checkErr := (federation.Client{BaseURL: baseURL, Token: token}).Check(ctx)
+	latency, checkErr := s.remote(baseURL, token).Check(ctx)
 	response := map[string]any{"ok": checkErr == nil, "latencyMS": int(latency / time.Millisecond)}
 	if checkErr != nil {
 		response["error"] = checkErr.Error()
@@ -547,7 +566,7 @@ func (s *Server) apiInstanceActivity(w http.ResponseWriter, r *http.Request) {
 			defer func() { <-sem }()
 			ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 			defer cancel()
-			events, fetchErr := (federation.Client{BaseURL: instance.BaseURL, Token: instance.Token}).FetchEvents(ctx, limit)
+			events, fetchErr := s.remote(instance.BaseURL, instance.Token).FetchEvents(ctx, limit)
 			if fetchErr != nil {
 				return
 			}
@@ -598,11 +617,13 @@ func (s *Server) handleSettingsInstanceToken(w http.ResponseWriter, r *http.Requ
 	s.renderSettings(w, SettingsView{Active: "settings", Tab: "general", APIToken: token, Msg: "Copy this token now. It will not be shown again."})
 }
 
+// handleSettingsInstanceTokenRevoke and handleSettingsInstanceTokenRevokeOne
+// are deliberately allowed in read-only mode, like the access allow-list
+// (handleSettingsAccess): revoking a token is not a BIRD write, it only takes
+// access to birdy away, and a router kept read-only is exactly where a leaked
+// observer token must still be revocable without a restart in another mode.
+// Generating a token stays blocked there.
 func (s *Server) handleSettingsInstanceTokenRevoke(w http.ResponseWriter, r *http.Request) {
-	if s.readOnly {
-		http.Error(w, "birdy is read-only", http.StatusForbidden)
-		return
-	}
 	if err := s.store.RevokeInstanceAPIToken(); err != nil {
 		s.serverError(w, "revoke instance API token", err)
 		return
@@ -616,10 +637,6 @@ func (s *Server) handleSettingsInstanceTokenRevoke(w http.ResponseWriter, r *htt
 }
 
 func (s *Server) handleSettingsInstanceTokenRevokeOne(w http.ResponseWriter, r *http.Request) {
-	if s.readOnly {
-		http.Error(w, "birdy is read-only", http.StatusForbidden)
-		return
-	}
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil || id <= 0 {
 		http.NotFound(w, r)

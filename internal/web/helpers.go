@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/floreabogdan/birdy/internal/store"
 )
@@ -57,10 +58,61 @@ func (s *Server) actor(r *http.Request) string {
 
 // audit records an operator's model change on the timeline, attributed to them.
 // Best-effort: a failed audit write is logged, never surfaced to the operator.
+//
+// What goes in message is read by everyone who can open the timeline, including
+// other birdy instances holding a read token: name the object, never a secret.
+// No passwords, tokens, or webhook URLs (a Slack or Discord URL is a credential).
 func (s *Server) audit(r *http.Request, message string) {
-	if err := s.store.InsertAudit(s.actor(r), store.EventModelChange, message); err != nil {
+	s.auditAs(r, store.EventModelChange, message)
+}
+
+// auditAs is audit for an operator action that is not a model change: an
+// account event (store.EventAuth) or a database transfer (store.EventBackup).
+func (s *Server) auditAs(r *http.Request, kind, message string) {
+	if err := s.store.InsertAudit(s.actor(r), kind, message); err != nil {
 		s.log.Warn("failed to record audit event", "error", err)
 	}
+}
+
+// auditTransfer records that the database left the router (a snapshot or
+// backup download) or that one was staged to replace it. Besides the timeline
+// row it writes a server log line with who and from where: a restore replaces
+// the events table itself, so the journal is the only trail that survives one,
+// and a copy of the database holds every secret birdy keeps.
+func (s *Server) auditTransfer(r *http.Request, message string) {
+	s.log.Info(message, "actor", s.actor(r), "client", clientAddr(r).String())
+	s.auditAs(r, store.EventBackup, message)
+}
+
+// savedVerb is the audit verb for a form that both creates and edits.
+func savedVerb(isNew bool) string {
+	if isNew {
+		return "created"
+	}
+	return "updated"
+}
+
+// logUsername is a submitted username made safe to put in a log line. It is
+// whatever a stranger typed into the login form: control characters are
+// dropped so it cannot forge or break log lines, and it is cut to 32
+// characters — enough to recognise an account name, not enough to preserve a
+// password someone typed into the wrong field.
+func logUsername(u string) string {
+	const maxRunes = 32
+	var b strings.Builder
+	n := 0
+	for _, r := range strings.ToValidUTF8(u, "") {
+		if unicode.IsControl(r) || !unicode.IsPrint(r) {
+			continue
+		}
+		if n == maxRunes {
+			b.WriteString("…")
+			break
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return b.String()
 }
 
 // Flash messages travel in a short-lived cookie, not a ?flash= query param, so a

@@ -550,3 +550,51 @@ func TestHeldBackStateIsPerSubject(t *testing.T) {
 		t.Fatalf("alerts = %v, want %v", got, want)
 	}
 }
+
+// A webhook receiver that answers with a redirect must not be able to make
+// birdy re-POST the alert somewhere else — a 307 keeps the method and body, and
+// the target could be loopback or a metadata address the operator never named.
+// The redirect is a delivery failure, and its error names neither the secret
+// path nor the place the receiver pointed at.
+func TestWebhookDoesNotFollowRedirects(t *testing.T) {
+	const secretPath = "/services/TFAKE/BFAKE/not-a-real-secret"
+
+	var mu sync.Mutex
+	followed := 0
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		followed++
+		mu.Unlock()
+	}))
+	defer target.Close()
+
+	for _, code := range []int{http.StatusMovedPermanently, http.StatusFound, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, target.URL+"/internal-only", code)
+			}))
+			defer redirector.Close()
+
+			st := openStore(t)
+			if _, err := st.CreateAlertDestination(store.Destination{Name: "hook", Type: store.AlertWebhook, Enabled: true, URL: redirector.URL + secretPath}); err != nil {
+				t.Fatal(err)
+			}
+			// The dispatcher's own client, exactly as production builds it.
+			err := NewDispatcher(st, nil, 0).SendTest(mustGet(t, st, "hook"))
+			if err == nil {
+				t.Fatal("a redirect answer must be a delivery failure")
+			}
+			if !strings.Contains(err.Error(), "redirect") || !strings.Contains(err.Error(), fmt.Sprint(code)) {
+				t.Errorf("error should say it was a redirect and give the status: %v", err)
+			}
+			if strings.Contains(err.Error(), "not-a-real-secret") || strings.Contains(err.Error(), "internal-only") {
+				t.Errorf("error leaks the webhook path or the redirect target: %v", err)
+			}
+		})
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if followed != 0 {
+		t.Fatalf("the alert was re-sent to the redirect target %d time(s)", followed)
+	}
+}

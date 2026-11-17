@@ -130,6 +130,9 @@ func (s *Server) handleProfileIdentity(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "set username", err)
 		return
 	}
+	// Attributed to the new name (the lookup happens now), with the old one in
+	// the message so earlier rows by that name can still be tied to the account.
+	s.auditAs(r, store.EventModelChange, "changed the username from "+u.Username+" to "+username)
 	s.flashRedirect(w, r, "/profile", "Username updated", false)
 }
 
@@ -155,6 +158,9 @@ func (s *Server) handleProfilePassword(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case len(next) < minPasswordLen:
 		errs["newPassword"] = fmt.Sprintf("Use at least %d characters.", minPasswordLen)
+	case len(next) > MaxPasswordBytes:
+		// bcrypt refuses anything longer, which used to surface as a bare 500.
+		errs["newPassword"] = fmt.Sprintf("Use at most %d bytes (birdy hashes passwords with bcrypt, which takes no more). This one is %d.", MaxPasswordBytes, len(next))
 	case next == current:
 		errs["newPassword"] = "Choose a password different from the current one."
 	}
@@ -182,6 +188,7 @@ func (s *Server) handleProfilePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setSessionCookie(w, token, s.cookieSecure(r))
+	s.auditAs(r, store.EventModelChange, "changed the account password; other sessions signed out")
 	s.flashRedirect(w, r, "/profile", "Password changed; other sessions signed out", false)
 }
 

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -88,6 +89,9 @@ func (s *Server) handleAlertSave(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "save alert destination", err)
 		return
 	}
+	// By name and type only. The URL of a Slack or Discord destination is the
+	// credential, and the SMTP password is one outright.
+	s.audit(r, fmt.Sprintf("%s alert destination %s (%s)", savedVerb(isNew), d.Name, d.Type))
 	s.settingsRedirect(w, r, "alerts", "Saved "+d.Name)
 }
 
@@ -100,6 +104,7 @@ func (s *Server) handleAlertDelete(w http.ResponseWriter, r *http.Request) {
 		s.serverError(w, "delete alert destination", err)
 		return
 	}
+	s.audit(r, "deleted alert destination "+d.Name)
 	s.settingsRedirect(w, r, "alerts", "Deleted "+d.Name)
 }
 
@@ -111,9 +116,13 @@ func (s *Server) handleAlertTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if terr := notify.NewDispatcher(s.store, s.log, 0).SendTest(d); terr != nil {
+		// A test send makes birdy contact the destination, so it is recorded
+		// either way — without the error text, which names the remote host.
+		s.audit(r, "test alert to "+d.Name+" failed")
 		s.flashRedirect(w, r, "/settings?tab=alerts", "Test to "+d.Name+" failed: "+terr.Error(), true)
 		return
 	}
+	s.audit(r, "sent a test alert to "+d.Name)
 	s.settingsRedirect(w, r, "alerts", "Test alert sent to "+d.Name)
 }
 

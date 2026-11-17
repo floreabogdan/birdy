@@ -6,6 +6,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -86,6 +87,12 @@ type Server struct {
 	listenAddr string
 	tls        bool
 
+	// instanceHTTP is the HTTP client remote Birdy instances are read with. nil
+	// everywhere but in tests, which means the federation package's guarded
+	// default. Tests set it because their stand-in remotes are httptest servers
+	// on 127.0.0.1, an address that client refuses to connect to.
+	instanceHTTP *http.Client
+
 	// applyMu serialises everything that touches bird.conf and the pending-apply
 	// record. HTTP handlers run concurrently, and two applies at once could both
 	// pass the no-pending check, both back up and overwrite the file, and leave
@@ -106,6 +113,9 @@ type Server struct {
 	accessMu     sync.RWMutex
 	accessList   []netip.Prefix
 	allowedHosts map[string]bool
+	// accessLoaded is set by the first reloadAccess, which is how a later one
+	// knows there is a previously loaded list to keep when a reload fails.
+	accessLoaded bool
 
 	// histMu guards a short-lived cache of the dashboard's per-session route
 	// history. Recomputing it rescans the whole sample window; the samples only
@@ -242,6 +252,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	secure := s.cookieSecure(r)
 	setSecurityHeaders(w, secure)
+	// Nothing birdy answers with is for a cache: pages behind the login, the
+	// database and backup downloads, the page that shows a new token once, and
+	// the redirects and refusals around them. A browser's disk cache or its
+	// back button must not hand any of it to the next person at the machine.
+	// Set before the handler runs, so a handler that wants something else just
+	// sets its own value over this one. The embedded static assets are public
+	// and identical for everyone, and keep the caching they have.
+	if !strings.HasPrefix(r.URL.Path, "/static/") {
+		w.Header().Set("Cache-Control", "no-store")
+	}
 	if !s.hostAllowed(r) {
 		s.refuseHost(w, r)
 		return
@@ -250,7 +270,70 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "cross-origin write rejected", http.StatusForbidden)
 		return
 	}
+	if !limitRequestBody(w, r) {
+		return
+	}
 	s.mux.ServeHTTP(w, r)
+}
+
+// Request-body caps, by route. net/http bounds a form at 10 MB when nothing
+// else does, and reads it for anyone: /login parses its form before the login
+// limiter is consulted, so each unauthenticated request could have birdy
+// buffer 10 MB. The caps are sized from the forms birdy actually has.
+const (
+	// maxLoginBody: a username (64 characters at most) and a password (72 bytes
+	// at most), percent-encoded. 8 KiB is an order of magnitude of headroom.
+	maxLoginBody = 8 << 10
+	// maxFormBody covers every ordinary form. The largest is the raw config
+	// block, bounded at 64 KiB (maxRawConfig) — at worst 192 KiB on the wire,
+	// with every byte percent-encoded. The seed import sends three short fields
+	// per BGP session, so 1 MiB is room for several thousand sessions.
+	maxFormBody = 1 << 20
+	// maxSetFormBody is for the forms that carry a whole prefix or AS list in a
+	// textarea: prefix sets, AS sets and the bogon lists, with their live
+	// previews. Nothing bounds how many entries a set has, and a set expanded
+	// from the IRR for a large customer cone comes back through the edit form
+	// in full — 60,000 IPv6 entries are about 2.5 MB encoded. These keep the
+	// 10 MB net/http applied to them before, so no set that could be saved in an
+	// earlier release is refused now.
+	maxSetFormBody = 10 << 20
+)
+
+// postBodyLimit is the cap for a POST to path, or 0 where the handler sets its
+// own: the snapshot restore takes a database upload and bounds it itself.
+func postBodyLimit(path string) int64 {
+	switch {
+	case path == "/login":
+		return maxLoginBody
+	case path == "/api/snapshot/restore":
+		return 0
+	case path == "/settings/bogons",
+		strings.HasPrefix(path, "/library/prefix-sets/"),
+		strings.HasPrefix(path, "/library/as-sets/"):
+		return maxSetFormBody
+	}
+	return maxFormBody
+}
+
+// limitRequestBody caps the body of every POST and reports whether the request
+// may go on. A body that declares itself too large is refused here with a 413
+// before a byte of it is read. One that hides its length (chunked) is stopped
+// by the reader after the cap: the handler's ParseForm then fails and it
+// answers as it does for any unreadable form, without the rest being read.
+func limitRequestBody(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return true
+	}
+	limit := postBodyLimit(r.URL.Path)
+	if limit == 0 {
+		return true
+	}
+	if r.ContentLength > limit {
+		http.Error(w, fmt.Sprintf("request body too large: this form accepts at most %d bytes", limit), http.StatusRequestEntityTooLarge)
+		return false
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	return true
 }
 
 // sameOriginWrite rejects browser write requests originating on another site.
@@ -279,22 +362,80 @@ func sameOriginWrite(r *http.Request, secure bool) bool {
 	return strings.EqualFold(u.Scheme, expectedScheme) && strings.EqualFold(u.Host, r.Host)
 }
 
-// reloadAccess refreshes the cached access whitelist from settings. Called at
-// startup and whenever the whitelist is edited.
+// reloadAccess refreshes the cached access whitelist and allowed host names
+// from settings. Called at startup and whenever either list is edited.
+//
+// A list that cannot be loaded is never replaced by an empty one, because an
+// empty access list means "no restriction": a transient database error or a
+// stored value that no longer parses would silently open birdy to every
+// address. Instead the list already in force stays in force. At startup there
+// is none yet, and birdy then answers loopback only — the SSH tunnel every
+// lock-out message points to always works — until a load succeeds. Failing the
+// start instead would take the UI away from the operator who has to fix it.
 func (s *Server) reloadAccess() {
-	var list []netip.Prefix
-	hosts := map[string]bool{}
-	if settings, ok, err := s.store.GetSettings(); err == nil && ok {
-		list, _ = store.ParseAccessWhitelist(settings.AccessWhitelist)
-		names, _ := store.ParseAllowedHosts(settings.AllowedHosts)
-		for _, name := range names {
-			hosts[name] = true
-		}
-	}
+	list, hosts, listErr, hostsErr := s.loadAccess()
+
 	s.accessMu.Lock()
-	s.accessList = list
-	s.allowedHosts = hosts
-	s.accessMu.Unlock()
+	defer s.accessMu.Unlock()
+	first := !s.accessLoaded
+	s.accessLoaded = true
+
+	switch {
+	case listErr == nil:
+		s.accessList = list
+	case first:
+		s.accessList = loopbackOnly()
+		s.log.Error("ACCESS LIST COULD NOT BE LOADED AT STARTUP: birdy is answering loopback only until it can be. "+
+			"Reach it over an SSH tunnel and re-save Settings → Access control.", "error", listErr)
+	default:
+		s.log.Error("access list could not be reloaded; keeping the list already in force", "error", listErr)
+	}
+
+	switch {
+	case hostsErr == nil:
+		s.allowedHosts = hosts
+	case first:
+		// No names: birdy is then reached by IP address or as localhost only,
+		// which is the restrictive reading of an unreadable list.
+		s.allowedHosts = map[string]bool{}
+		s.log.Error("allowed host names could not be loaded at startup: birdy answers a browser by IP address or as localhost only until they can be", "error", hostsErr)
+	default:
+		s.log.Error("allowed host names could not be reloaded; keeping the names already in force", "error", hostsErr)
+	}
+}
+
+// loadAccess reads and parses both lists, each with its own error so that a
+// problem with one does not hold back the other. No settings row at all (a
+// database `birdy init` has not run on) is not an error: there is no list.
+func (s *Server) loadAccess() (list []netip.Prefix, hosts map[string]bool, listErr, hostsErr error) {
+	hosts = map[string]bool{}
+	settings, ok, err := s.store.GetSettings()
+	if err != nil {
+		return nil, nil, err, err
+	}
+	if !ok {
+		return nil, hosts, nil, nil
+	}
+	list, errs := store.ParseAccessWhitelist(settings.AccessWhitelist)
+	if len(errs) > 0 {
+		listErr = fmt.Errorf("stored access whitelist does not parse: %s", strings.Join(errs, "; "))
+	}
+	names, errs := store.ParseAllowedHosts(settings.AllowedHosts)
+	if len(errs) > 0 {
+		hostsErr = fmt.Errorf("stored allowed host names do not parse: %s", strings.Join(errs, "; "))
+	}
+	for _, name := range names {
+		hosts[name] = true
+	}
+	return list, hosts, listErr, hostsErr
+}
+
+// loopbackOnly is the access list installed when the real one cannot be loaded
+// at startup. Loopback is allowed whatever the list says (store.AccessAllowed),
+// so a list of only loopback admits nothing else — and, being non-empty, it
+// also counts as restricted wherever that is asked.
+func loopbackOnly() []netip.Prefix {
+	return []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")}
 }
 
 func (s *Server) accessAllowed(r *http.Request) bool {

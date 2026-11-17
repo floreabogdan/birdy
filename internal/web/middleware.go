@@ -10,7 +10,20 @@ const sessionCookieName = "birdy_session"
 
 type ctxKey int
 
-const ctxUserID ctxKey = 1
+const (
+	ctxUserID ctxKey = 1
+	// ctxViaToken marks a request that requireDashboardAuth let in on an
+	// instance bearer token instead of a session. Handlers behind it use the
+	// mark to serve a token holder less than a signed-in operator (apiEvents).
+	ctxViaToken ctxKey = 2
+)
+
+// viaToken reports whether the request was authenticated by an instance token
+// rather than an operator's session.
+func viaToken(r *http.Request) bool {
+	v, _ := r.Context().Value(ctxViaToken).(bool)
+	return v
+}
 
 // requireAuth wraps a handler so it only runs for requests carrying a valid,
 // unexpired session cookie; otherwise it redirects to /login.
@@ -53,7 +66,7 @@ func (s *Server) requireDashboardAuth(next http.HandlerFunc) http.Handler {
 				// token holder cannot set the selection cookie and make us relay
 				// another federated instance's dashboard with our stored token.
 				r.Header.Del("Cookie")
-				next(w, r)
+				next(w, r.WithContext(context.WithValue(r.Context(), ctxViaToken, true)))
 				return
 			}
 			w.WriteHeader(http.StatusUnauthorized)
