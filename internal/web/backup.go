@@ -21,12 +21,15 @@ func (s *Server) handleBackupDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "snapshots not configured", http.StatusServiceUnavailable)
 		return
 	}
-	snapPath, err := s.snap.CreateSnapshot(s.store)
+	// A temporary snapshot, removed once zipped: it never counts toward the
+	// retained nightly set.
+	snapPath, err := s.snap.CreateTempSnapshot(s.store)
 	if err != nil {
 		s.log.Error("backup snapshot failed", "error", err)
 		http.Error(w, "failed to create snapshot", http.StatusInternalServerError)
 		return
 	}
+	defer os.Remove(snapPath) // runs after dbFile.Close below
 	dbFile, err := os.Open(snapPath)
 	if err != nil {
 		s.log.Error("backup read snapshot failed", "error", err)

@@ -117,11 +117,9 @@ func checkConfigDir(cfg Config) Result {
 	if !info.IsDir() {
 		return Result{"config directory", Fail, fmt.Sprintf("%s is not a directory", dir)}
 	}
-	probe := filepath.Join(dir, ".birdy-write-test")
-	if err := os.WriteFile(probe, []byte("ok"), 0o640); err != nil {
+	if err := probeWritable(dir); err != nil {
 		return Result{"config directory", Warn, fmt.Sprintf("%s exists but is not writable: %v (fine in read-only mode)", dir, err)}
 	}
-	_ = os.Remove(probe) // best-effort cleanup of the write probe
 	return Result{"config directory", OK, dir + " is writable"}
 }
 
@@ -137,13 +135,7 @@ func checkApplyReady(cfg Config) Result {
 
 	// The directory must be writable for the atomic temp-file-and-rename write.
 	dir := filepath.Dir(path)
-	probe := filepath.Join(dir, ".birdy-apply-test")
-	writable := true
-	if err := os.WriteFile(probe, []byte("ok"), 0o640); err != nil {
-		writable = false
-	} else {
-		_ = os.Remove(probe) // best-effort cleanup of the write probe
-	}
+	writable := probeWritable(dir) == nil
 
 	c, err := birdc.Dial(cfg.SocketPath, 3*time.Second)
 	if err != nil {
@@ -197,11 +189,9 @@ func checkDBDir(cfg Config) Result {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return Result{"database path", Fail, fmt.Sprintf("cannot create %s: %v", dir, err)}
 	}
-	probe := filepath.Join(dir, ".birdy-write-test")
-	if err := os.WriteFile(probe, []byte("ok"), 0o640); err != nil {
+	if err := probeWritable(dir); err != nil {
 		return Result{"database path", Fail, fmt.Sprintf("%s is not writable: %v", dir, err)}
 	}
-	os.Remove(probe)
 
 	// A writable directory is not enough, and the difference is the classic way a
 	// packaged install breaks: run "birdy init" as root and the database file it
@@ -217,4 +207,28 @@ func checkDBDir(cfg Config) Result {
 		f.Close()
 	}
 	return Result{"database path", OK, dir + " and the database file are writable"}
+}
+
+// probeWritable reports whether a file can be created in dir, by creating one
+// and removing it again.
+//
+// doctor is usually run as root, and these directories are writable by less
+// privileged accounts (birdy's own, BIRD's). The probe used to write to a fixed
+// name, so a symlink planted there made root overwrite whatever it pointed at.
+// os.CreateTemp picks a random name and creates it with O_EXCL, which refuses an
+// existing name — symlinks included — so the probe only ever touches a file it
+// has just created itself.
+func probeWritable(dir string) error {
+	f, err := os.CreateTemp(dir, ".birdy-probe-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	_, werr := f.Write([]byte("ok"))
+	cerr := f.Close()
+	_ = os.Remove(name) // best-effort cleanup of the write probe
+	if werr != nil {
+		return werr
+	}
+	return cerr
 }

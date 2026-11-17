@@ -58,8 +58,11 @@ CREATE TABLE IF NOT EXISTS users (
 	created_at    TEXT NOT NULL
 );
 
+-- token_hash is the hex SHA-256 of the session cookie, never the cookie itself
+-- (see hashSessionToken). Databases older than schema 42 have this column as
+-- "token", holding raw values; the v42 migration renames it and drops the rows.
 CREATE TABLE IF NOT EXISTS sessions (
-	token      TEXT PRIMARY KEY,
+	token_hash TEXT PRIMARY KEY,
 	user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 	created_at TEXT NOT NULL,
 	expires_at TEXT NOT NULL

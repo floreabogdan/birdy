@@ -59,11 +59,24 @@ func cmdServer(args []string) error {
 	if err := snapshot.ApplyPendingRestore(*dbPath, log); err != nil {
 		return fmt.Errorf("apply pending restore: %w", err)
 	}
-	st, err := store.Open(*dbPath)
+	// The service follows a database path that is a symlink, as it always has;
+	// only the commands run as root (birdy init) refuse one. Say so, once: the
+	// link is something whoever owns the directory can repoint.
+	if target, isLink := store.SymlinkTarget(*dbPath); isLink {
+		log.Warn("the database path is a symbolic link; following it — \"birdy init\" and database restore refuse a symlinked path, so prefer pointing --db at the real file",
+			"path", *dbPath, "target", target)
+	}
+	st, err := store.OpenFollowingSymlink(*dbPath)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
 	defer st.Close()
+
+	// Advisory only — an install that worked keeps working. The database file
+	// itself is kept 0600 by store.Open; this is about its surroundings.
+	for _, warning := range store.PermissionWarnings(*dbPath) {
+		log.Warn(warning)
+	}
 
 	// Refuse to run half-broken. birdy keeps its OWN state in this file — logins,
 	// events, route history — even with --read-only, which only stops it writing

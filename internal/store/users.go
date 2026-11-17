@@ -125,8 +125,8 @@ func (s *Store) RotatePasswordSession(userID int64, passwordHash, token string, 
 		return fmt.Errorf("store: revoke sessions: %w", err)
 	}
 	ts := now()
-	if _, err := tx.Exec(`INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
-		token, userID, ts, expiresAt.UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.Exec(`INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`,
+		hashSessionToken(token), userID, ts, expiresAt.UTC().Format(time.RFC3339Nano)); err != nil {
 		return fmt.Errorf("store: create replacement session: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

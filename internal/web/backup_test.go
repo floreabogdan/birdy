@@ -5,6 +5,10 @@ import (
 	"bytes"
 	"database/sql"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/floreabogdan/birdy/internal/store"
@@ -75,3 +79,51 @@ func TestConfirmMailsMaskedConfig(t *testing.T) {
 }
 
 func contains(hay, needle string) bool { return bytes.Contains([]byte(hay), []byte(needle)) }
+
+// On-demand downloads take a fresh snapshot, but must not leave it in the
+// snapshot directory: each one used to become a retained snapshot, so a few
+// clicks pushed every nightly snapshot out of the retention window.
+func TestDownloadsDoNotTouchRetainedSnapshots(t *testing.T) {
+	env := newTestEnv(t, false)
+	snapDir := filepath.Join(filepath.Dir(env.confPath), "snapshots")
+	// The test manager retains 3; fill it the way the nightly job would.
+	var nightly []string
+	for range 3 {
+		p, err := env.srv.snap.CreateSnapshot(env.store)
+		if err != nil {
+			t.Fatal(err)
+		}
+		nightly = append(nightly, filepath.Base(p))
+	}
+
+	for _, path := range []string{"/api/snapshot/download", "/api/backup/download", "/api/snapshot/download", "/api/backup/download"} {
+		req := httptest.NewRequest("GET", path, nil)
+		req.AddCookie(env.cookie)
+		rec := httptest.NewRecorder()
+		env.srv.ServeHTTP(rec, req)
+		if rec.Code != 200 || rec.Body.Len() == 0 {
+			t.Fatalf("%s: code=%d len=%d", path, rec.Code, rec.Body.Len())
+		}
+		if path == "/api/snapshot/download" {
+			if !bytes.HasPrefix(rec.Body.Bytes(), []byte("SQLite format 3\x00")) {
+				t.Errorf("%s did not return a SQLite database", path)
+			}
+			// A snapshot-style name, not the temp file's.
+			if cd := rec.Header().Get("Content-Disposition"); !regexp.MustCompile(`^attachment; filename="birdy-\d{8}-\d{6}\.db"$`).MatchString(cd) {
+				t.Errorf("Content-Disposition = %q", cd)
+			}
+		}
+	}
+
+	entries, err := os.ReadDir(snapDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range entries {
+		got = append(got, e.Name())
+	}
+	if strings.Join(got, ",") != strings.Join(nightly, ",") {
+		t.Errorf("after four downloads the snapshot dir holds %v, want exactly the nightly snapshots %v", got, nightly)
+	}
+}
