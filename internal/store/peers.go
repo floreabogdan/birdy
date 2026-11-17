@@ -116,7 +116,23 @@ func validateNameDesc(name, description string) (string, map[string]string) {
 
 // validateNameDescMax is validateNameDesc for a kind whose name birdy also
 // builds longer symbols from, capped at maxLen (see MaxPeerNameLen).
+//
+// The name is rendered as a BIRD symbol of its own, so it must not be a word
+// BIRD's command line needs (see controlKeywords).
 func validateNameDescMax(name, description string, maxLen int) (string, map[string]string) {
+	name, errs := validateIdentDesc(name, description, maxLen)
+	if _, bad := errs["name"]; !bad {
+		if msg := ControlKeywordError(name); msg != "" {
+			errs["name"] = msg
+		}
+	}
+	return name, errs
+}
+
+// validateIdentDesc checks only the shape of the name and the description. On
+// its own it is for a kind whose name never becomes a symbol by itself — a
+// policy, which BIRD only ever sees inside imp_NAME_v4 and the like.
+func validateIdentDesc(name, description string, maxLen int) (string, map[string]string) {
 	errs := map[string]string{}
 	name = strings.TrimSpace(name)
 	if !birdIdent.MatchString(name) || len(name) > maxLen {

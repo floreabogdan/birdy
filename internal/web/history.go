@@ -92,9 +92,11 @@ func (s *Server) handleReapply(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	set, err := fileSetFor(v)
+	set, err := s.fileSetFor(v)
 	if err != nil {
-		s.serverError(w, "decode version file set", err)
+		s.log.Error("stored version failed its checks at re-apply", "version", v.ID, "error", err)
+		s.redirectChanges(w, r, "This version cannot be re-applied: what birdy stored for it does not pass its checks ("+
+			err.Error()+"). Nothing was written.")
 		return
 	}
 	// Emergency rollback defaults to soft: putting an old config back should not

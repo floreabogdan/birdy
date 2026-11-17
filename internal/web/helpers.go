@@ -164,6 +164,20 @@ func (s *Server) symbolClash(name string, counts func(store.SymbolUse) bool) (st
 	return "", nil
 }
 
+// keepStoredName lets an object keep a name it already has when that name is
+// one birdy no longer accepts for new objects (store.ControlKeywordError).
+// Such a row was saved by an older birdy; refusing it on every save would leave
+// the operator unable to change anything else about the object — including
+// switching it off — until they also renamed it. stored is the name the object
+// was loaded by, "" when it is being created; name is what the form posted.
+// Only that one refusal is lifted, and only for an unchanged name: creating or
+// renaming to such a name stays refused, as does every other name error.
+func keepStoredName(errs map[string]string, stored, name string) {
+	if msg := store.ControlKeywordError(name); msg != "" && name == stored && errs["name"] == msg {
+		delete(errs, "name")
+	}
+}
+
 // refuseTemplateName records a name error when a peer template already uses
 // the name: the object being saved would render a second BIRD symbol of it.
 // A name the form already rejected is left with that error.

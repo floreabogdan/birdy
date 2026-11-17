@@ -192,3 +192,39 @@ func TestRestartProtocolRejectsInjection(t *testing.T) {
 		t.Fatal("RestartProtocol accepted a name with a newline")
 	}
 }
+
+// "restart all" is BIRD's command to restart every protocol. A name is passed
+// through as given, so the one name that is also that keyword must never be
+// sent — even if BIRD would answer it happily.
+func TestProtocolCommandsRefuseAll(t *testing.T) {
+	path, sent := scriptedBird(t, map[string]string{
+		"restart all": "0012-edge1: restarted\n0012-edge2: restarted\n0000 \n",
+	})
+	c, err := Dial(path, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	ctx := context.Background()
+	if err := c.RestartProtocol(ctx, "all"); err == nil {
+		t.Error("RestartProtocol(all) returned nil: it restarted every protocol")
+	}
+	if _, err := c.ProtocolDetail(ctx, "all"); err == nil {
+		t.Error("ProtocolDetail(all) returned nil")
+	}
+	if _, err := c.RoutesByProtocol(ctx, "all"); err == nil {
+		t.Error("RoutesByProtocol(all) returned nil")
+	}
+	select {
+	case cmd := <-sent:
+		t.Errorf("sent %q to BIRD", cmd)
+	default:
+	}
+	// BIRD's keywords are case-sensitive: ALL and All are ordinary protocol
+	// names (verified on BIRD 2.17.5) and must keep working.
+	for _, name := range []string{"ALL", "All", "all_", "allpeers"} {
+		if err := validIdent(name); err != nil {
+			t.Errorf("validIdent(%q) = %v, want nil", name, err)
+		}
+	}
+}

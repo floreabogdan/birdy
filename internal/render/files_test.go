@@ -108,3 +108,142 @@ func TestFilesMinimalModel(t *testing.T) {
 		t.Error("entry banner missing")
 	}
 }
+
+// fullInput is a model that makes the renderer emit every kind of section it
+// has, with names that stretch what a model name may contain.
+func fullInput() Input {
+	in := richInput()
+	longName := "P" + strings.Repeat("x", store.MaxPeerNameLen-1)
+	in.PrefixSets = append(in.PrefixSets, store.PrefixSet{
+		ID: 3, Name: "OUR_NETS_v4", Family: store.FamilyV4, Originate: true,
+		Entries: []store.PrefixEntry{{Prefix: "203.0.113.0/24"}},
+	})
+	in.ASSets = []store.ASSet{{ID: 1, Name: "AS_CUSTOMERS", Entries: []store.ASNRange{{Low: 64500, High: 64510}}}}
+	in.Communities = []store.CommunityDef{{ID: 1, Name: "MY_TAG_1", Large: true, A: 65551, B: 100, C: 1}}
+	in.RPKIServers = []store.RPKIServer{{ID: 1, Name: "rtr_1", Host: "192.0.2.53", Port: 323, Enabled: true}}
+	in.StaticRoutes = []store.StaticRoute{{ID: 1, Prefix: "203.0.113.0/24", Action: store.StaticVia, NextHop: "192.0.2.254", Enabled: true}}
+	in.Templates = []store.PeerTemplate{{ID: 1, Name: "_tpl_9", Role: store.RoleUpstream}}
+	bfd := ebgpPeer()
+	bfd.ID, bfd.Name, bfd.NeighborIP, bfd.BFD = 2, longName, "198.51.100.2", true
+	bfd.TemplateID.Int64, bfd.TemplateID.Valid, bfd.TemplateName = 1, true, "_tpl_9"
+	in.Peers = append(in.Peers, bfd)
+	in.RawConfig = "# raw\n"
+	return in
+}
+
+// Every include name the renderer produces must pass the check that guards
+// writes of a stored file set — otherwise a config birdy rendered itself could
+// not be confirmed or re-applied. The model here covers every section group, so
+// a new group whose names break the pattern fails this test, not an apply.
+func TestEveryRenderedIncludeNameIsValid(t *testing.T) {
+	in := fullInput()
+	fs, err := Files(in, "/etc/bird")
+	if err != nil {
+		t.Fatalf("Files: %v", err)
+	}
+	groups := map[string]bool{}
+	secs, err := Sections(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range secs {
+		group, _, _ := strings.Cut(s.Path, "/")
+		groups[group] = true
+	}
+	for group := range groupNum {
+		if !groups[group] {
+			t.Errorf("the test model renders no %q section, so its file names go unchecked", group)
+		}
+	}
+	for _, f := range fs.Includes {
+		if err := ValidIncludeName(f.Name); err != nil {
+			t.Errorf("rendered include %q is refused: %v", f.Name, err)
+		}
+	}
+	if err := fs.Verify(fs.Logical(), "/etc/bird"); err != nil {
+		t.Errorf("a freshly rendered file set does not verify: %v", err)
+	}
+	// A section group birdy does not number yet still gets a valid name.
+	if err := ValidIncludeName(includeFileName("future/thing_1")); err != nil {
+		t.Errorf("unnumbered group: %v", err)
+	}
+}
+
+// Names that could only come from a tampered database: anything that would
+// land outside birdy.d, or is not a file the renderer writes.
+func TestValidIncludeNameRefusesForeignPaths(t *testing.T) {
+	for _, name := range []string{
+		"",
+		"../../var/lib/birdy/x",
+		"../09-peers-a.conf",
+		"birdy.d/../09-peers-a.conf",
+		"birdy.d/../../etc/cron.d/09-x.conf",
+		"/etc/bird/birdy.d/09-peers-a.conf",
+		"birdy.d/sub/09-peers-a.conf",
+		"birdy.d//09-peers-a.conf",
+		`birdy.d\09-peers-a.conf`,
+		`birdy.d/09-peers-a\..\x.conf`,
+		"birdy.d/09-peers-a.conf/",
+		"birdy.d/09-peers-a",
+		"birdy.d/.conf",
+		"birdy.d/peers-a.conf",
+		"birdy.d/09-.conf",
+		"birdy.d/09-peers-a.conf\x00",
+		"birdy.d/09-peers-a.conf\n",
+		"birdy.d/09-peers a.conf",
+		"other.d/09-peers-a.conf",
+		"bird.conf",
+	} {
+		if err := ValidIncludeName(name); err == nil {
+			t.Errorf("ValidIncludeName(%q) = nil, want an error", name)
+		}
+	}
+}
+
+// What is written must be what was checked: the stored config text is what
+// `bird -p` sees, the file set is what lands on disk.
+func TestVerifyTiesTheFileSetToTheConfigText(t *testing.T) {
+	const dir = "/etc/bird"
+	fresh := func() FileSet {
+		fs, err := Files(richInput(), dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A copy of the slice, so a case cannot leak into the next.
+		fs.Includes = append([]File(nil), fs.Includes...)
+		return fs
+	}
+	cfg := fresh().Logical()
+
+	cases := map[string]func(*FileSet){
+		"a body the text does not have": func(fs *FileSet) { fs.Includes[1].Body += "protocol static evil { ipv4; }\n" },
+		"a file dropped":                func(fs *FileSet) { fs.Includes = fs.Includes[:len(fs.Includes)-1] },
+		"a traversal name":              func(fs *FileSet) { fs.Includes[0].Name = "../../var/lib/birdy/x" },
+		"a file listed twice": func(fs *FileSet) {
+			// Bodies still add up: the second copy is empty.
+			fs.Includes = append(fs.Includes, File{Name: fs.Includes[0].Name})
+		},
+		"config in the entry": func(fs *FileSet) { fs.Entry += "protocol static evil { ipv4; }\n" },
+		"a foreign include":   func(fs *FileSet) { fs.Entry += "include \"/etc/shadow\";\n" },
+		"an include line missing": func(fs *FileSet) {
+			fs.Entry = strings.Replace(fs.Entry, "include \"/etc/bird/birdy.d/00-header.conf\";\n", "", 1)
+		},
+		"includes for another place": func(fs *FileSet) { fs.Entry = strings.ReplaceAll(fs.Entry, "/etc/bird/", "/tmp/elsewhere/") },
+	}
+	for name, tamper := range cases {
+		fs := fresh()
+		tamper(&fs)
+		if err := fs.Verify(cfg, dir); err == nil {
+			t.Errorf("%s: Verify = nil, want an error", name)
+		}
+	}
+
+	// The single-file layout older versions stored: no includes, the entry is
+	// the config.
+	if err := (FileSet{Entry: cfg}).Verify(cfg, dir); err != nil {
+		t.Errorf("single-file set: %v", err)
+	}
+	if err := (FileSet{Entry: cfg + "# extra\n"}).Verify(cfg, dir); err == nil {
+		t.Error("a single-file set whose bird.conf is not the config text must be refused")
+	}
+}

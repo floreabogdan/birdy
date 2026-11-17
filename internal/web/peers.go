@@ -295,6 +295,7 @@ func (s *Server) handlePeerSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	errs := p.Validate()
+	keepStoredName(errs, r.PathValue("name"), p.Name)
 	if tplMsg != "" {
 		errs["template"] = tplMsg
 	}

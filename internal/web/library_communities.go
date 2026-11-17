@@ -95,6 +95,7 @@ func (s *Server) handleCommunitySave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	errs := cd.Validate()
+	keepStoredName(errs, r.PathValue("name"), cd.Name)
 	if err := s.refuseTemplateName(cd.Name, errs); err != nil {
 		s.serverError(w, "check name", err)
 		return

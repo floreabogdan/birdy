@@ -34,6 +34,40 @@ var builtinSymbols = map[string]bool{
 	"master4": true, "master6": true,
 }
 
+// controlKeywords are the words of the commands birdy sends over BIRD's control
+// socket that stop working — or change meaning — once the running config
+// defines a symbol of the same name. BIRD's lexer looks a word up as a symbol
+// before it tries it as a keyword, and `bird -p` accepts most keywords as
+// names, so a protocol or define called "configure" loads fine and then every
+// "configure ..." command is a syntax error: the apply that brought it in can
+// be neither confirmed nor undone, only left to time out. "all" is the worst of
+// them: a protocol called "all" narrows "reload all" to itself, and while no
+// such symbol is loaded, "restart all" on its behalf restarts every protocol.
+//
+// The list is what was shown to break on BIRD 2.17.5, one word at a time, and
+// deliberately nothing more: it is not BIRD's keyword list. Words that merely
+// fail to parse inside bird.conf are `bird -p`'s to refuse, and guessing at
+// those would lock out names that work on someone's router today. Keywords are
+// case-sensitive in BIRD, so only these exact lower-case spellings are held.
+var controlKeywords = map[string]bool{
+	"all":       true, // reload all, show protocols all, show route ... all; "restart all"
+	"configure": true, "check": true, "confirm": true, "soft": true, "timeout": true, "undo": true,
+	"reload": true, "restart": true,
+	"show": true, "protocols": true, "route": true, "status": true,
+}
+
+// ControlKeywordError is the form error for a name that is one of
+// controlKeywords, or "" for any other name. Exported so the web layer can
+// recognise this one refusal: an object that already carries such a name (saved
+// before the check existed) may keep it on edit, where every other name error
+// still stands.
+func ControlKeywordError(name string) string {
+	if !controlKeywords[name] {
+		return ""
+	}
+	return name + " is a BIRD keyword: BIRD's command line uses that word, and a config that defines it breaks the commands birdy sends. Choose another name."
+}
+
 // derivedSymbols are the names birdy builds from another object's name —
 // policy functions (and an import policy's RFC 7999 blackhole form), per-peer
 // filters, originator protocols. Such a name is taken only while the object it
